@@ -1,0 +1,26 @@
+# Android 与构建产物
+.gradle/
+.idea/
+build/
+**/build/
+local.properties
+*.apk
+*.aab
+
+# 本机密钥与部署配置
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+!*.env.example
+
+# 含真实个人信息的源数据与 Office 临时文件
+*.xlsx
+*.xls
+.~*
+
+# 本机运行数据与日志
+*.log
+data/
+backups/

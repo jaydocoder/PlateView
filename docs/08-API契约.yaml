@@ -1,0 +1,65 @@
+openapi: 3.1.0
+info:
+  title: PlateView API
+  version: 1.0.0
+  description: PlateView 车辆核验系统接口契约。
+paths:
+  /auth/login:
+    post:
+      summary: 账号密码登录
+      requestBody:
+        required: true
+      responses:
+        '200':
+          description: 登录成功并返回会话令牌与角色。
+        '401':
+          description: 账号或密码错误。
+  /vehicles/search:
+    get:
+      summary: 按车牌片段模糊查询候选
+      parameters:
+        - name: keyword
+          in: query
+          required: true
+          description: 至少两个有效字符的车牌片段。
+      responses:
+        '200':
+          description: 最多二十条候选，按精确、前缀、包含匹配排序。
+        '400':
+          description: 输入不足两个有效字符。
+        '401':
+          description: 未登录或会话失效。
+  /vehicles/{vehicleId}:
+    get:
+      summary: 获取车辆完整核验详情
+      responses:
+        '200':
+          description: 车辆类别、人员或单位、通行信息及其余字段。
+        '404':
+          description: 车辆不存在或已停用。
+    put:
+      summary: 管理员更新车辆
+      responses:
+        '200':
+          description: 更新成功。
+        '403':
+          description: 非管理员。
+        '409':
+          description: 版本冲突。
+  /admin/users:
+    get:
+      summary: 管理员查询用户
+    post:
+      summary: 管理员创建用户
+  /admin/imports/preview:
+    post:
+      summary: 管理员上传 Excel 并生成导入预览
+  /admin/imports/{batchId}/publish:
+    post:
+      summary: 管理员确认发布导入批次
+  /admin/imports/{batchId}/rollback:
+    post:
+      summary: 管理员回滚已发布导入批次
+  /health:
+    get:
+      summary: 服务健康检查
