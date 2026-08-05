@@ -1,0 +1,2 @@
+# 上游 Skills 引用资料保持来源原貌，不将其既有尾随空白视为项目变更错误。
+.agents/skills/** whitespace=-trailing-space
