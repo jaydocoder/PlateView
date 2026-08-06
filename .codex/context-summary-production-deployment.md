@@ -61,6 +61,7 @@
 - 服务器无交换空间，镜像构建可能因内存不足失败。
 - 服务器 GitHub HTTPS 出站请求当前超时，部署不能依赖服务器自行拉取代码。
 - 服务器 Docker Registry 出站请求当前超时，部署不能依赖服务器自行拉取 Caddy 镜像。
+- Cloudflare 橙云代理当前对源站返回 `525`，但服务器公网地址直连的 Let’s Encrypt TLS 和健康端点已通过。正式真机网络验收依赖 Cloudflare 回源规则生效或 API 记录切换为灰云。
 - 生产密钥和真实 Excel 必须避免进入 Git、命令输出和操作记录。
 
 ### 8. 充分性检查
@@ -69,3 +70,10 @@
 - [x] 理解技术选型：现有 Docker Compose、Ktor、PostgreSQL 与构建期 API 地址注入是唯一正式路径。
 - [x] 已识别主要风险：Cloudflare 回源、阿里云安全组、内存、GitHub 拉取和生产密钥。
 - [x] 知道验证方式：Compose 配置检查、镜像构建、SSH 容器检查、HTTPS 健康检查和 Android 构建。
+
+### 9. Android 正式地址构建阻断
+
+- **反馈循环**：`android/gradlew :app:assembleDebug -PplateviewApiBaseUrl=https://api.plateview.top/` 能稳定复现 Compose 编译失败。
+- **相似实现**：`AdminWorkspaceScreen.kt` 的 `EditorTextField` 已使用 Material 3 的 `focusedContainerColor`、`unfocusedContainerColor`；`PlateViewTheme.kt`、`SearchScreen.kt` 和 `VehicleDetailScreen.kt` 已导入 `androidx.compose.ui.unit.sp`。
+- **根因**：美化提交遗漏 `sp` 导入，并将已不适用的 `containerColor` 传给当前 Material 3 的 `TextFieldDefaults.colors`。
+- **修复与验证**：补齐单位导入，并拆分为当前 API 的 focused、unfocused、disabled 容器颜色；相同的正式地址 APK 构建命令是本缺陷的回归验证。

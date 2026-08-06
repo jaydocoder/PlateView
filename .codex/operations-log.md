@@ -457,3 +457,29 @@
 - 使用 `timeout 20` 重试服务器 GitHub HTTPS 拉取，退出状态为 `124`，确认服务端当前无法使用 GitHub 拉取。后续改用本机 Git 归档经 SSH 上传，不重复执行相同失败命令。
 - 服务器访问 Docker Registry 的 HTTPS 连接超时，不能在服务器拉取 Caddy 镜像。后续改用本机镜像归档经 SSH 上传并由服务器 `docker load`，不在服务器重复外网拉取。
 - Caddyfile 校验通过，但存在格式提示。首次使用 `caddy fmt --config` 失败，原因是 `fmt` 子命令不接受 `--config`；后续改用其文件路径参数，不重复相同命令。
+
+## 阶段 10 验证异常 - Android 正式地址构建
+
+时间：2026-08-06
+
+- 使用 `plateviewApiBaseUrl=https://api.plateview.top/` 构建调试 APK 时，当前 `main` 的界面提交发生 Kotlin 编译失败。
+- 错误最小化为：管理员页面遗漏 `sp` 导入；登录与查询页面调用当前 Material 3 `TextFieldDefaults.colors` 时使用了不支持的 `containerColor` 参数。
+- 对比同项目管理员表单、主题和车辆详情的现有正确模式后，补齐导入并改为 focused、unfocused、disabled 容器颜色。未修改 ViewModel、网络、导航或服务器代码。
+
+## 阶段 10 验证异常 - 管理员密码同步
+
+时间：2026-08-06
+
+- 用户在服务器 `.env` 中将初始管理员密码改为 `123456`。运行中 API 容器仍保留启动时的旧值，且初始管理员只在首次创建时写入 BCrypt 哈希，因此单独修改 `.env` 不会更新数据库。
+- 已仅更新 `admin` 账号的 BCrypt 密码哈希并按当前 `.env` 重建 API 容器。首次登录验证在容器启动不足一秒时运行，服务未就绪而失败；后续将先轮询健康端点再重试，不重复密码更新。
+
+## 阶段 10 部署执行与验证
+
+时间：2026-08-06
+
+- 本机构建 `plateview-api:377dbf7`，并将应用、PostgreSQL 与 Caddy 镜像通过 SSH 归档加载到服务器；服务器不依赖 GitHub 或 Docker Registry 出站网络。
+- 已创建 `/opt/plateview`、2GiB `/swapfile`、权限 `600` 的生产 `.env`、内部 Docker 网络与持久卷。仅 Caddy 映射主机 80/443，PostgreSQL 与 API 不监听主机端口；既有 `mysql80` 容器未修改。
+- Ktor API 连接 PostgreSQL、Flyway 迁移、Caddy HTTPS 回源、初始管理员登录和服务器公网地址直连 HTTPS 健康检查均已通过。Caddy 的证书由 Let’s Encrypt 签发，主题为 `api.plateview.top`。
+- Cloudflare 橙云代理请求返回 `525`，源站直连 TLS 正常；该问题不属于 Android、API、证书或阿里云端口配置。待 Cloudflare 回源规则生效或切换 API 记录为灰云后重测公网与真机登录。
+- 正式 API 地址 APK 构建暴露 Compose 兼容性问题。已修复缺失 `sp` 导入、过时 `containerColor` 参数和已弃用的右箭头图标；强制 Android JVM 测试与 Lint 均通过，APK 已安装并成功启动真机登录页。
+- 用户已将 `api.plateview.top` 切换为仅 DNS。权威 DNS 与服务器解析已是 `47.96.190.39`；本机的部分公共递归 DNS 仍缓存旧 Cloudflare 地址，公网访问暂未切换，等待 TTL 传播后验证。

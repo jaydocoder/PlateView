@@ -70,6 +70,11 @@
 - 服务器当前没有交换空间。Ktor 镜像会在 Docker 构建阶段运行 Gradle，1.6GiB 内存下应先配置交换空间或采用预构建镜像。
 - 服务器执行 `git ls-remote https://github.com/jaydocoder/PlateView.git main` 在 20 秒后超时，不能作为当前部署路径。使用本机已验证 SSH 通道上传经 Git 校验的源码归档作为部署回退；服务器 GitHub 出站网络问题单独记录处理。
 - 服务器对 `registry-1.docker.io:443` 的连接超时，不能在服务器直接拉取 Caddy 等镜像。生产部署改为在本机获取镜像、以 Docker 归档经 SSH 上传并在服务器执行 `docker load`。
+- 生产服务已部署至 `/opt/plateview`：PostgreSQL、Ktor API 和 Caddy 运行正常，Flyway 已应用 4 条迁移；Caddy 为 `api.plateview.top` 签发 Let’s Encrypt 证书，服务器公网地址直连 HTTPS 健康检查通过。
+- Cloudflare 橙云代理持续返回 `525`，但阿里云源站的公网 TLS、证书主题和健康端点均通过，问题仅在 Cloudflare 到源站的握手链路。为使 Android 立即可用，可将 API 记录切换为“仅 DNS”（灰云）；域名与 HTTPS 证书保持不变。
+- 用户已将 API 记录切换为灰云。权威 DNS 与服务器递归 DNS 已返回 `47.96.190.39`；部分公共递归 DNS 仍缓存旧的 Cloudflare 边缘地址，真机联网验证需等待该缓存自然刷新。
+- 用户将服务器 `.env` 的管理员密码改为 `123456` 后，已同步更新仅 `admin` 账号的 BCrypt 密码哈希并重建 API。初始管理员登录在源站 Caddy 路径验证通过。
+- 当前 `main` 的界面美化提交包含一个缺失 `sp` 导入和三处过时 Material 3 `TextFieldDefaults.colors` 参数；已修复并通过 Android JVM 测试、Lint 与正式 HTTPS 地址调试 APK 构建。
 
 ## 阶段 3：数据库基础发现
 

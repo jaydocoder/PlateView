@@ -125,6 +125,10 @@
 - 服务器尚无交换空间；GitHub HTTPS 拉取结果待专项验证。
 - 服务器 GitHub HTTPS 拉取在 20 秒后超时。部署将从本机已推送且待确认的 `main` 提交创建 Git 归档，并通过 SSH 上传，避免部署过程依赖不可用的服务器 GitHub 出站网络。
 - 服务器 Docker Registry 访问也超时。Caddy 镜像将由本机拉取、校验并经 SSH 上传，服务器不尝试自行拉取外部镜像。
+- 已创建 `/opt/plateview`、2GiB 交换空间、受限权限的生产 `.env`，并通过 SSH 上传 Git 提交 `377dbf7` 的源码归档和三份运行镜像。服务启动后 PostgreSQL 健康、Ktor API 与 Caddy 均运行，Flyway 4 条迁移完成。
+- Caddy 为 `api.plateview.top` 获得 Let’s Encrypt 证书；服务器公网地址直连 HTTPS 健康检查返回成功。Cloudflare 代理仍返回 `525`，待用户切换 API 记录为灰云或完成 Cloudflare 源站 TLS 规则排查后再进行公网与真机登录验收。
+- 已修复当前 UI 提交的 Compose 编译兼容性：补齐 `sp` 导入、将过时 `containerColor` 替换为 Material 3 容器颜色参数，并改用 `AutoMirrored.KeyboardArrowRight`。正式 API 地址 APK、13 个 JVM 测试与 Lint 已通过；真机 APK 已安装并可启动。
+- 用户已把 API 记录切换为灰云。权威 DNS 和服务器均已解析至 `47.96.190.39`，但部分公共递归 DNS 仍缓存旧 Cloudflare 边缘地址；等待传播后重测公网和真机登录。
 
 ## 验证记录
 
