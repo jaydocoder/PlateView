@@ -1,0 +1,11 @@
+package com.jaydocoder.plateview.core.navigation
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+data object SearchDestination
+
+@Serializable
+data class VehicleDetailDestination(
+    val vehicleId: Long,
+)

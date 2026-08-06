@@ -5,7 +5,10 @@
     <application
         android:name=".PlateViewApplication"
         android:allowBackup="false"
-        android:label="PlateView"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_plateview_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_plateview_launcher"
         android:theme="@style/Theme.PlateView">
         <activity
             android:name=".MainActivity"

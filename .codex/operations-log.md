@@ -231,3 +231,61 @@
 
 - 使用既有 PostgreSQL 车辆表、`pg_trgm` 索引、Ktor 路由、JWT、审计写入器和 Kotlinx Serialization。
 - 未引入独立搜索服务、第二套车牌格式化实现或新的身份和日志机制。
+
+## 编码前检查 - Android 普通用户查询流程
+
+时间：2026-08-06 13:46:59 CST
+
+- 已查阅上下文摘要文件：`.codex/context-summary-android-search-flow.md`。
+- 将使用以下可复用组件：`AuthRepository` 的 DataStore 会话、`LoginViewModel` 的 `StateFlow` 与 Hilt 模式、`PlateViewTheme` 的 Material 3 色彩、服务端车辆查询 DTO 契约。
+- 将遵循命名约定：Kotlin 标识符使用英文驼峰和 PascalCase；包按 `feature`、`domain`、`data` 分层；中文仅用于用户文案、注释、测试与文档。
+- 将遵循代码风格：Compose 只渲染状态和上送事件，网络、Room、语音与车牌规则位于数据或领域层；导航只传递车辆 ID。
+- 确认不重复造轮子：已检查 `feature/auth`、`server/vehicle`、现有 Android 测试与 ADR；复用 Retrofit、Hilt、Room、Navigation Compose 和系统 `SpeechRecognizer`，不新增自定义网络、持久化或语音框架。
+- 工具可用性：当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander`、Context7 或 GitHub MCP；已以结构化上下文分析、项目文件、已安装 Skills、Gradle 与真机验证替代。
+
+## 编码前检查 - Android 普通用户查询流程收尾
+
+时间：2026-08-06
+
+- 已复查上下文摘要 `.codex/context-summary-android-search-flow.md`，并检查 `SearchScreen.kt`、`SearchViewModel.kt`、`VehicleDetailScreen.kt`、`AuthenticatedNavigation.kt`、`LoginScreen.kt`、`AuthRuntime.kt` 和现有单元、仪器化测试。
+- 将复用既有 `StateFlow`、Hilt、Retrofit、Room、Navigation Compose、Material 3、`PlateViewDimensions` 与字符串资源组织方式；不引入新的 UI、网络、存储或语音框架。
+- 命名与文件组织保持为 `feature/search`、`feature/vehicle`、`data`、`domain` 和 `core/navigation`；可见文字、注释、日志和文档使用简体中文。
+- 已确认不重复实现车牌匹配、网络、语音或持久化：查询匹配由第六阶段服务端完成，Android 仅负责归一化输入、防抖、状态展示和历史摘要。
+- 静态检查仅发现最小 SDK 已覆盖的启动图标资源限定目录。初次迁移为无版本限定目录后，`processDebugResources` 报告找不到自适应图标资源；这是 AAPT 对自适应图标资源目录的链接约束。已恢复 `mipmap-anydpi-v26`。由于 Lint 将位置报为目录，文件级路径忽略不能生效；模块 `app/lint.xml` 改为关闭这一条检查。当前应用没有 `SDK_INT` 条件分支，未来引入时必须人工复核最低版本约束。此前根目录配置没有被应用模块加载，已在 `app/build.gradle.kts` 显式指定，后续必须以 Lint、单元测试和 APK 构建验证。
+
+## 编码中检查 - Room 搜索历史仪器化测试
+
+时间：2026-08-06
+
+- 新增 `SearchHistoryDaoTest` 仅复用既有 `SearchHistoryDatabase`、`SearchHistoryDao` 和 `SearchHistoryEntity`，以 AndroidX Room 内存数据库验证真实 SQLite 行为。
+- 测试名称使用中文，夹具仅包含账号、虚构车牌、类别和车辆标识，不含任何真实人员或车辆数据。
+- 测试覆盖账号隔离、倒序读取、删除和清空；不重复实现仓库逻辑或持久化替身。
+
+## 编码后声明 - Android 普通用户查询流程
+
+时间：2026-08-06
+
+### 1. 复用的既有组件
+
+- `AuthSessionProvider`：向查询和详情仓库提供当前会话，并在 HTTP 401 时统一清除本机登录态。
+- `PlateViewTheme`、`PlateViewDimensions` 与字符串资源：统一 Material 3 视觉、间距和用户可见文案。
+- 第六阶段车辆查询接口和 `PlateQueryNormalizer`：前端不实现第二套模糊匹配或排序逻辑，只做输入规范化与防抖。
+- Hilt、Retrofit、Room、Navigation Compose 与 Android `SpeechRecognizer`：采用成熟平台能力，不引入自定义网络、数据库或语音框架。
+
+### 2. 遵循的项目约定
+
+- 命名：领域模型、UiState、ViewModel 和路由对象使用清晰的 PascalCase；操作方法使用英文动词短语。
+- 文件组织：查询与详情按 `feature` 分组，仓库实现放在 `data`，接口和模型放在 `domain`，导航放在 `core/navigation`。
+- 界面：Compose 仅渲染不可变状态、上送事件并使用生命周期感知收集；网络、Room 和语音调用不进入可组合函数。
+
+### 3. 对比的既有实现
+
+- `feature/auth/LoginViewModel.kt`：沿用 Hilt、私有 `MutableStateFlow` 和公开 `StateFlow` 模式；查询额外使用输入流防抖和一次性导航事件。
+- `feature/auth/LoginScreen.kt`：沿用 `collectAsStateWithLifecycle()` 与 Material 3 控件；查询页增加状态条、候选和历史列表。
+- `server/.../vehicle/VehicleQueryFeature.kt`：沿用服务端的候选与详情职责边界；Android 候选不增加任何身份摘要，详情按 ID 重新加载。
+
+### 4. 未重复造轮子的证明
+
+- 车牌模糊匹配、候选排序与 20 条限制均由第六阶段 PostgreSQL 服务实现；Android 仅调用既有 HTTP 契约。
+- 搜索历史复用 AndroidX Room，语音复用系统 `SpeechRecognizer`，权限复用 Activity Result API，未维护自定义数据库、语音引擎或权限封装。
+- 已运行 8 个 JVM 测试、Lint、调试 APK 与仪器化测试 APK 构建；真机执行受锁屏安装确认阻塞，已记录为阶段 9 动作。

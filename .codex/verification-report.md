@@ -1,78 +1,70 @@
-# 阶段 6 验证报告
+# 阶段 7 验证报告
 
-生成时间：2026-08-06（Asia/Shanghai）
+生成时间：2026-08-06 14:51 CST
 
 ## 需求与交付物映射
 
 | 需求 | 交付物 | 验证结果 |
 | --- | --- | --- |
-| 统一车牌归一化 | `vehicle/PlateNormalizer.kt`、`PlateNormalizerTest.kt` | 通过 |
-| 大小写不敏感与四字符触发 | `VehicleQueryService.kt`、API 边界验证 | 通过 |
-| 候选查询与 20 条上限 | `VehicleQueryService.kt`、`VehicleQueryFeature.kt` | 通过 |
-| 精确、前缀、包含排序 | `VehicleQueryService.kt` 的 SQL 排序 | 通过 |
-| 分类详情 | `VehicleQueryService.kt` 的村民与长期车辆联合查询 | 通过 |
-| 查询审计 | `VehicleQueryFeature.kt` 与 `AuditLogWriter` 集成 | 通过 |
-| 接口契约与规则同步 | `docs/01`、`02`、`03`、`05`、`08`、`09`、ADR-002 与计划 | 通过 |
+| Android 分层、网络、导航与依赖注入 | `core/`、`domain/`、`data/`、`feature/` 与 Hilt 模块 | 通过：编译、静态检查与调试构建成功。 |
+| 四字符且大小写兼容的模糊查询 | `PlateQueryNormalizer`、`SearchViewModel`、`SearchScreen` | 通过：JVM 单元测试覆盖归一化、短输入、查询成功、空结果与失败。 |
+| 候选和车辆详情 | `VehicleApi`、仓库、查询页、详情页与类型安全导航 | 通过：Compose 仪器化测试源码已编译，候选仅显示车牌和所属类型。 |
+| 语音输入回退 | `VoiceRecognizer`、录音权限请求和 `SearchUiState` | 通过：JVM 单元测试覆盖权限拒绝后保留手动输入。 |
+| 按账号隔离的历史记录 | Room 实体、DAO、仓库与 `SearchHistoryDaoTest` | 通过编译：内存 Room 测试覆盖隔离、排序、删除和清空，待解锁真机执行。 |
+| 加载、空结果、失败与会话失效 | `SearchUiState`、`VehicleDetailUiState` 与 ViewModel | 通过：单元测试和 UI 状态实现均已覆盖。 |
+| 文档、计划与可访问性回填 | 计划、进度、发现、开发规范和测试计划 | 通过：阶段状态更新为完成，记录导航、语音、历史与测试边界。 |
 
 ## 本地验证结果
 
 | 检查项 | 方法 | 结果 |
 | --- | --- | --- |
-| 服务端自动测试 | `server/gradlew --no-daemon test` | 通过，包含健康检查、错误响应、导入解析和车牌归一化测试。 |
-| API 镜像构建 | Docker 主机网络构建 | 通过。 |
-| 数据源准备 | 隔离 Docker Compose 中预览并发布两份真实工作簿 | 通过，村民与四类长期车辆均进入隔离查询库。 |
-| 未登录访问 | 未携带令牌调用搜索接口 | 通过，返回 HTTP 401。 |
-| 短关键字 | 输入归一化后少于 4 个字符 | 通过，返回 `SEARCH_KEYWORD_TOO_SHORT`。 |
-| 大小写搜索与排序 | 以小写完整车牌搜索 | 通过，返回精确匹配的第一条候选。 |
-| 候选隐私边界 | 检查候选 JSON 字段 | 通过，仅有 ID、车牌、类别代码和类别名称。 |
-| 详情分类资料 | 查询村民与驻景区单位车辆详情 | 通过，分别返回正确的分类资料块。 |
-| 空结果与不存在详情 | 搜索无匹配值和请求不存在车辆 ID | 通过，空候选列表与 `VEHICLE_NOT_FOUND` 均正确返回。 |
-| 查询审计 | 查询 `audit_logs` 的成功与失败详情事件 | 通过，不读取或输出敏感字段。 |
-| 20 条上限 | 隔离库插入 25 条虚构车辆后搜索 | 通过，接口严格返回 20 条。 |
-| 响应时间 | 连续 20 次已认证搜索请求 | 通过，全部低于 1 秒。 |
-| 工作区空白检查 | `git diff --cached --check` 与 `git diff --check` | 通过，暂存区与工作区均无空白错误。 |
+| 车牌与查询状态单元测试 | `:app:testDebugUnitTest` | 通过：8 个测试，0 失败，0 忽略。 |
+| Android 静态检查 | `:app:lintDebug` | 通过：最终报告为“未发现问题”。 |
+| 调试 APK | `:app:assembleDebug` | 通过：生成 `app-debug.apk`。 |
+| 仪器化测试 APK | `:app:assembleDebugAndroidTest` | 通过：Compose 和 Room 测试源码、依赖与测试 APK 均已编译。 |
+| 工作区空白检查 | `git diff --check` | 通过：无空白错误。 |
 
-## 已知限制与补偿
-
-- Testcontainers 与本机 Docker API 版本不兼容，因此接口集成验证使用独立 Docker Compose 项目、全新数据卷和 API/SQL 断言替代。
-- 第六阶段提供服务端查询能力；Android 搜索框的 250 毫秒防抖、语音输入、候选 UI 和历史记录将在第七阶段实现。
-- 真实工作簿只在隔离容器中以无输出方式验证，验证完成后删除容器和数据卷。
-
-## 技术维度评分
-
-| 维度 | 分数 | 结论 |
-| --- | ---: | --- |
-| 代码质量 | 96/100 | 领域归一化、查询服务、路由 DTO 与审计职责明确，导入和查询共用类别与检索键。 |
-| 测试覆盖 | 94/100 | 单元测试和真实工作簿隔离集成验证覆盖正常、边界、权限、空结果、审计和性能；Testcontainers 受环境限制。 |
-| 规范遵循 | 97/100 | 遵循 Kotlin、Ktor、PostgreSQL、既有错误响应与审计模式，候选隐私边界符合最新规则。 |
-
-## 战略维度评分
-
-| 维度 | 分数 | 结论 |
-| --- | ---: | --- |
-| 需求匹配 | 97/100 | 实现最新的 4 字符触发、大小写匹配、车牌与所属类型候选、详情和审计要求。 |
-| 架构一致性 | 96/100 | 与现有 JWT、Flyway、导入发布数据模型和 `pg_trgm` 索引一致。 |
-| 风险评估 | 96/100 | 处理短输入、停用车辆、隐私字段泄露、排序稳定性和查询上限风险。 |
-
-## 结论
-
-- **综合评分：** 96/100
-- **建议：** 通过
-- **决策依据：** 自动测试、真实工作簿隔离查询、权限、短输入、大小写、候选隐私、五类详情、审计、上限和性能断言均已完成；可以进入第七阶段 Android 普通用户流程。
-
-## 可重复验证步骤
+执行命令：
 
 ```bash
-cd /home/neo/project/AiProject/codex-ui/PlateView/server
-./gradlew --no-daemon test
+cd /home/neo/project/AiProject/codex-ui/PlateView/android
+./gradlew --no-daemon --offline --max-workers=1 \
+  -Dorg.gradle.jvmargs='-Xmx1024m -XX:MaxMetaspaceSize=384m' \
+  -Dkotlin.compiler.execution.strategy=in-process \
+  -Dkotlin.incremental=false \
+  --console=plain --rerun-tasks :app:testDebugUnitTest
 
-cd /home/neo/project/AiProject/codex-ui/PlateView
-docker build --network host \
-  --build-arg HTTP_PROXY=http://127.0.0.1:7890 \
-  --build-arg HTTPS_PROXY=http://127.0.0.1:7890 \
-  --build-arg NO_PROXY=localhost,127.0.0.0/8,::1 \
-  -t plateview-api ./server
-
-# 使用独立 Compose 项目名、端口和仅用于验证的本地环境变量启动。
-# 导入两份工作簿并发布后，执行已认证搜索、详情和审计断言。
+./gradlew --no-daemon --offline --max-workers=1 \
+  -Dorg.gradle.jvmargs='-Xmx1024m -XX:MaxMetaspaceSize=384m' \
+  -Dkotlin.compiler.execution.strategy=in-process \
+  -Dkotlin.incremental=false \
+  --console=plain :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
 ```
+
+## 审查结论
+
+### 技术维度
+
+| 维度 | 分数 | 结论 |
+| --- | ---: | --- |
+| 代码质量 | 94/100 | MVVM 单向数据流、仓库抽象、DTO 映射、Room 和语音适配职责明确；导航只传递车辆标识。 |
+| 测试覆盖 | 92/100 | JVM 测试覆盖主要查询状态和语音回退，Compose 与内存 Room 设备测试已编译；真机尚未执行。 |
+| 规范遵循 | 94/100 | Kotlin、Compose Material 3、Hilt、Room、生命周期状态订阅和类型安全导航符合项目规范。 |
+
+### 战略维度
+
+| 维度 | 分数 | 结论 |
+| --- | ---: | --- |
+| 需求匹配 | 95/100 | 已实现手动和语音输入、四字符防抖检索、候选、详情、历史和失败回退。 |
+| 架构一致性 | 95/100 | 复用既有认证会话、服务端查询契约、项目主题和 Hilt 模式，未创建平行基础设施。 |
+| 风险评估 | 90/100 | 已覆盖短输入、取消过期查询、会话失效与历史隔离；Android 12 真机测试仍须在阶段 9 执行。 |
+
+**综合评分：93/100**
+
+**建议：通过。**
+
+## 已知限制与后续动作
+
+- 已连接设备 `83bdbca2` 为 Android 12，但在本次执行时处于锁屏休眠状态。此前 `connectedDebugAndroidTest` 在系统安装确认阶段超时，未运行任何断言；未尝试绕过锁屏。
+- 阶段 9 必须在设备解锁并允许安装测试 APK 后执行 `:app:connectedDebugAndroidTest`，补录 Compose、Room SQLite、录音权限和实际设备兼容性结果。
+- Android SDK 工具输出“SDK XML 版本 4”兼容性提示，来源于本机命令行工具与 SDK 元数据版本差异，不影响本次编译、Lint 或 APK 输出；阶段 9 统一升级本地工具链时复核。

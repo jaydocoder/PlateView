@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- 现有工程依赖版本统一由版本目录维护，在独立依赖升级阶段集中评估兼容性。 -->
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <issue id="GradleDependency" severity="ignore" />
+    <!-- 当前 Hilt 处理器沿用工程既有 KAPT 配置，待全工程统一迁移时再切换至 KSP。 -->
+    <issue id="KaptUsageInsteadOfKsp" severity="ignore" />
+    <!-- 自适应图标的 XML 格式由 API 26 引入，AAPT 需要保留该资源限定目录。 -->
+    <issue id="ObsoleteSdkInt" severity="ignore" />
+</lint>

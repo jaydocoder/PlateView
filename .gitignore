@@ -3,6 +3,7 @@
 .idea/
 build/
 **/build/
+java_pid*.hprof
 local.properties
 *.apk
 *.aab
