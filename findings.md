@@ -51,6 +51,13 @@
 - Ktor 当前以 `Application.module()` 为唯一入口，测试采用 `testApplication`；数据库迁移必须集成至启动流程并使用独立 PostgreSQL 环境验证。
 - 本机 Docker `29.7.1` 的最低 API 版本为 `1.40`，与 Testcontainers `1.20.6` 的默认 API `1.32` 不兼容；当前迁移集成验证采用 Docker Compose 全新卷和 SQL 断言，后续升级测试容器方案前须先验证 Docker API 兼容性。
 
+## 阶段 4：登录与权限发现
+
+- `users` 已具备用户名、密码哈希、角色、状态和版本字段，但没有刷新会话表；会话撤销需通过新的 Flyway V2 迁移实现。
+- API 契约当前仅描述登录成功和失败，未定义刷新、退出、令牌字段或错误码；客户端实现前必须补齐契约。
+- Android 已有 Compose、Material 3 和 Hilt，但无导航、网络客户端、DataStore、ViewModel 或特性目录；登录功能将按 Android 开发规范从 `feature/auth` 开始建立。
+- 审计写入器已可复用，认证审计只记录账号标识、结果、请求标识和操作类型，禁止记录密码、访问令牌或刷新令牌。
+
 ## 界面方向
 
 - 场景：景区入口或巡查人员快速核验车辆归属与通行身份。

@@ -6,6 +6,7 @@ import io.ktor.util.AttributeKey
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import org.flywaydb.core.Flyway
+import javax.sql.DataSource
 
 internal data class DatabaseSettings(
     val jdbcUrl: String,
@@ -60,6 +61,7 @@ internal fun migrateDatabase(databaseSettings: DatabaseSettings) {
 }
 
 internal val AuditLogWriterKey = AttributeKey<AuditLogWriter>("auditLogWriter")
+internal val DataSourceKey = AttributeKey<DataSource>("dataSource")
 
 internal fun Application.configureDatabaseRuntime() {
     val databaseSettings = databaseSettingsOrNull() ?: return
@@ -76,6 +78,7 @@ internal fun Application.configureDatabaseRuntime() {
         },
     )
 
+    attributes.put(DataSourceKey, dataSource)
     attributes.put(AuditLogWriterKey, JdbcAuditLogWriter(dataSource))
     monitor.subscribe(ApplicationStopped) {
         dataSource.close()

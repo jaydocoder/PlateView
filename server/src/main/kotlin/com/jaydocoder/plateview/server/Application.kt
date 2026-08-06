@@ -2,6 +2,7 @@ package com.jaydocoder.plateview.server
 
 import com.jaydocoder.plateview.server.infrastructure.database.configureDatabaseMigration
 import com.jaydocoder.plateview.server.infrastructure.database.configureDatabaseRuntime
+import com.jaydocoder.plateview.server.auth.configureAuthenticationFeature
 import com.jaydocoder.plateview.server.infrastructure.web.configureErrorHandling
 import com.jaydocoder.plateview.server.infrastructure.web.configureRequestContext
 import io.ktor.http.HttpStatusCode
@@ -23,6 +24,8 @@ fun Application.module() {
     install(ContentNegotiation) {
         json()
     }
+
+    configureAuthenticationFeature()
 
     routing {
         get("/health") {

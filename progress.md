@@ -46,6 +46,12 @@
 - 本地验证：Ktor 自动测试通过；新 Docker Compose 卷中成功执行 1 条迁移，确认 7 张核心表和车牌三元索引存在；API 重启后健康检查继续通过。
 - 测试限制：Testcontainers `1.20.6` 与本机 Docker `29.7.1` 的 API 最低版本不兼容，已移除该不兼容测试；以 Docker Compose 全新卷加 SQL 断言替代迁移集成验证。
 
+### 阶段 4：登录、角色与权限
+
+- **状态：** 进行中
+- 已新增认证配置入口、JWT 与初始管理员环境变量模板，以及 `refresh_sessions` 的 Flyway V2 迁移。
+- 已验证：引入 Ktor JWT、BCrypt 依赖后，服务端 `test` 构建通过。
+
 ## 验证记录
 
 | 检查 | 结果 |

@@ -113,3 +113,13 @@
 
 - 项目内不存在迁移框架、连接池、审计写入器或统一错误模型；使用 Flyway、Hikari、PostgreSQL `pg_trgm` 与 Ktor 官方插件组合实现。
 - 未引入自定义数据库迁移执行器、车牌模糊算法或容器编排替代方案。
+
+## 编码前检查 - 登录、角色与权限
+
+时间：2026-08-06
+
+- 已查阅上下文摘要文件：`.codex/context-summary-authentication-and-authorization.md`。
+- 将复用 Ktor 模块入口、Flyway 数据库运行时、审计写入器、请求标识和统一错误响应。
+- Android 将遵循 `feature/auth`、MVVM、StateFlow、Hilt 和 Compose 单向数据流约定。
+- 确认不重复造轮子：项目中没有既有认证、令牌、导航、网络客户端或登录态存储实现；使用 Ktor Authentication/JWT、BCrypt、DataStore 和 Navigation Compose。
+- 当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander` 或 Context7；已以项目文档、现有实现、专项 Android Skills 和本地验证替代，并记录限制。
