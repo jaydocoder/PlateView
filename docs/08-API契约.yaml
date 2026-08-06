@@ -45,12 +45,16 @@ paths:
         - name: keyword
           in: query
           required: true
-          description: 至少两个有效字符的车牌片段。
+          description: 归一化后至少四个有效车牌字符的片段，字母大小写不敏感。
       responses:
         '200':
-          description: 最多二十条候选，按精确、前缀、包含匹配排序。
+          description: 最多二十条候选，仅返回车牌与车辆所属类型，按精确、前缀、包含匹配排序。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleSearchResponse'
         '400':
-          description: 输入不足两个有效字符。
+          $ref: '#/components/responses/SearchKeywordTooShort'
         '401':
           $ref: '#/components/responses/Unauthenticated'
   /vehicles/{vehicleId}:
@@ -61,8 +65,12 @@ paths:
       responses:
         '200':
           description: 车辆类别、人员或单位、通行信息及其余字段。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleDetail'
         '404':
-          description: 车辆不存在或已停用。
+          $ref: '#/components/responses/VehicleNotFound'
     put:
       summary: 管理员更新车辆
       parameters:
@@ -255,6 +263,10 @@ components:
       description: 导入批次不存在。
     ImportConflict:
       description: 批次状态不允许操作、行处置无效、正式数据已变更或回滚安全校验失败。
+    SearchKeywordTooShort:
+      description: 车牌片段归一化后不足四个有效字符。
+    VehicleNotFound:
+      description: 车辆不存在或已停用。
   schemas:
     LoginRequest:
       type: object
@@ -365,3 +377,79 @@ components:
               resolution:
                 type: string
                 enum: [PUBLISH, SKIP]
+    VehicleSearchResponse:
+      type: object
+      required: [candidates]
+      properties:
+        candidates:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/VehicleSearchCandidate'
+    VehicleSearchCandidate:
+      type: object
+      required: [id, plateNumber, category, categoryLabel]
+      properties:
+        id:
+          type: integer
+          format: int64
+        plateNumber:
+          type: string
+        category:
+          type: string
+          enum: [RESIDENT, SCENIC_UNIT, SCENIC_ENTERPRISE, CADRE, KANAS_TOURISM_DEVELOPMENT]
+        categoryLabel:
+          type: string
+          description: 车辆所属类型的中文名称。
+    VehicleDetail:
+      type: object
+      required: [id, plateNumber, normalizedPlate, category, categoryLabel, attributes]
+      properties:
+        id:
+          type: integer
+          format: int64
+        plateNumber:
+          type: string
+        normalizedPlate:
+          type: string
+        category:
+          type: string
+          enum: [RESIDENT, SCENIC_UNIT, SCENIC_ENTERPRISE, CADRE, KANAS_TOURISM_DEVELOPMENT]
+        categoryLabel:
+          type: string
+        vehicleType:
+          type: [string, 'null']
+        attributes:
+          type: object
+          additionalProperties: true
+        residentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/ResidentVehicleProfile'
+            - type: 'null'
+        longTermProfile:
+          oneOf:
+            - $ref: '#/components/schemas/LongTermVehicleProfile'
+            - type: 'null'
+    ResidentVehicleProfile:
+      type: object
+      required: [ownerName, identityCardNumber]
+      properties:
+        ownerName:
+          type: string
+        identityCardNumber:
+          type: string
+        contactPhone:
+          type: [string, 'null']
+        remarks:
+          type: [string, 'null']
+    LongTermVehicleProfile:
+      type: object
+      properties:
+        organizationName:
+          type: [string, 'null']
+        passHolder:
+          type: [string, 'null']
+        passageDetails:
+          type: [string, 'null']
+        remarks:
+          type: [string, 'null']

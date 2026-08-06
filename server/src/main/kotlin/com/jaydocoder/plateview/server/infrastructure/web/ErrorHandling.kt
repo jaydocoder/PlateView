@@ -3,6 +3,8 @@ package com.jaydocoder.plateview.server.infrastructure.web
 import com.jaydocoder.plateview.server.imports.ImportBatchNotFoundException
 import com.jaydocoder.plateview.server.imports.ImportFileInvalidException
 import com.jaydocoder.plateview.server.imports.ImportWorkflowConflictException
+import com.jaydocoder.plateview.server.vehicle.VehicleNotFoundException
+import com.jaydocoder.plateview.server.vehicle.VehicleSearchKeywordException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.application
@@ -15,6 +17,28 @@ import kotlinx.serialization.Serializable
 
 internal fun Application.configureErrorHandling() {
     install(StatusPages) {
+        exception<VehicleSearchKeywordException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.BadRequest,
+                message = ApiErrorResponse(
+                    code = "SEARCH_KEYWORD_TOO_SHORT",
+                    message = cause.message ?: "请至少输入4个有效车牌字符",
+                    requestId = call.callId,
+                ),
+            )
+        }
+
+        exception<VehicleNotFoundException> { call, _ ->
+            call.respond(
+                status = HttpStatusCode.NotFound,
+                message = ApiErrorResponse(
+                    code = "VEHICLE_NOT_FOUND",
+                    message = "车辆不存在或已停用",
+                    requestId = call.callId,
+                ),
+            )
+        }
+
         exception<ImportFileInvalidException> { call, cause ->
             call.respond(
                 status = HttpStatusCode.BadRequest,

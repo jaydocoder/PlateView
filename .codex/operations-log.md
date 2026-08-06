@@ -185,3 +185,49 @@
 
 - 使用 Apache POI 解析工作簿、Ktor Multipart 和认证插件处理上传与鉴权、PostgreSQL JSONB 保存原始和解析结果、Flyway 管理结构演进。
 - 未新增自定义表格格式、认证逻辑、事务框架或回滚存储；发布效果快照基于既有 PostgreSQL 表和标准 JSONB 实现。
+
+## 编码前检查 - 车辆查询服务
+
+时间：2026-08-06
+
+- 已查阅上下文摘要文件：`.codex/context-summary-vehicle-query-service.md`。
+- 将使用以下可复用组件：`Application.module()` 的功能装配、`authenticate("access-token")` 的普通用户访问控制、`AuditLogWriter` 的详情查询留痕、`DataSourceKey` 的数据库访问和 `ExcelImportParser.kt` 的车牌归一化规则。
+- 将遵循命名约定：车辆领域代码位于 `server/.../vehicle/`；Kotlin 标识符使用英文驼峰，SQL 使用小写下划线，用户文案、注释、测试和文档使用简体中文。
+- 将遵循代码风格：候选与详情 DTO 分离，所有 SQL 参数化；候选不返回身份证号或联系方式，详情审计仅记录规范化车牌、结果和设备类别。
+- 确认不重复造轮子：检查了认证、导入、审计、错误处理、已有 `pg_trgm` 索引和 `normalizePlate`；使用 Ktor、PostgreSQL 与既有基础设施，不引入第二套搜索引擎或身份系统。
+- 工具可用性：当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander`、Context7 或 GitHub MCP；以项目文档、现有实现、依赖源码检索、Gradle 自动测试和 Docker Compose 本地验证替代。
+
+## 需求变更 - 查询触发阈值与候选字段
+
+时间：2026-08-06
+
+- 用户将原定的至少两个有效字符调整为归一化后至少四个有效车牌字符，并要求字母大小写模糊匹配。
+- 用户确认候选项仅显示车牌和车辆所属类型，不显示姓名或单位摘要。
+- 已同步更新 `task_plan.md`、需求规格、交互规范、数据字典、ADR、测试计划、接口契约、查询实现和测试。
+
+## 编码后声明 - 车辆查询服务
+
+时间：2026-08-06
+
+### 1. 复用的既有组件
+
+- `Application.module()`：按既有顺序注册车辆查询功能。
+- `authenticate("access-token")`：复用 JWT 鉴权，使普通用户和管理员均可查询。
+- `DataSourceKey`、PostgreSQL `pg_trgm` 索引和 `AuditLogWriter`：复用正式车辆数据、包含式检索索引和追加式详情审计。
+
+### 2. 遵循的项目约定
+
+- 车辆领域代码位于 `server/.../vehicle/`，导入模块通过同一 `normalizePlate` 和 `VehicleCategory` 保持分类与检索键一致。
+- 搜索候选和详情 DTO 分离；候选仅含车牌与车辆所属类型，详情审计不含身份证号、联系方式或完整 User-Agent。
+- 统一使用 `ApiErrorResponse` 返回短关键字和车辆不存在的稳定错误码。
+
+### 3. 对比的相似实现
+
+- `AuthFeature.kt`：沿用 Ktor JWT 受保护路由，差异是查询面向所有登录角色而非仅管理员。
+- `ImportPreviewFeature.kt`：沿用应用属性取得数据源和审计写入器，差异是查询为只读并记录详情访问。
+- `ExcelImportParser.kt`：迁移其车牌归一化规则至车辆领域工具，避免导入键与查询键偏离。
+
+### 4. 未重复造轮子的证明
+
+- 使用既有 PostgreSQL 车辆表、`pg_trgm` 索引、Ktor 路由、JWT、审计写入器和 Kotlinx Serialization。
+- 未引入独立搜索服务、第二套车牌格式化实现或新的身份和日志机制。

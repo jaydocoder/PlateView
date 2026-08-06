@@ -2,6 +2,7 @@ package com.jaydocoder.plateview.server.imports
 
 import java.io.ByteArrayInputStream
 import java.util.Locale
+import com.jaydocoder.plateview.server.vehicle.normalizePlate
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -255,9 +256,5 @@ internal class ExcelImportParser {
         val PLATE_PATTERN = Regex("[\\p{IsHan}][A-Z][A-Z0-9]{5,6}")
     }
 }
-
-internal fun normalizePlate(value: String): String = value
-    .uppercase(Locale.ROOT)
-    .replace(Regex("[\\s　·•．.—_\\-]+"), "")
 
 private fun String.canonicalHeader(): String = trim().replace(Regex("[\\s　]+"), "")

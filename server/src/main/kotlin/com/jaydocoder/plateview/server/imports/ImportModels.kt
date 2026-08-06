@@ -1,5 +1,6 @@
 package com.jaydocoder.plateview.server.imports
 
+import com.jaydocoder.plateview.server.vehicle.VehicleCategory
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -10,13 +11,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-internal enum class ImportCategory {
-    RESIDENT,
-    SCENIC_UNIT,
-    SCENIC_ENTERPRISE,
-    CADRE,
-    KANAS_TOURISM_DEVELOPMENT,
-}
+internal typealias ImportCategory = VehicleCategory
 
 internal enum class ImportResultStatus {
     VALID,
