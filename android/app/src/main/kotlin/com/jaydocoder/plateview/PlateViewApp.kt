@@ -16,7 +16,11 @@ fun PlateViewApp() {
     val session = viewModel.session.collectAsStateWithLifecycle().value
     PlateViewTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            if (session == null) LoginScreen() else AuthenticatedNavigation(viewModel::logout)
+            if (session == null) {
+                LoginScreen()
+            } else {
+                AuthenticatedNavigation(role = session.role, onLogout = viewModel::logout)
+            }
         }
     }
 }

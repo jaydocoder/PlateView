@@ -9,3 +9,6 @@ data object SearchDestination
 data class VehicleDetailDestination(
     val vehicleId: Long,
 )
+
+@Serializable
+data object AdminWorkspaceDestination

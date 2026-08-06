@@ -39,6 +39,7 @@ class VehicleQueryScreenTest {
                     onDeleteHistory = {},
                     onClearHistory = {},
                     onRetry = {},
+                    onOpenAdmin = null,
                     onLogout = {},
                 )
             }
@@ -109,6 +110,7 @@ class VehicleQueryScreenTest {
                     onDeleteHistory = {},
                     onClearHistory = { clearCalled = true },
                     onRetry = {},
+                    onOpenAdmin = null,
                     onLogout = {},
                 )
             }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.VerifiedUser
@@ -58,6 +59,7 @@ import java.util.Date
 @Composable
 fun SearchRoute(
     onNavigateToVehicle: (Long) -> Unit,
+    onNavigateToAdmin: (() -> Unit)?,
     onLogout: () -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
@@ -100,6 +102,7 @@ fun SearchRoute(
         onDeleteHistory = viewModel::deleteHistory,
         onClearHistory = viewModel::clearHistory,
         onRetry = viewModel::retrySearch,
+        onOpenAdmin = onNavigateToAdmin,
         onLogout = onLogout,
     )
 }
@@ -115,6 +118,7 @@ fun SearchScreen(
     onDeleteHistory: (Long) -> Unit,
     onClearHistory: () -> Unit,
     onRetry: () -> Unit,
+    onOpenAdmin: (() -> Unit)?,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -135,6 +139,14 @@ fun SearchScreen(
                     }
                 },
                 actions = {
+                    onOpenAdmin?.let { openAdmin ->
+                        IconButton(onClick = openAdmin) {
+                            Icon(
+                                imageVector = Icons.Outlined.AdminPanelSettings,
+                                contentDescription = "打开管理员工作台",
+                            )
+                        }
+                    }
                     IconButton(onClick = onLogout) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Logout,

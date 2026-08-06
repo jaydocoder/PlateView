@@ -3,6 +3,9 @@ package com.jaydocoder.plateview.server.infrastructure.web
 import com.jaydocoder.plateview.server.imports.ImportBatchNotFoundException
 import com.jaydocoder.plateview.server.imports.ImportFileInvalidException
 import com.jaydocoder.plateview.server.imports.ImportWorkflowConflictException
+import com.jaydocoder.plateview.server.admin.AdminConflictException
+import com.jaydocoder.plateview.server.admin.AdminResourceNotFoundException
+import com.jaydocoder.plateview.server.admin.AdminValidationException
 import com.jaydocoder.plateview.server.vehicle.VehicleNotFoundException
 import com.jaydocoder.plateview.server.vehicle.VehicleSearchKeywordException
 import io.ktor.http.HttpStatusCode
@@ -69,6 +72,27 @@ internal fun Application.configureErrorHandling() {
                     message = cause.message ?: "导入批次状态冲突",
                     requestId = call.callId,
                 ),
+            )
+        }
+
+        exception<AdminResourceNotFoundException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.NotFound,
+                message = ApiErrorResponse("ADMIN_RESOURCE_NOT_FOUND", cause.message ?: "管理资源不存在", call.callId),
+            )
+        }
+
+        exception<AdminValidationException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.BadRequest,
+                message = ApiErrorResponse("ADMIN_VALIDATION_FAILED", cause.message ?: "管理请求无效", call.callId),
+            )
+        }
+
+        exception<AdminConflictException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.Conflict,
+                message = ApiErrorResponse("ADMIN_CONFLICT", cause.message ?: "数据已被其他管理员修改", call.callId),
             )
         }
 

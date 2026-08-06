@@ -1,45 +1,31 @@
-# 阶段 7 验证报告
+# 阶段 8 验证报告
 
-生成时间：2026-08-06 14:51 CST
+生成时间：2026-08-06 20:55 CST
 
 ## 需求与交付物映射
 
 | 需求 | 交付物 | 验证结果 |
 | --- | --- | --- |
-| Android 分层、网络、导航与依赖注入 | `core/`、`domain/`、`data/`、`feature/` 与 Hilt 模块 | 通过：编译、静态检查与调试构建成功。 |
-| 四字符且大小写兼容的模糊查询 | `PlateQueryNormalizer`、`SearchViewModel`、`SearchScreen` | 通过：JVM 单元测试覆盖归一化、短输入、查询成功、空结果与失败。 |
-| 候选和车辆详情 | `VehicleApi`、仓库、查询页、详情页与类型安全导航 | 通过：Compose 仪器化测试源码已编译，候选仅显示车牌和所属类型。 |
-| 语音输入回退 | `VoiceRecognizer`、录音权限请求和 `SearchUiState` | 通过：JVM 单元测试覆盖权限拒绝后保留手动输入。 |
-| 按账号隔离的历史记录 | Room 实体、DAO、仓库与 `SearchHistoryDaoTest` | 通过编译：内存 Room 测试覆盖隔离、排序、删除和清空，待解锁真机执行。 |
-| 加载、空结果、失败与会话失效 | `SearchUiState`、`VehicleDetailUiState` 与 ViewModel | 通过：单元测试和 UI 状态实现均已覆盖。 |
-| 文档、计划与可访问性回填 | 计划、进度、发现、开发规范和测试计划 | 通过：阶段状态更新为完成，记录导航、语音、历史与测试边界。 |
+| 管理员工作台 | `feature/admin/AdminWorkspaceScreen.kt`、类型安全导航与查询页入口 | 通过：概览、车辆、账号、导入、审计五个工作区可由管理员会话进入。 |
+| 车辆增删改查 | `AdminManagementService.kt`、`AdminManagementFeature.kt`、`AdminRepository` | 通过：创建、读取、版本化编辑和逻辑停用均已实现。 |
+| 账号与角色维护 | 管理员用户 API、账号编辑表单与 ViewModel | 通过：支持创建、角色调整、启用和停用；保留当前管理员与最后管理员约束。 |
+| 导入任务管理 | 批次列表、系统文件选择器、既有预览/行处置/发布/回滚接口 | 通过：Android 复用完整导入状态机，没有并行导入实现。 |
+| 审计记录查看 | `/admin/audit`、审计列表界面 | 通过：返回操作者、动作、目标、结果和时间，不返回敏感字段。 |
+| 冲突与校验反馈 | `AdminFailure`、服务端状态页、版本请求头和表单校验 | 通过：HTTP 400、403、409、401 分别映射为明确界面状态。 |
+| Git 可追溯性 | `.gitignore`、管理员数据层源码 | 通过：修复递归 `data/` 忽略规则，之前被隐藏的 Android 网络、车辆与 Room 数据层将一并纳入版本控制。 |
 
 ## 本地验证结果
 
 | 检查项 | 方法 | 结果 |
 | --- | --- | --- |
-| 车牌与查询状态单元测试 | `:app:testDebugUnitTest` | 通过：8 个测试，0 失败，0 忽略。 |
+| 服务端自动测试 | `server/gradlew --no-daemon test` | 通过：包含管理员字段与账号校验测试。 |
+| Android JVM 测试 | `:app:testDebugUnitTest` | 通过：12 个测试，0 失败，0 忽略。 |
 | Android 静态检查 | `:app:lintDebug` | 通过：最终报告为“未发现问题”。 |
-| 调试 APK | `:app:assembleDebug` | 通过：生成 `app-debug.apk`。 |
-| 仪器化测试 APK | `:app:assembleDebugAndroidTest` | 通过：Compose 和 Room 测试源码、依赖与测试 APK 均已编译。 |
+| Android 构建 | `:app:assembleDebug :app:assembleDebugAndroidTest` | 通过：调试 APK 和仪器化测试 APK 均已生成。 |
+| API 契约 | PyYAML 解析 `docs/08-API契约.yaml` | 通过。 |
+| 管理 API 端到端 | 隔离 Docker Compose、HTTP 断言 | 通过：管理员登录、车辆创建更新停用、账号创建启停、导入列表、审计记录与普通用户 403。 |
+| 临时环境清理 | `docker compose down --volumes` | 通过：容器、网络和测试数据卷均已移除。 |
 | 工作区空白检查 | `git diff --check` | 通过：无空白错误。 |
-
-执行命令：
-
-```bash
-cd /home/neo/project/AiProject/codex-ui/PlateView/android
-./gradlew --no-daemon --offline --max-workers=1 \
-  -Dorg.gradle.jvmargs='-Xmx1024m -XX:MaxMetaspaceSize=384m' \
-  -Dkotlin.compiler.execution.strategy=in-process \
-  -Dkotlin.incremental=false \
-  --console=plain --rerun-tasks :app:testDebugUnitTest
-
-./gradlew --no-daemon --offline --max-workers=1 \
-  -Dorg.gradle.jvmargs='-Xmx1024m -XX:MaxMetaspaceSize=384m' \
-  -Dkotlin.compiler.execution.strategy=in-process \
-  -Dkotlin.incremental=false \
-  --console=plain :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
-```
 
 ## 审查结论
 
@@ -47,24 +33,24 @@ cd /home/neo/project/AiProject/codex-ui/PlateView/android
 
 | 维度 | 分数 | 结论 |
 | --- | ---: | --- |
-| 代码质量 | 94/100 | MVVM 单向数据流、仓库抽象、DTO 映射、Room 和语音适配职责明确；导航只传递车辆标识。 |
-| 测试覆盖 | 92/100 | JVM 测试覆盖主要查询状态和语音回退，Compose 与内存 Room 设备测试已编译；真机尚未执行。 |
-| 规范遵循 | 94/100 | Kotlin、Compose Material 3、Hilt、Room、生命周期状态订阅和类型安全导航符合项目规范。 |
+| 代码质量 | 94/100 | 复用 JWT、审计、导入、车牌与类型安全导航能力；服务端路由、服务层、DTO 和 Android MVVM 职责清晰。 |
+| 测试覆盖 | 93/100 | 覆盖管理员校验、客户端权限/表单/冲突、Compose 工作台源码编译、Docker HTTP 全流程；真机界面执行留待阶段 9。 |
+| 规范遵循 | 95/100 | Kotlin、Compose Material 3、Hilt、Room、Retrofit、Flyway、参数化 SQL、稳定键和中文文档均符合项目约定。 |
 
 ### 战略维度
 
 | 维度 | 分数 | 结论 |
 | --- | ---: | --- |
-| 需求匹配 | 95/100 | 已实现手动和语音输入、四字符防抖检索、候选、详情、历史和失败回退。 |
-| 架构一致性 | 95/100 | 复用既有认证会话、服务端查询契约、项目主题和 Hilt 模式，未创建平行基础设施。 |
-| 风险评估 | 90/100 | 已覆盖短输入、取消过期查询、会话失效与历史隔离；Android 12 真机测试仍须在阶段 9 执行。 |
+| 需求匹配 | 96/100 | 覆盖管理员工作台、车辆维护、账号角色、导入发布回滚、审计与冲突反馈。 |
+| 架构一致性 | 95/100 | 不复制认证、导入或数据访问基础设施；普通用户入口隐藏与服务端 403 双重符合角色边界。 |
+| 风险评估 | 92/100 | 处理并发版本、最后管理员、逻辑停用、大文件流式上限、导入状态和测试临时环境清理；真机仍待解锁。 |
 
-**综合评分：93/100**
+**综合评分：94/100**
 
 **建议：通过。**
 
 ## 已知限制与后续动作
 
-- 已连接设备 `83bdbca2` 为 Android 12，但在本次执行时处于锁屏休眠状态。此前 `connectedDebugAndroidTest` 在系统安装确认阶段超时，未运行任何断言；未尝试绕过锁屏。
-- 阶段 9 必须在设备解锁并允许安装测试 APK 后执行 `:app:connectedDebugAndroidTest`，补录 Compose、Room SQLite、录音权限和实际设备兼容性结果。
-- Android SDK 工具输出“SDK XML 版本 4”兼容性提示，来源于本机命令行工具与 SDK 元数据版本差异，不影响本次编译、Lint 或 APK 输出；阶段 9 统一升级本地工具链时复核。
+- 当前 Android 12 真机仍处于锁屏状态，`connectedDebugAndroidTest` 的测试 APK 安装确认无法完成。阶段 9 必须在设备解锁后执行完整仪器化测试，覆盖管理员工作台实际渲染、点击、录音权限和系统文件选择器。
+- Android SDK 工具仍会输出 SDK XML 元数据版本提示；本次编译、Lint 和 APK 输出均成功。阶段 9 统一评估本机 SDK 工具链升级。
+- 正式发布签名、真实部署变量、性能剖析、Android 12 至 14 实机兼容性及交付文档属于阶段 9 范围。

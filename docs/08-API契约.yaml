@@ -71,32 +71,146 @@ paths:
                 $ref: '#/components/schemas/VehicleDetail'
         '404':
           $ref: '#/components/responses/VehicleNotFound'
-    put:
-      summary: 管理员更新车辆
+  /admin/vehicles:
+    get:
+      summary: 管理员查询车辆档案
+      parameters:
+        - name: keyword
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageOffset'
+      responses:
+        '200':
+          description: 车辆管理列表，仅返回编辑所需的摘要字段。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVehicleList'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+    post:
+      summary: 管理员创建车辆档案
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminVehicleWriteRequest'
+      responses:
+        '201':
+          description: 车辆已创建。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVehicle'
+        '400':
+          $ref: '#/components/responses/AdminValidationFailed'
+  /admin/vehicles/{vehicleId}:
+    get:
+      summary: 管理员获取车辆编辑资料
       parameters:
         - $ref: '#/components/parameters/VehicleId'
       responses:
         '200':
-          description: 更新成功。
-        '403':
-          $ref: '#/components/responses/AdminRequired'
+          description: 完整车辆编辑资料。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVehicle'
+        '404':
+          $ref: '#/components/responses/AdminResourceNotFound'
+    put:
+      summary: 管理员更新车辆档案
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminVehicleWriteRequest'
+      responses:
+        '200':
+          description: 车辆已更新。
+        '400':
+          $ref: '#/components/responses/AdminValidationFailed'
         '409':
-          description: 版本冲突。
+          $ref: '#/components/responses/AdminConflict'
+    delete:
+      summary: 管理员逻辑停用车辆
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      responses:
+        '200':
+          description: 车辆已停用，不再出现在普通用户查询中。
+        '409':
+          $ref: '#/components/responses/AdminConflict'
   /admin/users:
     get:
       summary: 管理员查询用户
       responses:
         '200':
           description: 用户列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserList'
         '403':
           $ref: '#/components/responses/AdminRequired'
     post:
       summary: 管理员创建用户
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
       responses:
         '201':
           description: 用户已创建。
-        '403':
-          $ref: '#/components/responses/AdminRequired'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/AdminValidationFailed'
+  /admin/users/{userId}:
+    put:
+      summary: 管理员调整账号角色和启停状态
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserUpdateRequest'
+      responses:
+        '200':
+          description: 账号状态已更新。
+        '400':
+          $ref: '#/components/responses/AdminValidationFailed'
+        '409':
+          $ref: '#/components/responses/AdminConflict'
+  /admin/imports:
+    get:
+      summary: 管理员查询导入批次列表
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageOffset'
+      responses:
+        '200':
+          description: 导入批次摘要列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminImportBatchList'
   /admin/imports/preview:
     post:
       summary: 管理员上传 Excel 并创建导入预览
@@ -222,6 +336,21 @@ paths:
           $ref: '#/components/responses/ImportBatchNotFound'
         '409':
           $ref: '#/components/responses/ImportConflict'
+  /admin/audit:
+    get:
+      summary: 管理员查询操作审计
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageOffset'
+      responses:
+        '200':
+          description: 只读审计记录列表，不返回敏感业务字段。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuditList'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
   /health:
     get:
       summary: 服务健康检查
@@ -250,6 +379,37 @@ components:
       schema:
         type: integer
         format: int64
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    IfMatchVersion:
+      name: If-Match-Version
+      in: header
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 100
+    PageOffset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
   responses:
     Unauthenticated:
       description: 未登录或会话已失效。
@@ -267,6 +427,12 @@ components:
       description: 车牌片段归一化后不足四个有效字符。
     VehicleNotFound:
       description: 车辆不存在或已停用。
+    AdminValidationFailed:
+      description: 管理员提交的字段、类别、状态或版本参数无效。
+    AdminResourceNotFound:
+      description: 管理员请求的车辆或账号不存在。
+    AdminConflict:
+      description: 车辆或账号已被其他管理员修改，或账号保留约束不允许本次操作。
   schemas:
     LoginRequest:
       type: object
@@ -277,6 +443,179 @@ components:
         password:
           type: string
           format: password
+    AdminVehicleWriteRequest:
+      type: object
+      required: [plateNumber, category, status, attributes]
+      properties:
+        plateNumber:
+          type: string
+        category:
+          type: string
+          enum: [RESIDENT, SCENIC_UNIT, SCENIC_ENTERPRISE, CADRE, KANAS_TOURISM_DEVELOPMENT]
+        vehicleType:
+          type: [string, 'null']
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE]
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+        residentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/ResidentVehicleProfile'
+            - type: 'null'
+        longTermProfile:
+          oneOf:
+            - $ref: '#/components/schemas/LongTermVehicleProfile'
+            - type: 'null'
+    AdminVehicle:
+      allOf:
+        - $ref: '#/components/schemas/AdminVehicleWriteRequest'
+        - type: object
+          required: [id, normalizedPlate, categoryLabel, version]
+          properties:
+            id:
+              type: integer
+              format: int64
+            normalizedPlate:
+              type: string
+            categoryLabel:
+              type: string
+            version:
+              type: integer
+    AdminVehicleList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, plateNumber, category, categoryLabel, status, version]
+            properties:
+              id:
+                type: integer
+                format: int64
+              plateNumber:
+                type: string
+              category:
+                type: string
+              categoryLabel:
+                type: string
+              status:
+                type: string
+              version:
+                type: integer
+              vehicleType:
+                type: [string, 'null']
+    AdminUserUpdateRequest:
+      type: object
+      required: [role, status]
+      properties:
+        role:
+          type: string
+          enum: [ADMIN, USER]
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+    AdminUserCreateRequest:
+      type: object
+      required: [username, password, role]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 64
+        password:
+          type: string
+          format: password
+          minLength: 6
+          maxLength: 128
+        role:
+          type: string
+          enum: [ADMIN, USER]
+    AdminUser:
+      allOf:
+        - $ref: '#/components/schemas/AdminUserUpdateRequest'
+        - type: object
+          required: [id, username, version]
+          properties:
+            id:
+              type: integer
+              format: int64
+            username:
+              type: string
+            version:
+              type: integer
+            createdAt:
+              type: [string, 'null']
+              format: date-time
+            updatedAt:
+              type: [string, 'null']
+              format: date-time
+    AdminUserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+    AdminImportBatchList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, sourceFileName, status, totalRows, validRows, duplicateRows, errorRows, version]
+            properties:
+              id:
+                type: integer
+                format: int64
+              sourceFileName:
+                type: string
+              status:
+                type: string
+              totalRows:
+                type: integer
+              validRows:
+                type: integer
+              duplicateRows:
+                type: integer
+              errorRows:
+                type: integer
+              version:
+                type: integer
+    AdminAuditList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, actionType, targetType, resultStatus, createdAt]
+            properties:
+              id:
+                type: integer
+                format: int64
+              actorUsername:
+                type: [string, 'null']
+              actionType:
+                type: string
+              targetType:
+                type: string
+              targetId:
+                type: [integer, 'null']
+                format: int64
+              resultStatus:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
     ImportBatch:
       type: object
       required: [id, sourceFileName, status, stats, rows]

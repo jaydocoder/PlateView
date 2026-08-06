@@ -289,3 +289,57 @@
 - 车牌模糊匹配、候选排序与 20 条限制均由第六阶段 PostgreSQL 服务实现；Android 仅调用既有 HTTP 契约。
 - 搜索历史复用 AndroidX Room，语音复用系统 `SpeechRecognizer`，权限复用 Activity Result API，未维护自定义数据库、语音引擎或权限封装。
 - 已运行 8 个 JVM 测试、Lint、调试 APK 与仪器化测试 APK 构建；真机执行受锁屏安装确认阻塞，已记录为阶段 9 动作。
+
+## 编码前检查 - 第八阶段管理员维护
+
+时间：2026-08-06
+
+- 已查阅 `.codex/context-summary-admin-management.md`，并深读 `ImportPreviewFeature.kt`、`ImportWorkflowService.kt`、`VehicleQueryService.kt`、`SearchViewModel.kt`、`AuthenticatedNavigation.kt`、`AuthFeature.kt` 及既有测试。
+- 将复用 JWT 管理员鉴权、审计写入、车牌归一化、五类车辆枚举、导入工作流、Retrofit、Hilt、StateFlow、Material 3 和类型安全导航。
+- 将遵循服务端路由与服务层分离、Android MVVM 单向数据流、版本化 Flyway 迁移、参数化 SQL、稳定列表键和中文用户文案约定。
+- 确认不重复造轮子：Excel 发布与回滚继续委托既有 `ImportWorkflowService`；认证继续委托既有 JWT；Android 不重建网络、权限、数据存储或导航框架。
+- 当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander`、Context7 或 GitHub MCP；以本地结构化分析、项目文档、已安装 Android Skills、Gradle 和 Docker Compose 验证替代。
+
+## 工程规则修正 - Android 管理数据层
+
+时间：2026-08-06
+
+- 根目录 `.gitignore` 的 `data/` 模式会递归忽略 Android 的 `android/app/src/main/.../data/` 源码目录，导致管理员 Retrofit、文件读取和仓库实现无法被版本控制追踪。
+- 已改为 `/data/`，仅忽略项目根目录的本机运行数据目录；Android 和服务端的数据层源码可正常提交。
+- 工作区中 `.env.example` 的初始管理员密码示例修改为用户已指定的 `123456`，该文件不由本次实现覆盖或回退。
+
+## 验证异常 - 管理员 ViewModel 测试编译
+
+时间：2026-08-06
+
+- 首次运行 Android JVM 测试时，新增 `AdminWorkspaceViewModelTest` 未导入既有的 `feature/search/MainDispatcherRule`，导致测试编译失败。
+- 已复用该既有测试规则而非复制实现，补齐导入后重新执行 Android JVM 测试。
+
+## 编码后声明 - 第八阶段管理员维护
+
+时间：2026-08-06
+
+### 1. 复用的既有组件
+
+- `requireAdministrator()` 与 JWT 会话：统一保护所有 `/admin/*` 路由；普通用户访问实测返回 HTTP 403。
+- `AuditLogWriter`：车辆、账号、导入列表、审计列表和既有导入操作均通过同一追加式审计写入器记录。
+- `ImportWorkflowService`：Android 管理端复用预览、行处置、发布和回滚状态机，只新增批次列表 API 与 UI。
+- `VehicleCategory`、`normalizePlate`、Hilt、Retrofit、Material 3 和类型安全导航：维持前后端分类、检索和依赖注入一致。
+
+### 2. 遵循的项目约定
+
+- 服务端将管理路由与 JDBC 服务层分离，所有 SQL 参数绑定，车辆和账号写入以版本号为条件，业务异常通过统一错误响应返回。
+- Android 使用 `AdminWorkspaceViewModel` 的不可变状态流，文件读取封装在注入的适配器内，Composable 只渲染状态、申请系统文件并上送事件。
+- 管理列表使用稳定键；长表单和导入行列表限制最大高度；主要图标具有内容说明，且界面文案与文档均为简体中文。
+
+### 3. 对比的相似实现
+
+- `ImportPreviewFeature.kt`：管理 API 沿用认证、服务调用和审计模式，差异是车辆、账号与审计使用 JSON 维护请求。
+- `VehicleQueryService.kt`：沿用车牌归一化、类别枚举和车辆资料联结，差异是管理查询同时包含停用记录并允许版本化写入。
+- `SearchViewModel.kt`：沿用 Hilt、`StateFlow`、会话过期与失败状态模式，差异是工作台将导入、车辆、账号和审计操作集中在特性级 ViewModel。
+
+### 4. 未重复造轮子的证明
+
+- 未新建认证、导入解析、回滚、审计、网络、数据库、文件选择或导航框架；所有能力复用既有平台或项目组件。
+- 管理车辆的删除采用数据库既有状态字段，导入与审计数据保留可追溯关系。
+- 已修复根目录 `data/` 对 Android 数据层的误忽略，确保第七阶段和第八阶段所需数据源均由 Git 管理。

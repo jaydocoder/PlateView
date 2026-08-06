@@ -23,5 +23,5 @@ keystore.properties
 
 # 本机运行数据与日志
 *.log
-data/
+/data/
 backups/
