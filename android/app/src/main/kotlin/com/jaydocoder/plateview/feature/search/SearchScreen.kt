@@ -3,49 +3,68 @@ package com.jaydocoder.plateview.feature.search
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
-import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.AdminPanelSettings
-import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Mic
-import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -131,10 +150,13 @@ fun SearchScreen(
                         Text(
                             text = stringResource(R.string.search_title),
                             style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = stringResource(R.string.search_subtitle),
                             style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 },
@@ -144,6 +166,7 @@ fun SearchScreen(
                             Icon(
                                 imageVector = Icons.Outlined.AdminPanelSettings,
                                 contentDescription = "打开管理员工作台",
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -151,13 +174,12 @@ fun SearchScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Logout,
                             contentDescription = stringResource(R.string.search_logout),
+                            tint = MaterialTheme.colorScheme.outline
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
         },
@@ -165,6 +187,7 @@ fun SearchScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding),
             contentPadding = PaddingValues(
                 horizontal = PlateViewDimensions.pageHorizontal,
@@ -173,33 +196,11 @@ fun SearchScreen(
             verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
         ) {
             item(key = "search_input") {
-                OutlinedTextField(
-                    value = uiState.query,
-                    onValueChange = onQueryChanged,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("search_input"),
-                    label = { Text(stringResource(R.string.search_input_label)) },
-                    placeholder = { Text(stringResource(R.string.search_input_placeholder)) },
-                    trailingIcon = {
-                        if (uiState.isListening) {
-                            CircularProgressIndicator(
-                                modifier = Modifier
-                                    .padding(PlateViewDimensions.compactSpacing)
-                                    .size(24.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            IconButton(onClick = onVoiceInput) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Mic,
-                                    contentDescription = stringResource(R.string.search_voice_start),
-                                )
-                            }
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                    singleLine = true,
+                SearchBar(
+                    query = uiState.query,
+                    onQueryChanged = onQueryChanged,
+                    onVoiceInput = onVoiceInput,
+                    isListening = uiState.isListening
                 )
             }
 
@@ -208,6 +209,7 @@ fun SearchScreen(
                     StatusStrip(
                         message = stringResource(R.string.search_voice_listening),
                         isError = false,
+                        icon = Icons.Outlined.Mic
                     )
                 }
             }
@@ -257,7 +259,10 @@ fun SearchScreen(
                             modifier = Modifier.weight(1f),
                         )
                         TextButton(onClick = onClearHistory) {
-                            Text(stringResource(R.string.search_history_clear))
+                            Text(
+                                text = stringResource(R.string.search_history_clear),
+                                color = MaterialTheme.colorScheme.outline
+                            )
                         }
                     }
                 }
@@ -278,47 +283,120 @@ fun SearchScreen(
 }
 
 @Composable
+private fun SearchBar(
+    query: String,
+    onQueryChanged: (String) -> Unit,
+    onVoiceInput: () -> Unit,
+    isListening: Boolean
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(4.dp, RoundedCornerShape(PlateViewDimensions.cornerLarge))
+            .testTag("search_input"),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge)
+    ) {
+        TextField(
+            value = query,
+            onValueChange = onQueryChanged,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { 
+                Text(
+                    stringResource(R.string.search_input_placeholder),
+                    color = MaterialTheme.colorScheme.outline
+                ) 
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            trailingIcon = {
+                if (isListening) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .padding(PlateViewDimensions.compactSpacing)
+                            .size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    IconButton(onClick = onVoiceInput) {
+                        Icon(
+                            imageVector = Icons.Outlined.Mic,
+                            contentDescription = stringResource(R.string.search_voice_start),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+            singleLine = true,
+            colors = TextFieldDefaults.colors(
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+                containerColor = Color.Transparent
+            )
+        )
+    }
+}
+
+@Composable
 private fun SearchFeedback(
     resultState: SearchResultState,
     onRetry: () -> Unit,
 ) {
-    when (resultState) {
-        SearchResultState.Idle -> Unit
-        SearchResultState.AwaitingInput -> StatusStrip(
-            message = stringResource(R.string.search_awaiting_input),
-            isError = false,
-        )
-
-        SearchResultState.Loading -> Row(
-            modifier = Modifier.padding(vertical = PlateViewDimensions.compactSpacing),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-            Spacer(modifier = Modifier.width(PlateViewDimensions.compactSpacing))
-            Text(
-                text = stringResource(R.string.search_loading),
-                style = MaterialTheme.typography.bodyMedium,
+    AnimatedVisibility(
+        visible = resultState != SearchResultState.Idle,
+        enter = fadeIn() + slideInVertically()
+    ) {
+        when (resultState) {
+            SearchResultState.Idle -> Unit
+            SearchResultState.AwaitingInput -> StatusStrip(
+                message = stringResource(R.string.search_awaiting_input),
+                isError = false,
             )
-        }
 
-        SearchResultState.Empty -> StatusStrip(
-            message = stringResource(R.string.search_empty),
-            isError = false,
-        )
+            SearchResultState.Loading -> Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = PlateViewDimensions.compactSpacing),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(PlateViewDimensions.compactSpacing))
+                Text(
+                    text = stringResource(R.string.search_loading),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
 
-        is SearchResultState.Error -> Column(
-            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
-        ) {
-            StatusStrip(
-                message = stringResource(resultState.reason.messageResource()),
-                isError = true,
+            SearchResultState.Empty -> StatusStrip(
+                message = stringResource(R.string.search_empty),
+                isError = false,
             )
-            if (resultState.reason == SearchFailure.ServiceUnavailable) {
-                TextButton(
-                    onClick = onRetry,
-                    modifier = Modifier.testTag("search_retry"),
-                ) {
-                    Text(stringResource(R.string.search_retry))
+
+            is SearchResultState.Error -> Column(
+                verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+            ) {
+                StatusStrip(
+                    message = stringResource(resultState.reason.messageResource()),
+                    isError = true,
+                )
+                if (resultState.reason == SearchFailure.ServiceUnavailable) {
+                    TextButton(
+                        onClick = onRetry,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("search_retry"),
+                    ) {
+                        Text(stringResource(R.string.search_retry))
+                    }
                 }
             }
         }
@@ -329,27 +407,36 @@ private fun SearchFeedback(
 private fun StatusStrip(
     message: String,
     isError: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = if (isError) {
-            MaterialTheme.colorScheme.errorContainer
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
         } else {
-            MaterialTheme.colorScheme.secondaryContainer
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
         },
         contentColor = if (isError) {
             MaterialTheme.colorScheme.onErrorContainer
         } else {
             MaterialTheme.colorScheme.onSecondaryContainer
         },
-        shape = MaterialTheme.shapes.small,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
     ) {
-        Text(
-            text = message,
+        Row(
             modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
-            style = MaterialTheme.typography.bodyMedium,
-        )
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (icon != null) {
+                Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 
@@ -360,9 +447,10 @@ private fun SectionTitle(
 ) {
     Text(
         text = text,
-        modifier = modifier,
+        modifier = modifier.padding(vertical = 4.dp),
         style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
+        color = MaterialTheme.colorScheme.onBackground,
+        fontWeight = FontWeight.SemiBold
     )
 }
 
@@ -371,12 +459,17 @@ private fun VehicleCandidateRow(
     candidate: VehicleCandidate,
     onSelected: (VehicleCandidate) -> Unit,
 ) {
-    OutlinedCard(
+    ElevatedCard(
         onClick = { onSelected(candidate) },
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = PlateViewDimensions.candidateMinimumHeight)
             .testTag("candidate_${candidate.id}"),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
@@ -384,40 +477,27 @@ private fun VehicleCandidateRow(
                 .padding(PlateViewDimensions.itemSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text(
-                    text = candidate.plateNumber,
-                    modifier = Modifier.padding(
-                        horizontal = PlateViewDimensions.platePaddingHorizontal,
-                        vertical = PlateViewDimensions.platePaddingVertical,
-                    ),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-            }
+            PlateComponent(number = candidate.plateNumber)
+            
             Spacer(modifier = Modifier.width(PlateViewDimensions.itemSpacing))
+            
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = candidate.categoryLabel,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = stringResource(
-                        R.string.search_candidate_description,
-                        candidate.plateNumber,
-                        candidate.categoryLabel,
-                    ),
+                    text = "核验已就绪",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
+            
             Icon(
-                imageVector = Icons.Outlined.VerifiedUser,
+                imageVector = Icons.Outlined.KeyboardArrowRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
+                tint = MaterialTheme.colorScheme.outline
             )
         }
     }
@@ -429,30 +509,46 @@ private fun SearchHistoryRow(
     onSelected: (SearchHistoryItem) -> Unit,
     onDelete: (Long) -> Unit,
 ) {
-    OutlinedCard(
+    Surface(
         onClick = { onSelected(item) },
         modifier = Modifier.fillMaxWidth(),
+        color = Color.Transparent
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = PlateViewDimensions.itemSpacing),
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = PlateViewDimensions.itemSpacing),
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
             ) {
-                Text(text = item.plateNumber, style = MaterialTheme.typography.titleMedium)
+                Icon(
+                    imageVector = Icons.Outlined.History,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+            ) {
                 Text(
-                    text = stringResource(
-                        R.string.search_history_metadata,
-                        item.categoryLabel,
-                        formatSearchTime(item.searchedAtEpochMillis),
-                    ),
+                    text = item.plateNumber,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "${item.categoryLabel} · ${formatSearchTime(item.searchedAtEpochMillis)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.outline
                 )
             }
             IconButton(onClick = { onDelete(item.id) }) {
@@ -462,8 +558,33 @@ private fun SearchHistoryRow(
                         R.string.search_history_delete,
                         item.plateNumber,
                     ),
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.outline
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PlateComponent(number: String) {
+    Surface(
+        color = Color(0xFF0047BB), // 智感蓝车牌背景
+        contentColor = Color.White,
+        shape = RoundedCornerShape(4.dp),
+        modifier = Modifier
+            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+            .shadow(2.dp, RoundedCornerShape(4.dp))
+    ) {
+        Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Text(
+                text = number,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            )
         }
     }
 }

@@ -1,23 +1,32 @@
 package com.jaydocoder.plateview.feature.vehicle
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,8 +39,12 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
@@ -66,7 +79,7 @@ fun VehicleDetailScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.detail_title)) },
+                title = { Text(stringResource(R.string.detail_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
                         Icon(
@@ -76,43 +89,47 @@ fun VehicleDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
             )
         },
     ) { innerPadding ->
-        when (val content = uiState.content) {
-            VehicleDetailContent.Loading -> LoadingContent(modifier = Modifier.padding(innerPadding))
-            is VehicleDetailContent.Error -> ErrorContent(
-                failure = content.reason,
-                onRetry = onRetry,
-                modifier = Modifier.padding(innerPadding),
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(innerPadding)
+        ) {
+            when (val content = uiState.content) {
+                VehicleDetailContent.Loading -> LoadingContent()
+                is VehicleDetailContent.Error -> ErrorContent(
+                    failure = content.reason,
+                    onRetry = onRetry,
+                )
 
-            is VehicleDetailContent.Data -> VehicleDetailContent(
-                vehicle = content.vehicle,
-                modifier = Modifier.padding(innerPadding),
-            )
+                is VehicleDetailContent.Data -> VehicleDetailContent(
+                    vehicle = content.vehicle,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun LoadingContent(modifier: Modifier = Modifier) {
+private fun LoadingContent() {
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(PlateViewDimensions.pageHorizontal),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator()
-        Spacer(modifier = Modifier.width(PlateViewDimensions.itemSpacing))
+        CircularProgressIndicator(strokeWidth = 3.dp)
+        Spacer(modifier = Modifier.height(PlateViewDimensions.itemSpacing))
         Text(
             text = stringResource(R.string.detail_loading),
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.outline
         )
     }
 }
@@ -121,20 +138,26 @@ private fun LoadingContent(modifier: Modifier = Modifier) {
 private fun ErrorContent(
     failure: VehicleDetailFailure,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(PlateViewDimensions.pageHorizontal),
+        modifier = Modifier.fillMaxSize().padding(PlateViewDimensions.pageHorizontal),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Icon(
+            imageVector = Icons.Outlined.ErrorOutline,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.error
+        )
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = stringResource(failure.messageResource()),
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
         )
         if (failure == VehicleDetailFailure.ServiceUnavailable) {
+            Spacer(modifier = Modifier.height(24.dp))
             TextButton(onClick = onRetry) {
                 Text(stringResource(R.string.detail_retry))
             }
@@ -158,70 +181,100 @@ private fun VehicleDetailContent(
         item(key = "identity") {
             VehicleIdentityBanner(vehicle = vehicle)
         }
-        vehicle.vehicleType?.let { vehicleType ->
-            item(key = "vehicle_type") {
-                DetailInfoRow(
-                    label = stringResource(R.string.detail_vehicle_type),
-                    value = vehicleType,
-                )
-            }
-        }
+        
         vehicle.residentProfile?.let { profile ->
             item(key = "resident_profile") {
                 DetailSection(
                     title = stringResource(R.string.detail_resident_title),
+                    icon = Icons.Outlined.Person,
                     fields = profile.toFields(),
                 )
             }
         }
+        
         vehicle.longTermProfile?.let { profile ->
             item(key = "long_term_profile") {
                 DetailSection(
                     title = stringResource(R.string.detail_long_term_title),
+                    icon = Icons.Outlined.Info,
                     fields = profile.toFields(),
                 )
             }
         }
-        if (vehicle.attributes.isNotEmpty()) {
-            item(key = "attributes_title") {
-                Text(
-                    text = stringResource(R.string.detail_other_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+        
+        if (vehicle.attributes.isNotEmpty() || vehicle.vehicleType != null) {
+            item(key = "vehicle_info") {
+                DetailSection(
+                    title = "车辆信息",
+                    icon = Icons.Outlined.DirectionsCar,
+                    fields = buildList {
+                        vehicle.vehicleType?.let { add(DetailField(stringResource(R.string.detail_vehicle_type), it)) }
+                        addAll(vehicle.attributes.map { DetailField(it.label, it.value) })
+                    }
                 )
             }
-            items(
-                items = vehicle.attributes,
-                key = { attribute -> "${attribute.label}:${attribute.value}" },
-                contentType = { "vehicle_attribute" },
-            ) { attribute ->
-                DetailInfoRow(label = attribute.label, value = attribute.value)
-            }
+        }
+        
+        item {
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
 @Composable
 private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
-    Surface(
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = MaterialTheme.shapes.medium,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.primary
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(PlateViewDimensions.pageHorizontal),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                        )
+                    )
+                )
         ) {
-            Icon(
-                imageVector = Icons.Outlined.VerifiedUser,
-                contentDescription = null,
-                modifier = Modifier.size(32.dp),
-            )
-            Spacer(modifier = Modifier.width(PlateViewDimensions.itemSpacing))
-            Column {
-                Text(text = vehicle.plateNumber, style = MaterialTheme.typography.headlineMedium)
-                Text(text = vehicle.categoryLabel, style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Surface(
+                        color = Color.White.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = vehicle.plateNumber,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = vehicle.categoryLabel,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = Color.White.copy(alpha = 0.3f)
+                )
             }
         }
     }
@@ -230,16 +283,43 @@ private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
 @Composable
 private fun DetailSection(
     title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     fields: List<DetailField>,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        fields.forEach { field ->
-            DetailInfoRow(label = field.label, value = field.value)
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(PlateViewDimensions.itemSpacing)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            fields.forEachIndexed { index, field ->
+                DetailInfoRow(
+                    label = field.label,
+                    value = field.value,
+                    isLast = index == fields.size - 1
+                )
+            }
         }
     }
 }
@@ -248,15 +328,34 @@ private fun DetailSection(
 private fun DetailInfoRow(
     label: String,
     value: String,
+    isLast: Boolean
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.outline,
         )
-        Text(text = value, style = MaterialTheme.typography.bodyLarge)
-        HorizontalDivider(modifier = Modifier.padding(top = PlateViewDimensions.compactSpacing))
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Medium
+        )
+        if (!isLast) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            )
+        }
     }
 }
 
