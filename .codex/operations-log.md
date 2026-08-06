@@ -258,6 +258,89 @@
 时间：2026-08-06
 
 - 新增 `SearchHistoryDaoTest` 仅复用既有 `SearchHistoryDatabase`、`SearchHistoryDao` 和 `SearchHistoryEntity`，以 AndroidX Room 内存数据库验证真实 SQLite 行为。
+
+## 第九阶段验收前检查
+
+时间：2026-08-06 21:10 CST
+
+- 已查阅上下文摘要文件：`.codex/context-summary-phase9-testing-delivery.md`。
+- 将复用：`compose.yaml` 的隔离部署路径，`ApplicationTest`、`ExcelImportParserTest` 的服务端测试模式，`VehicleQueryScreenTest`、`AdminWorkspaceScreenTest`、`SearchHistoryDaoTest` 的 Android 仪器化测试模式，以及已有 Gradle 构建任务。
+- 将遵循：Kotlin、Compose、Ktor 和 Docker Compose 既有结构；文档、日志、测试描述和提交信息使用简体中文；真实 Excel、密钥、令牌、身份证号和联系方式不进入 Git 或验收输出。
+- 确认不重复造轮子：第九阶段只执行并记录既有自动化、端到端、设备和构建能力，不新增并行测试框架、脚本框架或签名方案。
+- 工具替代记录：当前运行环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander`、Context7 或 GitHub MCP；改用项目既有文档、源码、Gradle、Docker Compose、ADB、Git 和已安装 Android Skills，结论均以本地命令输出验证。
+
+## 第九阶段自动化构建验证
+
+时间：2026-08-06 21:22 CST
+
+- 服务端执行 `./gradlew --no-daemon --max-workers=1 --rerun-tasks test`，结果通过，5 个任务实际执行。
+- Android 执行 `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest` 并禁用增量编译，JVM 测试 XML 显示 12 个测试、0 失败、0 错误、0 跳过。
+- Lint 报告为“未发现问题”；调试 APK 与仪器化测试 APK 已重新生成。
+- Android SDK 工具仍输出 SDK XML 元数据版本提示，但不影响编译、测试、Lint 或 APK 生成；该提示作为环境维护项记录，不视为本阶段阻断失败。
+
+## 第九阶段端到端环境准备
+
+时间：2026-08-06 21:25 CST
+
+- 已核查 `compose.yaml`、认证、导入、车辆查询和管理员路由；迁移在 API 启动时由 Flyway 自动执行。
+- 已确认 Docker 29.7.1、Docker Compose 5.4.0、`curl`、`jq` 可用。
+- 端到端验收将采用独立 Compose 项目名、数据库名、端口、测试凭据与临时卷；不使用默认 `plateview` 卷，不读取或打印真实 Excel 单元格内容。
+
+## 第九阶段端到端命令调整
+
+时间：2026-08-06 21:31 CST
+
+- 首次端到端验收命令在执行前被终端安全策略拒绝，原因是命令包含递归删除临时目录的清理语句；未启动任何 HTTP 验收动作，也未修改项目或数据库数据。
+- 补救：改为将 HTTP 响应仅保留在当前进程内存中，直接用 `jq` 断言并只输出状态、计数、类别和耗时；不写临时响应文件，也不使用受限清理命令。
+
+## 第九阶段隔离 Docker Compose 验收
+
+时间：2026-08-06 21:38 CST
+
+- 使用独立项目 `plateview_phase9_20260806`、独立数据库、端口和卷启动 API 与 PostgreSQL；Flyway 应用 4 条迁移，确认 9 张业务表存在。
+- 两份真实 Excel 均只以 multipart 上传方式传入隔离容器，输出仅包含通过状态、类别、计数和耗时；未记录车牌、姓名、身份证号、联系方式、密码或令牌。
+- 村民工作簿完成预览、待确认行处置、发布、大小写模糊查询、候选最小字段、详情、短关键字拒绝、30 次已认证搜索性能和回滚；P95 为 0.005884 秒。
+- 长期工作簿确认识别驻景区单位、驻景区企业、干部和喀纳斯旅游发展股份有限公司四类，完成预览、待确认行处置、发布、长期详情和回滚。
+- 管理员完成车辆创建、版本化更新与逻辑停用；普通用户登录成功但访问 `/admin/vehicles` 返回 403；账号创建后可由管理员停用，停用后登录返回 401；关键导入、详情、管理和拒绝事件均可在审计列表追溯。
+- 第一次账号停用验收错误使用 `INACTIVE`，服务端按 API 契约返回 `400/账号状态无效`。核查 `AdminUserStatus`、Android `USER_STATUSES` 和 OpenAPI 后确认正确值为 `DISABLED`；无需修改产品代码，按正确状态重跑通过。
+- 最终 SQL 断言：活动车辆为 0，已回滚导入批次为 2。
+
+## 第九阶段真机与签名验证异常
+
+时间：2026-08-06 21:43 CST
+
+- 设备 `83bdbca2` 可由 ADB 识别，为 Android 12（API 31），且已安装应用与测试包；当前 `mDreamingLockscreen=true`，通知栏为焦点。
+- 直接启动已安装测试包的 Compose 仪器化测试时，首个断言报告“未找到 Compose 层级”，原因是锁屏阻止测试活动创建界面。该结果不能计为测试通过。
+- 指定 Room 测试类时，已安装测试包报类不存在，说明其不是本轮构建；必须在解锁后重新安装 `app-debug.apk` 与 `app-debug-androidTest.apk` 再运行完整 `connectedDebugAndroidTest`。
+- `:app:assembleRelease` 已成功生成 `app-release-unsigned.apk`，但 `apksigner verify` 返回“未验证，缺少 META-INF/MANIFEST.MF”。当前不存在发布密钥、签名属性或 Gradle 发布签名配置，因此不得将该 APK 视为正式交付物。
+
+## 第九阶段隔离环境清理
+
+时间：2026-08-06 21:47 CST
+
+- 已执行项目名限定的 `docker compose -p plateview_phase9_20260806 down --volumes --remove-orphans`。
+- 已确认移除本轮 API 容器、PostgreSQL 容器、专用网络和专用数据库卷，避免真实工作簿导入原始记录残留在临时环境中。
+
+## 编码前检查 - 语音识别成功结果测试
+
+时间：2026-08-06 22:45 CST
+
+- 已查阅 `.codex/context-summary-phase9-testing-delivery.md`，并分析 `VoiceRecognizer.kt`、`SearchViewModel.kt`、`SearchViewModelTest.kt` 与 `SearchScreen.kt`。
+- 将复用 `VoiceRecognizer` 接口、既有 `FakeVoiceRecognizer`、`MainDispatcherRule`、`FakeVehicleRepository` 和协程虚拟时间推进方式。
+- 将遵循现有 ViewModel 测试模式：使用中文测试名称、注入替身、断言不可变 UI 状态和仓库接收的归一化关键字。
+- 确认不重复造轮子：不创建第二套语音识别器、不修改 Android 平台适配器，仅补全既有替身的结果回调与成功路径断言。
+- 工具替代记录：当前环境未提供 Context7；以项目内 Android 官方测试依赖、已有接口和真机运行结果作为验证依据。
+
+## 第九阶段真机验收与编码后声明
+
+时间：2026-08-06 22:50 CST
+
+- Android 12 真机重新安装调试应用和测试包后，`connectedDebugAndroidTest` 运行 8 个 Compose 与 Room 测试，全部通过。
+- 使用隔离 API、虚构车辆和 ADB 反向端口映射完成管理员登录、四字符查询、详情、历史恢复、系统返回、管理员工作台、普通用户入口隐藏以及断网恢复。
+- 真机冷启动三次中位数为 945 毫秒，运行期 PSS 为 141429 KB。
+- 设备策略拒绝 `pm clear`，测试改用正常退出登录和重新安装；仪器化任务结束会卸载目标 APK，已在设备解锁后重新安装。系统安装确认、横屏坐标、错误键码和 API 重启瞬时连接重置均已定位并以正确操作重试通过。
+- 真机录音权限和语音入口通过；为覆盖未采集现场语音的成功回调，复用既有 `VoiceRecognizer` 与 `FakeVoiceRecognizer`，新增“语音识别结果回填搜索框并触发归一化查询”单元测试。Android JVM 测试共 13 个通过。
+- 调试交付使用 Android 自动调试签名，用户确认不要求本轮发布签名；`app-release-unsigned.apk` 继续仅作为构建验证产物，不分发。
 - 测试名称使用中文，夹具仅包含账号、虚构车牌、类别和车辆标识，不含任何真实人员或车辆数据。
 - 测试覆盖账号隔离、倒序读取、删除和清空；不重复实现仓库逻辑或持久化替身。
 
@@ -343,3 +426,14 @@
 - 未新建认证、导入解析、回滚、审计、网络、数据库、文件选择或导航框架；所有能力复用既有平台或项目组件。
 - 管理车辆的删除采用数据库既有状态字段，导入与审计数据保留可追溯关系。
 - 已修复根目录 `data/` 对 Android 数据层的误忽略，确保第七阶段和第八阶段所需数据源均由 Git 管理。
+
+## 第九阶段最终复核 - ColorOS 仪器化安装
+
+时间：2026-08-06 23:07 CST
+
+- 用户确认 Android 12 真机已解锁。再次执行 `:app:connectedDebugAndroidTest` 时，ColorOS 对 `com.jaydocoder.plateview.test` 显示“电脑端未知来源”的安装确认页；Gradle 未等待该交互完成即启动运行器，返回“找不到 instrumentation target package”，本次失败不计为产品测试失败。
+- 已检查两个 APK：均以同一 Android 调试证书签名，证书 SHA-256 摘要一致。调试 APK 不需要发布签名。
+- 完成系统页面的“继续安装”和“完成”后，测试包路径存在而目标包路径缺失；使用 `adb install -r -t app-debug.apk` 安装目标调试 APK，返回 `Success`。
+- 确认 `com.jaydocoder.plateview` 与 `com.jaydocoder.plateview.test` 均存在后，执行 `adb shell am instrument -w -r com.jaydocoder.plateview.test/androidx.test.runner.AndroidJUnitRunner`，8 个 Compose 与 Room 测试全部通过，运行器退出码为 0。
+- 重新强制执行服务端 `test`，13 个测试通过；重新强制执行 Android `:app:testDebugUnitTest :app:lintDebug`，13 个 JVM 测试通过，Lint 报告为“无错误或警告”。SDK XML 元数据提示与 KAPT 处理器选项提示不影响验证结果。
+- 本轮独立 Docker Compose 项目已清理。默认 `plateview` 容器、卷和网络创建于本轮验收之前，且不能证明为临时数据，保持停止状态，不执行破坏性删除。

@@ -108,14 +108,33 @@ class SearchViewModelTest {
         assertEquals(VoiceInputFailure.PermissionDenied, viewModel.uiState.value.voiceFailure)
     }
 
+    @Test
+    fun `语音识别结果回填搜索框并触发归一化查询`() = runTest {
+        val vehicleRepository = FakeVehicleRepository()
+        val voiceRecognizer = FakeVoiceRecognizer()
+        val viewModel = createViewModel(
+            vehicleRepository = vehicleRepository,
+            voiceRecognizer = voiceRecognizer,
+        )
+
+        viewModel.startVoiceInput()
+        voiceRecognizer.emitResult(" 新a-123 ")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertEquals(" 新a-123 ", viewModel.uiState.value.query)
+        assertEquals(listOf("新A123"), vehicleRepository.searchKeywords)
+    }
+
     private fun createViewModel(
         vehicleRepository: FakeVehicleRepository = FakeVehicleRepository(),
         historyRepository: FakeSearchHistoryRepository = FakeSearchHistoryRepository(),
+        voiceRecognizer: VoiceRecognizer = FakeVoiceRecognizer(),
     ): SearchViewModel = SearchViewModel(
         vehicleRepository = vehicleRepository,
         historyRepository = historyRepository,
         sessionProvider = FakeAuthSessionProvider(),
-        voiceRecognizer = FakeVoiceRecognizer(),
+        voiceRecognizer = voiceRecognizer,
     )
 }
 
@@ -166,10 +185,20 @@ private class FakeAuthSessionProvider : AuthSessionProvider {
 }
 
 private class FakeVoiceRecognizer : VoiceRecognizer {
+    private var onResult: ((String) -> Unit)? = null
+    private var onFailure: ((VoiceInputFailure) -> Unit)? = null
+
     override fun start(
         onResult: (String) -> Unit,
         onFailure: (VoiceInputFailure) -> Unit,
-    ) = Unit
+    ) {
+        this.onResult = onResult
+        this.onFailure = onFailure
+    }
 
     override fun release() = Unit
+
+    fun emitResult(value: String) {
+        requireNotNull(onResult).invoke(value)
+    }
 }
