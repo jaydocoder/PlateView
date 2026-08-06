@@ -24,6 +24,19 @@
 - 提交记录：根提交 `cc5b5ea` 已创建，包含编码前文档、项目 Skills 和规划文件。
 - 过程异常：初始仓库不存在 `HEAD`，取消暂存命令未生效，导致 Skills 与文档一并进入根提交；保留该提交，不重写历史，并通过 `.gitattributes` 忽略上游 Skills 的既有尾随空白检查。
 
+### 阶段 3：工程与后端基础
+
+- **状态：** 进行中
+- 已创建：独立 Android 与 Ktor Gradle 工程、PostgreSQL 初始化、Docker Compose、环境变量示例和启动测试。
+- 已安装：Android API 36 平台，并生成两个 Gradle Wrapper。
+- 验证异常：从项目根目录调用子工程 Wrapper 会将根目录误判为 Gradle 构建根；本地命令统一使用 `server/gradlew -p server` 与 `android/gradlew -p android`。
+
+### 开发计划固化
+
+- **状态：** 已完成
+- 已将后续开发路线写入 `task_plan.md`，细化为工程基础、权限、Excel 导入、查询服务、普通用户流程、管理员流程和交付九个阶段。
+- 每个阶段均明确范围、验收标准、文档回填要求和预期 Git 提交，后续实现以该文件为唯一执行路线来源。
+
 ## 验证记录
 
 | 检查 | 结果 |
