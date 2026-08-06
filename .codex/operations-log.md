@@ -437,3 +437,23 @@
 - 确认 `com.jaydocoder.plateview` 与 `com.jaydocoder.plateview.test` 均存在后，执行 `adb shell am instrument -w -r com.jaydocoder.plateview.test/androidx.test.runner.AndroidJUnitRunner`，8 个 Compose 与 Room 测试全部通过，运行器退出码为 0。
 - 重新强制执行服务端 `test`，13 个测试通过；重新强制执行 Android `:app:testDebugUnitTest :app:lintDebug`，13 个 JVM 测试通过，Lint 报告为“无错误或警告”。SDK XML 元数据提示与 KAPT 处理器选项提示不影响验证结果。
 - 本轮独立 Docker Compose 项目已清理。默认 `plateview` 容器、卷和网络创建于本轮验收之前，且不能证明为临时数据，保持停止状态，不执行破坏性删除。
+
+## 阶段 10 编码前检查 - 生产服务器部署
+
+时间：2026-08-06
+
+- 已查阅 `task_plan.md`、`progress.md`、`findings.md`、`docs/12-部署运行手册.md`、`compose.yaml`、`.env.example`、`server/Dockerfile`、Android Gradle 配置与网络模块。
+- 将复用 Docker Compose、PostgreSQL、Flyway、Ktor 容器、构建期 `plateviewApiBaseUrl` 以及已有部署手册；不引入第二套应用服务器、数据库或 Android 网络客户端。
+- 将遵循：生产密钥仅存在于服务器未提交 `.env`，生产数据库和 API 不对公网映射，外部访问统一通过 HTTPS 反向代理；现有 `mysql80` 容器不修改。
+- 工具替代记录：当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander`、Context7 与 GitHub MCP；以项目文件、Git、SSH、Docker、DNS、HTTPS 和 Android 本地构建验证替代。
+
+## 阶段 10 预检发现
+
+时间：2026-08-06
+
+- 域名经 Cloudflare 解析，HTTP 健康检查当前返回 `521`，HTTPS 握手失败。服务器未监听 80/443，未安装 Caddy 或 Nginx，因此该结果与尚未部署的预期一致。
+- 服务器未配置交换空间，构建 Ktor Docker 镜像前需补足内存缓冲。
+- `git ls-remote` 的服务器探测未返回 `main` 分支，未将其视为可用部署路径；后续将使用带超时的单项命令确认网络与 GitHub 访问能力。
+- 使用 `timeout 20` 重试服务器 GitHub HTTPS 拉取，退出状态为 `124`，确认服务端当前无法使用 GitHub 拉取。后续改用本机 Git 归档经 SSH 上传，不重复执行相同失败命令。
+- 服务器访问 Docker Registry 的 HTTPS 连接超时，不能在服务器拉取 Caddy 镜像。后续改用本机镜像归档经 SSH 上传并由服务器 `docker load`，不在服务器重复外网拉取。
+- Caddyfile 校验通过，但存在格式提示。首次使用 `caddy fmt --config` 失败，原因是 `fmt` 子命令不接受 `--config`；后续改用其文件路径参数，不重复相同命令。

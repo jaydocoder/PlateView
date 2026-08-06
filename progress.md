@@ -115,6 +115,17 @@
 - 第九阶段以“调试交付”完成：所有计划内自动化、隔离端到端、Android 12 真机、性能、恢复、文档和回滚验收已通过；正式分发签名作为后续发布前置条件保留。
 - 复核发现 ColorOS 未知来源安装确认会使 Gradle 的自动仪器化安装与运行器启动产生竞态；手动确认后以 ADB 安装目标 APK、确认两个包路径并直接启动 Android 测试运行器，8 个测试全部通过。服务端强制重跑 13 个测试、Android JVM 强制重跑 13 个测试与 Lint 均通过。
 
+### 阶段 10：生产服务器部署与正式网络联调
+
+- **状态：** 进行中
+- 用户已将 `api.plateview.top` 的 A 记录指向阿里云服务器 `47.96.190.39`，截图显示 Cloudflare 代理已开启。
+- 部署目标为 HTTPS API、Ktor、PostgreSQL、Docker Compose 与 Android 正式 API 地址联调；不提交生产 `.env`、密钥、真实 Excel 或数据库数据。
+- 服务器已确认可通过 SSH 访问，Docker 与 Compose 可用；现有 `mysql80` 容器不在 PlateView 部署范围内。
+- DNS 已解析到 Cloudflare 边缘节点，但公网 HTTP 返回 `521`、HTTPS 尚未握手；等待生产反向代理、证书和阿里云回源端口就绪。
+- 服务器尚无交换空间；GitHub HTTPS 拉取结果待专项验证。
+- 服务器 GitHub HTTPS 拉取在 20 秒后超时。部署将从本机已推送且待确认的 `main` 提交创建 Git 归档，并通过 SSH 上传，避免部署过程依赖不可用的服务器 GitHub 出站网络。
+- 服务器 Docker Registry 访问也超时。Caddy 镜像将由本机拉取、校验并经 SSH 上传，服务器不尝试自行拉取外部镜像。
+
 ## 验证记录
 
 | 检查 | 结果 |

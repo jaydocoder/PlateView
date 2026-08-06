@@ -59,6 +59,18 @@
 - ColorOS 对由 ADB 安装的测试 APK 会显示未知来源确认页。若 Gradle 在确认完成前启动运行器，会报告找不到目标包；完成确认后，先以 `adb install -r -t` 安装调试 APK，再以 `adb shell am instrument -w -r` 启动运行器，已在 Android 12 真机稳定通过 8 个测试。
 - 本轮隔离 Docker Compose 环境已按独立项目名清理。默认 `plateview` Docker 卷与网络创建时间早于本轮验收，无法证明是临时数据，因此保持停止状态而不删除，避免误删本地开发数据。
 
+## 阶段 10：生产部署发现
+
+- 域名 `api.plateview.top` 的 A 记录指向 `47.96.190.39`，并由 Cloudflare 代理；部署必须验证 Cloudflare SSL 模式、阿里云安全组和回源端口后才可确认公网 HTTPS。
+- 服务器 SSH 别名为 `aliyun`，以 `root` 用户连接；Docker `29.6.1`、Docker Compose `5.3.0` 可用，系统磁盘可用约 32G，内存总量约 1.6GiB。
+- 当前服务器没有 Caddy 或 Nginx，仅监听 SSH 端口；存在持续运行的 `mysql80` 容器，PlateView 部署必须保持独立目录、项目名、网络和卷。
+- 当前开发 Compose 将 PostgreSQL 和 API 映射到主机端口，只适用于本地开发。生产编排必须使用独立的 Caddy 反向代理，并且不得将 PostgreSQL、Ktor API 直接映射到公网。
+- Android 默认 API 地址是模拟器地址 `http://10.0.2.2:8080/`，正式 APK 必须在构建时设置 `plateviewApiBaseUrl=https://api.plateview.top/`。清单未允许明文 HTTP，因此正式服务必须使用可验证的 HTTPS。
+- 当前公网 DNS 解析为 Cloudflare 边缘地址 `104.21.58.220` 与 `172.67.209.17`。`http://api.plateview.top/health` 返回 Cloudflare `521`，HTTPS 握手失败；这是尚未部署可回源 HTTPS 服务的预期状态，不是应用接口错误。
+- 服务器当前没有交换空间。Ktor 镜像会在 Docker 构建阶段运行 Gradle，1.6GiB 内存下应先配置交换空间或采用预构建镜像。
+- 服务器执行 `git ls-remote https://github.com/jaydocoder/PlateView.git main` 在 20 秒后超时，不能作为当前部署路径。使用本机已验证 SSH 通道上传经 Git 校验的源码归档作为部署回退；服务器 GitHub 出站网络问题单独记录处理。
+- 服务器对 `registry-1.docker.io:443` 的连接超时，不能在服务器直接拉取 Caddy 等镜像。生产部署改为在本机获取镜像、以 Docker 归档经 SSH 上传并在服务器执行 `docker load`。
+
 ## 阶段 3：数据库基础发现
 
 - 本地 PostgreSQL 通过 `compose.yaml` 的 `postgres:17-alpine` 服务运行；默认端口为 `5432`，持久卷为 `postgres-data`。
