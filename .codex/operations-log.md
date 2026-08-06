@@ -57,3 +57,59 @@
 - 已在 `/home/neo/.codex/config.toml` 的 GitHub MCP 配置中加入 HTTP、HTTPS 和本地排除代理变量，并将其传入 Docker 容器。
 - 配置文件检查通过；当前任务绑定的 GitHub MCP 进程未热重载，新变量将在重连 MCP 或重启 Codex 后生效。
 - ShellCrash 持久化规则位于仅管理员可写的 `/etc/ShellCrash`；当前环境未配置图形化 `sudo` 认证程序，未对其进行修改或重启服务。
+
+## 编码前检查 - 数据库迁移与基础数据模型
+
+时间：2026-08-06
+
+- 已查阅上下文摘要文件：`.codex/context-summary-database-foundation.md`。
+- 将使用以下既有组件：`Application.module()` 作为 Ktor 启动入口；`ApplicationTest` 作为接口测试结构；`001_extensions.sql` 安装 `pg_trgm`；`docs/07-数据库设计.md` 约束数据模型。
+- 将遵循命名约定：Kotlin 包名维持现有服务端包名；SQL 使用小写下划线；Flyway 使用版本化迁移命名。
+- 将遵循代码风格：Kotlin 官方格式，说明、测试名称和注释使用简体中文。
+- 确认不重复造轮子：项目目前没有迁移框架、数据库访问层或重复的数据模型；采用成熟的 Flyway 和 PostgreSQL 官方能力。
+- 工具可用性：当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander` 或 Context7；已以项目文件、设计文档、Ktor 既有测试和本地 Docker 验证替代，并记录限制。
+
+## 验证异常 - 数据库迁移容器测试
+
+时间：2026-08-06
+
+- 首次执行 `server/gradlew --no-daemon -p server test` 失败。
+- 原因：Testcontainers `1.20.6` 默认使用 Docker API `1.32`，而本机 Docker `29.7.1` 的最低支持版本为 `1.40`，守护进程返回 HTTP 400。
+- 补救：在项目 `tasks.test` 中为测试进程设置 `DOCKER_API_VERSION=1.40`，不修改 Docker 守护进程、不要求全局环境变量。
+- 结果：该环境变量未被当前 Testcontainers 客户端采用，第二次测试仍以 API `1.32` 连接。
+- 最终方案：移除不兼容的 Testcontainers 测试依赖和测试源码；数据库迁移通过 Docker Compose 的全新数据库卷、API 启动迁移和 SQL 结构断言执行本地集成验证。Ktor 自动健康检查测试继续保留。
+
+## 验证异常 - 服务端基础组件编译
+
+时间：2026-08-06
+
+- 首次编译统一错误响应组件失败，原因是 `StatusPages` 处理器作用域不提供直接的 `log` 属性。
+- 补救：改用 `call.application.log` 获取 Ktor 应用日志器；错误响应契约和日志脱敏边界不变。
+- 第二次编译显示日志器位于 `Application.environment`，最终改用 `call.application.environment.log`。
+
+## 编码后声明 - 数据库迁移与基础数据模型
+
+时间：2026-08-06
+
+### 1. 复用的既有组件
+
+- `Application.module()`：在应用启动时组织迁移、连接池、请求标识和错误响应插件。
+- `ApplicationTest`：沿用 Ktor `testApplication` 结构，新增统一错误响应测试。
+- `001_extensions.sql` 与 `docs/07-数据库设计.md`：沿用 `pg_trgm` 扩展与核心表、索引、乐观锁约束。
+
+### 2. 遵循的项目约定
+
+- Kotlin 代码维持 `com.jaydocoder.plateview.server` 包结构；SQL 表和字段使用小写下划线命名。
+- Flyway 迁移使用 `V1__create_core_schema.sql` 版本化命名，不通过人工或 Docker 初始化脚本演进业务结构。
+- 错误响应和日志使用简体中文；日志不包含数据库密码、身份证号、联系方式、密码或令牌。
+
+### 3. 对比的既有实现
+
+- `Application.kt`：保留其单一模块入口，仅扩展启动期基础设施配置。
+- `ApplicationTest.kt`：沿用现有宿主测试方式，补充请求标识与错误码断言。
+- `001_extensions.sql`：保留 Docker 首次初始化扩展，业务表结构改由 Flyway 管理，避免职责重叠。
+
+### 4. 未重复造轮子的证明
+
+- 项目内不存在迁移框架、连接池、审计写入器或统一错误模型；使用 Flyway、Hikari、PostgreSQL `pg_trgm` 与 Ktor 官方插件组合实现。
+- 未引入自定义数据库迁移执行器、车牌模糊算法或容器编排替代方案。

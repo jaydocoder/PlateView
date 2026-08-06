@@ -1,0 +1,37 @@
+package com.jaydocoder.plateview.server
+
+import com.jaydocoder.plateview.server.infrastructure.database.configureDatabaseMigration
+import com.jaydocoder.plateview.server.infrastructure.database.configureDatabaseRuntime
+import com.jaydocoder.plateview.server.infrastructure.web.configureErrorHandling
+import com.jaydocoder.plateview.server.infrastructure.web.configureRequestContext
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.response.respond
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
+import kotlinx.serialization.Serializable
+
+fun Application.module() {
+    configureDatabaseMigration()
+    configureDatabaseRuntime()
+    configureRequestContext()
+    configureErrorHandling()
+
+    install(ContentNegotiation) {
+        json()
+    }
+
+    routing {
+        get("/health") {
+            call.respond(HttpStatusCode.OK, HealthResponse(status = "ok"))
+        }
+    }
+}
+
+@Serializable
+data class HealthResponse(
+    val status: String,
+)

@@ -1,2 +1,5 @@
 # 上游 Skills 引用资料保持来源原貌，不将其既有尾随空白视为项目变更错误。
 .agents/skills/** whitespace=-trailing-space
+
+# Gradle Windows Wrapper 必须保持 CRLF 行尾，回车不应被视为尾随空白。
+**/gradlew.bat text eol=crlf whitespace=cr-at-eol

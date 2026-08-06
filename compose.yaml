@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-plateview}
+      POSTGRES_USER: ${POSTGRES_USER:-plateview}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在.env中设置数据库密码}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./server
+    environment:
+      PORT: ${API_PORT:-8080}
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-plateview}
+      DATABASE_USERNAME: ${POSTGRES_USER:-plateview}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请在.env中设置数据库密码}
+      DATABASE_MIGRATE_ON_START: "true"
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

@@ -1,56 +1,72 @@
-# Android 开发 Skills 配置验证报告
+# 阶段 3 验证报告
 
-生成时间：2026-08-05 23:13:16（Asia/Shanghai）
+生成时间：2026-08-06（Asia/Shanghai）
 
-## 需求完整性
+## 需求与交付物映射
 
-- **目标**：为当前项目配置本地 Android App 开发 Skills。
-- **范围**：Android Compose、导航、测试、性能、性能分析、Firebase、Compose 增强和项目总 Skill。
-- **交付物**：`.agents/skills/` 下的 13 个 Skill 入口、来源清单、Android 与 Firebase 项目总 Skill。
-- **审查要点**：项目级目录、完整引用资料、Codex 自动发现、无 App 业务代码。
+| 需求 | 交付物 | 验证结果 |
+| --- | --- | --- |
+| 版本化数据库迁移 | Flyway 启动迁移与 `V1__create_core_schema.sql` | 通过 |
+| 核心数据模型 | 用户、车辆、村民资料、长期车辆资料、导入、审计 7 张表 | 通过 |
+| 模糊查询索引基础 | `pg_trgm` 与车辆规范化车牌 GIN 索引 | 通过 |
+| 基础审计能力 | `AuditLogWriter` 与 JDBC 实现 | 通过编译与容器启动验证 |
+| 请求标识和统一错误 | CallId、状态页错误响应、Ktor 测试 | 通过 |
+| Docker 本地部署 | Compose 数据库、API 自动迁移和健康检查 | 通过 |
 
 ## 本地验证结果
 
 | 检查项 | 命令或方法 | 结果 |
 | --- | --- | --- |
-| 入口文件完整性 | 逐项检查 13 个 `.agents/skills/*/SKILL.md` | 通过，13/13 |
-| 上游引用资料 | 统计各上游 Skill 目录文件数 | 通过，11 个上游 Skill 均保留引用资料 |
-| 项目级安装范围 | `npx -y skills ls --json` | 通过，全部显示 `scope: project` |
-| Codex 发现能力 | 检查 `agents` 字段 | 通过，全部包含 `Codex` |
-| 未创建 App 代码 | 检查当前工作目录的新增内容 | 通过，仅新增 `.agents/` 和 `.codex/` 文档与 Skills |
-| Firebase 能力覆盖 | 核对 Firebase 上游清单和项目路由 Skill | 通过，Authentication 与 Firestore 使用产品级上游 Skill；Storage、Cloud Messaging、Analytics 由 `firebase-android` 路由至官方 Android SDK 文档与项目约束 |
+| Ktor 自动测试 | `server/gradlew --no-daemon -p server test` | 通过，健康检查和统一错误响应均通过 |
+| API 镜像构建 | Docker 主机网络加临时代理构建参数 | 通过 |
+| 新数据库迁移 | Docker Compose 全新卷启动 API | 通过，Flyway 成功执行 1 条迁移 |
+| 核心表 | PostgreSQL `information_schema` 查询 | 通过，7 张核心表存在 |
+| 三元索引 | PostgreSQL `pg_indexes` 查询 | 通过，`idx_vehicles_normalized_plate_trgm` 存在 |
+| 请求标识 | 容器 `/health` 响应头 | 通过，返回 `X-Request-ID` |
+| 迁移可重复执行 | 保留数据库卷重启 API 后访问 `/health` | 通过 |
+| 工作区空白检查 | `git diff --check` | 待最终提交前执行 |
+
+## 已知限制与补偿
+
+- Testcontainers `1.20.6` 以 Docker API `1.32` 连接，而本机 Docker `29.7.1` 最低支持 API `1.40`，无法用于当前环境。迁移验证已由 Docker Compose 全新卷、API 自动迁移和 SQL 断言替代。
+- 基础审计写入器已实现并注册至应用属性；登录、查询和管理员操作尚未进入实现阶段，因此审计事件的业务触发验证将在阶段 4、6 和 8 回填。
+- Android 仪器化测试需要 Android 12 至 14 模拟器或真机，当前阶段未修改 Android 客户端；将在阶段 9 执行。
 
 ## 技术维度评分
 
 | 维度 | 分数 | 结论 |
 | --- | ---: | --- |
-| 代码质量 | 100/100 | 未创建业务代码；Skill 入口和引用目录完整。 |
-| 测试覆盖 | 96/100 | 已自动完成文件、目录和发现能力验证；项目尚无 Android 工程，不能运行 Gradle 测试。 |
-| 规范遵循 | 98/100 | 全部 Skills 位于项目 `.agents/skills/`，说明和本地文档使用简体中文。 |
+| 代码质量 | 94/100 | 分层明确，迁移、连接池、审计、请求标识和错误响应职责分离。 |
+| 测试覆盖 | 90/100 | Ktor 自动测试与真实 Compose 迁移验证通过；审计业务触发留待后续业务接口验证。 |
+| 规范遵循 | 95/100 | 遵循现有 Ktor 模块、测试、Docker Compose 和版本化迁移约定。 |
 
 ## 战略维度评分
 
 | 维度 | 分数 | 结论 |
 | --- | ---: | --- |
-| 需求匹配 | 96/100 | 覆盖目标能力；Firebase 上游尚无三项服务的独立 Skill，已明确记录并以项目总 Skill 补齐路由。 |
-| 架构一致性 | 99/100 | 采用 Codex 识别的项目级 Skills 目录，未污染全局环境。 |
-| 风险评估 | 95/100 | GitHub API 的匿名 403 和安装器的 Python、临时目录问题均已通过受控替代方案解决并留痕。 |
+| 需求匹配 | 94/100 | 覆盖阶段 3 的迁移、数据模型、错误响应、请求标识和审计基础能力。 |
+| 架构一致性 | 95/100 | Flyway、PostgreSQL、Hikari 和 Ktor 与已确认 ADR 一致。 |
+| 风险评估 | 91/100 | 已记录 Docker API 与 Testcontainers 兼容性限制，并采用可重复的本地替代验证。 |
 
 ## 结论
 
-- **综合评分**：97/100
-- **建议**：通过
-- **决策依据**：评分不低于 90，所有本地验证均通过，交付内容满足当前项目级 Android 开发能力配置目标。
+- **综合评分：** 93/100
+- **建议：** 通过
+- **决策依据：** 评分不低于 90；Ktor 自动测试、容器化迁移、核心表、索引、请求标识和重复启动验证均已通过；剩余审计触发验证已明确归入后续业务阶段。
 
 ## 可重复验证步骤
 
 ```bash
+cd /home/neo/project/AiProject/codex-ui/PlateView/server
+./gradlew --no-daemon -p . test
+
 cd /home/neo/project/AiProject/codex-ui/PlateView
-npx -y skills ls --json
-rg --files .agents/skills | rg '/SKILL\\.md$'
+docker build --network host \
+  --build-arg HTTP_PROXY=http://127.0.0.1:7890 \
+  --build-arg HTTPS_PROXY=http://127.0.0.1:7890 \
+  --build-arg NO_PROXY=localhost,127.0.0.0/8,::1 \
+  -t plateview-api ./server
+POSTGRES_PASSWORD=local-validation-only docker compose up -d --no-build
+curl --fail http://127.0.0.1:8080/health
+POSTGRES_PASSWORD=local-validation-only docker compose down -v --remove-orphans
 ```
-
-## 已知限制与补偿计划
-
-- 当前目录不是 Android Gradle 工程，无法执行编译、静态检查或 Android 测试。创建 Android 工程后，按 `testing-setup` 运行 Kotlin 单元测试、Compose UI 测试与仪器化测试。
-- Firebase 官方 Agent Skills 当前未发布独立的 Storage、Cloud Messaging、Analytics Skill。实施这些功能时，必须先读取 `firebase-android` 并查询 Firebase 官方 Android SDK 文档。

@@ -43,6 +43,14 @@
 | 系统语音识别 | 降低首版部署与维护成本，保留手动修正。 |
 | Compose 检索终端风格 | 优先现场扫视、单手操作和状态辨识。 |
 
+## 阶段 3：数据库基础发现
+
+- 本地 PostgreSQL 通过 `compose.yaml` 的 `postgres:17-alpine` 服务运行；默认端口为 `5432`，持久卷为 `postgres-data`。
+- `infra/postgres/init/001_extensions.sql` 只安装 `pg_trgm`；后续业务表结构将由 Flyway 版本化迁移负责，避免 Docker 首次初始化脚本无法升级既有数据库的问题。
+- 数据库设计固定 7 张核心表：`users`、`vehicles`、`resident_profiles`、`long_term_profiles`、`import_batches`、`import_rows`、`audit_logs`。
+- Ktor 当前以 `Application.module()` 为唯一入口，测试采用 `testApplication`；数据库迁移必须集成至启动流程并使用独立 PostgreSQL 环境验证。
+- 本机 Docker `29.7.1` 的最低 API 版本为 `1.40`，与 Testcontainers `1.20.6` 的默认 API `1.32` 不兼容；当前迁移集成验证采用 Docker Compose 全新卷和 SQL 断言，后续升级测试容器方案前须先验证 Docker API 兼容性。
+
 ## 界面方向
 
 - 场景：景区入口或巡查人员快速核验车辆归属与通行身份。
