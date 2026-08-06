@@ -31,6 +31,7 @@ dependencies {
     implementation("io.ktor:ktor-server-status-pages-jvm:3.1.3")
     implementation("ch.qos.logback:logback-classic:1.5.18")
     implementation("org.mindrot:jbcrypt:0.4")
+    implementation("org.apache.poi:poi-ooxml:5.3.0")
 
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-server-test-host-jvm:3.1.3")

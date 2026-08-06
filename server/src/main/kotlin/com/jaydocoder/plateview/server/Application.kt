@@ -5,6 +5,7 @@ import com.jaydocoder.plateview.server.infrastructure.database.configureDatabase
 import com.jaydocoder.plateview.server.auth.configureAuthenticationFeature
 import com.jaydocoder.plateview.server.infrastructure.web.configureErrorHandling
 import com.jaydocoder.plateview.server.infrastructure.web.configureRequestContext
+import com.jaydocoder.plateview.server.imports.configureImportPreviewFeature
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -26,6 +27,7 @@ fun Application.module() {
     }
 
     configureAuthenticationFeature()
+    configureImportPreviewFeature()
 
     routing {
         get("/health") {

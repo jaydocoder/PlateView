@@ -123,3 +123,65 @@
 - Android 将遵循 `feature/auth`、MVVM、StateFlow、Hilt 和 Compose 单向数据流约定。
 - 确认不重复造轮子：项目中没有既有认证、令牌、导航、网络客户端或登录态存储实现；使用 Ktor Authentication/JWT、BCrypt、DataStore 和 Navigation Compose。
 - 当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander` 或 Context7；已以项目文档、现有实现、专项 Android Skills 和本地验证替代，并记录限制。
+
+## 编码前检查 - Excel 导入与数据治理
+
+时间：2026-08-06
+
+- 使用表格分析 Skill 和只读工作簿扫描定位两份正式 Excel，忽略 Office 临时文件。
+- 将复用 `import_batches`、`import_rows`、`vehicles`、`resident_profiles`、`long_term_profiles` 表及现有审计写入器。
+- 导入实现遵循 `docs/04-Excel导入与数据质量规范.md`、`docs/07-数据库设计.md` 和 ADR-003；不得将源表数据写入 Git、日志或测试夹具。
+
+## 编码前检查 - Excel 导入、发布与回滚
+
+时间：2026-08-06
+
+- 已查阅上下文摘要文件：`.codex/context-summary-excel-import-workflow.md`。
+- 将使用以下可复用组件：`Application.module()` 的功能装配方式、`AuthFeature.kt` 的 JWT 路由保护、`AuditLogWriter.kt` 的审计事件、`DataSourceKey` 的数据库访问和既有 Flyway 迁移目录。
+- 将遵循命名约定：Kotlin 标识符使用英文驼峰，SQL 使用小写下划线，用户可见文案、注释、测试名称和文档使用简体中文。
+- 将遵循代码风格：保持 Ktor 路由与服务职责分离，所有 SQL 使用参数绑定，结构变更使用新的 Flyway 迁移。
+- 确认不重复造轮子：已检查现有导入雏形、认证、审计和数据库基础设施；新增代码只补齐 Excel 解析、批次工作流与效果快照，不另建认证或持久化框架。
+- 工具可用性：当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander`、Context7 或 GitHub MCP；以项目文档、现有实现、依赖源码检索、Gradle 自动测试和 Docker Compose 本地验证替代。
+
+## 验证异常 - Ktor Multipart 读取
+
+时间：2026-08-06
+
+- 首次隔离环境上传真实工作簿返回 500，原因是 Ktor `readByteArray(count)` 读取固定字节数，小于上限的上传流会在末尾触发读取异常。
+- 已通过本地 Ktor 依赖字节码确认可用 API，改为 `readRemaining(上限).readByteArray()`，保留 10MB 上限后重新构建验证。
+- 修复后，村民车辆真实工作簿已在隔离 PostgreSQL 中完成预览、发布、回滚，且回滚后车辆数为零。
+
+## 验证异常 - 长期车辆字段长度
+
+时间：2026-08-06
+
+- 长期车辆工作簿首次发布时，PostgreSQL 报告 `long_term_profiles` 的 `VARCHAR(255)` 字段超长。
+- 已在预览解析阶段增加姓名、身份证号、联系方式、车辆类型、单位名称和通行人员的数据库长度校验，将超长行标记为异常而非让整批发布失败。
+- 新增自动化边界测试；修复后长期车辆四种分类均完成隔离环境的预览、发布与回滚验证。
+
+## 编码后声明 - Excel 导入、发布与回滚
+
+时间：2026-08-06
+
+### 1. 复用的既有组件
+
+- `Application.module()`：注册导入功能而不改变服务端启动顺序。
+- `authenticate("access-token")` 与 `requireAdministrator()`：复用 JWT 会话和管理员角色校验。
+- `DataSourceKey`、Flyway 迁移目录和 `AuditLogWriter`：复用数据库连接、结构演进与管理员审计能力。
+
+### 2. 遵循的项目约定
+
+- 导入能力放置在 `server/.../imports/`，数据库变化采用 `V3`、`V4` 版本化迁移。
+- 错误经 `ApiErrorResponse` 返回，导入文件、批次不存在和状态冲突拥有稳定错误码。
+- 所有新增用户文案、注释、测试名称、文档和提交信息均使用简体中文；日志、审计元数据和测试夹具不包含身份证号、联系方式或真实 Excel 行值。
+
+### 3. 对比的相似实现
+
+- `AuthFeature.kt`：导入路由沿用受保护路由与统一权限拒绝模式，差异是按批次记录审计。
+- `AuditLogWriter.kt`：导入只记录批次标识和统计，不记录原始字段，满足敏感信息最小化。
+- `ApplicationTest.kt`：新增解析测试沿用 Kotlin Test 组织方式，使用运行时生成工作簿覆盖正常、边界和异常流程。
+
+### 4. 未重复造轮子的证明
+
+- 使用 Apache POI 解析工作簿、Ktor Multipart 和认证插件处理上传与鉴权、PostgreSQL JSONB 保存原始和解析结果、Flyway 管理结构演进。
+- 未新增自定义表格格式、认证逻辑、事务框架或回滚存储；发布效果快照基于既有 PostgreSQL 表和标准 JSONB 实现。

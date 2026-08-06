@@ -3,17 +3,41 @@ info:
   title: PlateView API
   version: 1.0.0
   description: PlateView 车辆核验系统接口契约。
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
 paths:
   /auth/login:
     post:
       summary: 账号密码登录
+      security: []
       requestBody:
         required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
           description: 登录成功并返回会话令牌与角色。
         '401':
-          description: 账号或密码错误。
+          $ref: '#/components/responses/InvalidCredentials'
+  /auth/refresh:
+    post:
+      summary: 刷新登录会话
+      security: []
+      responses:
+        '200':
+          description: 刷新成功。
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /auth/logout:
+    post:
+      summary: 退出当前会话
+      responses:
+        '204':
+          description: 已退出。
   /vehicles/search:
     get:
       summary: 按车牌片段模糊查询候选
@@ -28,10 +52,12 @@ paths:
         '400':
           description: 输入不足两个有效字符。
         '401':
-          description: 未登录或会话失效。
+          $ref: '#/components/responses/Unauthenticated'
   /vehicles/{vehicleId}:
     get:
       summary: 获取车辆完整核验详情
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
       responses:
         '200':
           description: 车辆类别、人员或单位、通行信息及其余字段。
@@ -39,27 +65,303 @@ paths:
           description: 车辆不存在或已停用。
     put:
       summary: 管理员更新车辆
+      parameters:
+        - $ref: '#/components/parameters/VehicleId'
       responses:
         '200':
           description: 更新成功。
         '403':
-          description: 非管理员。
+          $ref: '#/components/responses/AdminRequired'
         '409':
           description: 版本冲突。
   /admin/users:
     get:
       summary: 管理员查询用户
+      responses:
+        '200':
+          description: 用户列表。
+        '403':
+          $ref: '#/components/responses/AdminRequired'
     post:
       summary: 管理员创建用户
+      responses:
+        '201':
+          description: 用户已创建。
+        '403':
+          $ref: '#/components/responses/AdminRequired'
   /admin/imports/preview:
     post:
-      summary: 管理员上传 Excel 并生成导入预览
+      summary: 管理员上传 Excel 并创建导入预览
+      description: >-
+        仅创建批次和行级预览，不修改正式车辆数据。支持村民车辆、驻景区单位、驻景区企业、干部车辆和喀纳斯旅游发展股份有限公司车辆工作表。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: xlsx 或 xls 文件，最大 10MB。
+      responses:
+        '201':
+          description: 预览批次已创建。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportBatch'
+        '400':
+          $ref: '#/components/responses/ImportFileInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+  /admin/imports/{batchId}:
+    get:
+      summary: 获取导入批次及行级摘要
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: 批次和分页行摘要。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportBatch'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+        '404':
+          $ref: '#/components/responses/ImportBatchNotFound'
+  /admin/imports/{batchId}/rows/resolutions:
+    post:
+      summary: 管理员确认或跳过待处置导入行
+      description: 异常行和重复跳过行不能改为发布；有格式告警或更新冲突的行需管理员显式确认。
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportRowResolutionsRequest'
+      responses:
+        '200':
+          description: 行处置已保存。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportBatch'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+        '404':
+          $ref: '#/components/responses/ImportBatchNotFound'
+        '409':
+          $ref: '#/components/responses/ImportConflict'
   /admin/imports/{batchId}/publish:
     post:
       summary: 管理员确认发布导入批次
+      description: 在单个事务内创建或更新车辆及资料；任一行失败时整体回滚。
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: 批次已发布。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportBatch'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+        '404':
+          $ref: '#/components/responses/ImportBatchNotFound'
+        '409':
+          $ref: '#/components/responses/ImportConflict'
   /admin/imports/{batchId}/rollback:
     post:
       summary: 管理员回滚已发布导入批次
+      description: >-
+        删除本批次创建的车辆，并通过发布前快照还原更新记录。导入后车辆若已被后续操作修改，接口返回冲突且不做部分回滚。
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: 批次已安全回滚。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportBatch'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+        '404':
+          $ref: '#/components/responses/ImportBatchNotFound'
+        '409':
+          $ref: '#/components/responses/ImportConflict'
   /health:
     get:
       summary: 服务健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务已就绪。
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    BatchId:
+      name: batchId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    VehicleId:
+      name: vehicleId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+  responses:
+    Unauthenticated:
+      description: 未登录或会话已失效。
+    InvalidCredentials:
+      description: 账号或密码错误。
+    AdminRequired:
+      description: 当前账号不具备管理员权限。
+    ImportFileInvalid:
+      description: 未上传文件、格式不支持、文件超过 10MB 或无法识别表头。
+    ImportBatchNotFound:
+      description: 导入批次不存在。
+    ImportConflict:
+      description: 批次状态不允许操作、行处置无效、正式数据已变更或回滚安全校验失败。
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    ImportBatch:
+      type: object
+      required: [id, sourceFileName, status, stats, rows]
+      properties:
+        id:
+          type: integer
+          format: int64
+        sourceFileName:
+          type: string
+        status:
+          type: string
+          enum: [VALIDATED, PUBLISHED, ROLLED_BACK]
+        stats:
+          $ref: '#/components/schemas/ImportBatchStats'
+        createdAt:
+          type: [string, 'null']
+          format: date-time
+        publishedAt:
+          type: [string, 'null']
+          format: date-time
+        rollbackAt:
+          type: [string, 'null']
+          format: date-time
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportRow'
+    ImportBatchStats:
+      type: object
+      required: [totalRows, newRows, updateRows, duplicateRows, errorRows, warningRows, publishableRows, pendingReviewRows]
+      properties:
+        totalRows:
+          type: integer
+        newRows:
+          type: integer
+        updateRows:
+          type: integer
+        duplicateRows:
+          type: integer
+        errorRows:
+          type: integer
+        warningRows:
+          type: integer
+        publishableRows:
+          type: integer
+        pendingReviewRows:
+          type: integer
+    ImportRow:
+      type: object
+      required: [id, sourceSheetName, sourceRowNumber, sourceItemIndex, resultStatus, plannedAction, resolution]
+      properties:
+        id:
+          type: integer
+          format: int64
+        sourceSheetName:
+          type: string
+        sourceRowNumber:
+          type: integer
+        sourceItemIndex:
+          type: integer
+        plateNumber:
+          type: [string, 'null']
+        normalizedPlate:
+          type: [string, 'null']
+        category:
+          type: [string, 'null']
+          enum: [RESIDENT, SCENIC_UNIT, SCENIC_ENTERPRISE, CADRE, KANAS_TOURISM_DEVELOPMENT, null]
+        primarySubject:
+          type: [string, 'null']
+          description: 村民姓名或长期车辆单位名称，不返回身份证号和联系方式。
+        resultStatus:
+          type: string
+          enum: [VALID, DUPLICATE, ERROR, PUBLISHED]
+        plannedAction:
+          type: string
+          enum: [CREATE, UPDATE, SKIP, NONE]
+        resolution:
+          type: string
+          enum: [PENDING, PUBLISH, SKIP, ERROR]
+        errorMessage:
+          type: [string, 'null']
+        warningMessage:
+          type: [string, 'null']
+    ImportRowResolutionsRequest:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [rowId, resolution]
+            properties:
+              rowId:
+                type: integer
+                format: int64
+              resolution:
+                type: string
+                enum: [PUBLISH, SKIP]

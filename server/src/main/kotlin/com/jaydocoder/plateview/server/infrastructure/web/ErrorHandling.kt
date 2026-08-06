@@ -1,5 +1,8 @@
 package com.jaydocoder.plateview.server.infrastructure.web
 
+import com.jaydocoder.plateview.server.imports.ImportBatchNotFoundException
+import com.jaydocoder.plateview.server.imports.ImportFileInvalidException
+import com.jaydocoder.plateview.server.imports.ImportWorkflowConflictException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.application
@@ -12,6 +15,39 @@ import kotlinx.serialization.Serializable
 
 internal fun Application.configureErrorHandling() {
     install(StatusPages) {
+        exception<ImportFileInvalidException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.BadRequest,
+                message = ApiErrorResponse(
+                    code = "IMPORT_FILE_INVALID",
+                    message = cause.message ?: "Excel文件格式无效",
+                    requestId = call.callId,
+                ),
+            )
+        }
+
+        exception<ImportBatchNotFoundException> { call, _ ->
+            call.respond(
+                status = HttpStatusCode.NotFound,
+                message = ApiErrorResponse(
+                    code = "IMPORT_BATCH_NOT_FOUND",
+                    message = "导入批次不存在",
+                    requestId = call.callId,
+                ),
+            )
+        }
+
+        exception<ImportWorkflowConflictException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.Conflict,
+                message = ApiErrorResponse(
+                    code = cause.errorCode,
+                    message = cause.message ?: "导入批次状态冲突",
+                    requestId = call.callId,
+                ),
+            )
+        }
+
         exception<IllegalArgumentException> { call, cause ->
             call.respond(
                 status = HttpStatusCode.BadRequest,

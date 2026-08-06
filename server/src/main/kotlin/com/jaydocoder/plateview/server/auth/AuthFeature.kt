@@ -8,6 +8,7 @@ import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
 import com.jaydocoder.plateview.server.infrastructure.web.ApiErrorResponse
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.auth.authenticate
@@ -94,13 +95,9 @@ internal fun Application.configureAuthenticationFeature() {
         }
         authenticate("access-token") {
             get("/admin/session") {
+                val actorId = call.requireAdministrator() ?: return@get
                 val user = service.currentUser(call.principal<JWTPrincipal>()!!)
-                if (user.role != "ADMIN") {
-                    auditDenied(call.callId, user.id)
-                    call.respond(HttpStatusCode.Forbidden, ApiErrorResponse("ADMIN_REQUIRED", "需要管理员权限", call.callId))
-                } else {
-                    call.respond(UserResponse(user.id, user.username, user.role))
-                }
+                call.respond(UserResponse(actorId, user.username, "ADMIN"))
             }
         }
     }
@@ -118,10 +115,15 @@ private fun Application.authenticationSettings(): AuthenticationSettings {
     return AuthenticationSettings(secret, initialPassword, Duration.ofMinutes(accessMinutes), Duration.ofDays(refreshDays))
 }
 
-private fun Application.auditDenied(requestId: String?, actorId: Long) {
-    attributes.getOrNull(AuditLogWriterKey)?.write(
-        AuditEvent(actorId, "ADMIN_ACCESS", "SESSION", null, "DENIED", requestId, JsonObject(emptyMap())),
+internal suspend fun ApplicationCall.requireAdministrator(): Long? {
+    val principal = principal<JWTPrincipal>() ?: return null
+    val actorId = principal.payload.getClaim("userId").asLong()
+    if (principal.payload.getClaim("role").asString() == "ADMIN") return actorId
+    application.attributes.getOrNull(AuditLogWriterKey)?.write(
+        AuditEvent(actorId, "ADMIN_ACCESS", "SESSION", null, "DENIED", callId, JsonObject(emptyMap())),
     )
+    respond(HttpStatusCode.Forbidden, ApiErrorResponse("ADMIN_REQUIRED", "需要管理员权限", callId))
+    return null
 }
 
 private data class AuthenticationSettings(

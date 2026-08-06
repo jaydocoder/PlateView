@@ -1,4 +1,4 @@
-# 阶段 3 验证报告
+# 阶段 5 验证报告
 
 生成时间：2026-08-06（Asia/Shanghai）
 
@@ -6,59 +6,61 @@
 
 | 需求 | 交付物 | 验证结果 |
 | --- | --- | --- |
-| 版本化数据库迁移 | Flyway 启动迁移与 `V1__create_core_schema.sql` | 通过 |
-| 核心数据模型 | 用户、车辆、村民资料、长期车辆资料、导入、审计 7 张表 | 通过 |
-| 模糊查询索引基础 | `pg_trgm` 与车辆规范化车牌 GIN 索引 | 通过 |
-| 基础审计能力 | `AuditLogWriter` 与 JDBC 实现 | 通过编译与容器启动验证 |
-| 请求标识和统一错误 | CallId、状态页错误响应、Ktor 测试 | 通过 |
-| Docker 本地部署 | Compose 数据库、API 自动迁移和健康检查 | 通过 |
+| 两份 Excel 解析与五类车辆映射 | `ExcelImportParser.kt`、解析单元测试 | 通过 |
+| 单位继承、多车牌、归一化与质量校验 | `ExcelImportParser.kt`、`ExcelImportParserTest.kt` | 通过 |
+| 预览、行处置与批次详情 | `ImportPreviewFeature.kt`、`ImportWorkflowService.kt` | 通过 |
+| 事务发布 | `ImportWorkflowService.kt`、隔离 Docker 发布验证 | 通过 |
+| 安全回滚 | `V4__support_split_rows_and_import_effects.sql`、效果快照与版本校验 | 通过 |
+| 管理员权限与审计 | `requireAdministrator()`、`AuditLogWriter` 集成 | 通过 |
+| 接口契约与数据治理文档 | `docs/04-Excel导入与数据质量规范.md`、`docs/07-数据库设计.md`、`docs/08-API契约.yaml` | 通过 |
 
 ## 本地验证结果
 
-| 检查项 | 命令或方法 | 结果 |
+| 检查项 | 方法 | 结果 |
 | --- | --- | --- |
-| Ktor 自动测试 | `server/gradlew --no-daemon -p server test` | 通过，健康检查和统一错误响应均通过 |
-| API 镜像构建 | Docker 主机网络加临时代理构建参数 | 通过 |
-| 新数据库迁移 | Docker Compose 全新卷启动 API | 通过，Flyway 成功执行 1 条迁移 |
-| 核心表 | PostgreSQL `information_schema` 查询 | 通过，7 张核心表存在 |
-| 三元索引 | PostgreSQL `pg_indexes` 查询 | 通过，`idx_vehicles_normalized_plate_trgm` 存在 |
-| 请求标识 | 容器 `/health` 响应头 | 通过，返回 `X-Request-ID` |
-| 迁移可重复执行 | 保留数据库卷重启 API 后访问 `/health` | 通过 |
-| 工作区空白检查 | `git diff --check` | 待最终提交前执行 |
+| 服务端自动测试 | `server/gradlew --no-daemon test` | 通过，覆盖健康检查、统一错误、五类解析、跨行继承、多车牌、格式告警、字段上限与无效工作簿。 |
+| Flyway 迁移 | 隔离 Docker Compose 全新卷启动 | 通过，V1 至 V4 均成功执行。 |
+| 村民车辆真实工作簿 | 隔离 API 预览、发布、回滚 | 通过，回滚后车辆总数为零。 |
+| 长期车辆真实工作簿 | 隔离 API 预览、发布、回滚 | 通过，驻景区单位、驻景区企业、干部和旅游发展四种类别均被识别，回滚后车辆总数为零。 |
+| 管理员行处置 | 对待确认行调用行处置接口 | 通过，行决议可更新为发布。 |
+| 无效工作簿 | 上传非 Excel 内容且使用 Excel 扩展名 | 通过，返回 `IMPORT_FILE_INVALID`。 |
+| 更新与快照回滚 | 隔离库制造后续车辆修改，再预览、确认更新、发布、回滚 | 通过，更新批次恢复发布前状态。 |
+| 回滚隔离 | 对已被后续修改的旧批次执行回滚 | 通过，返回 HTTP 409，未覆盖后续数据。 |
+| 工作区空白检查 | `git diff --cached --check` 与 `git diff --check` | 通过，暂存区与工作区均无空白错误。 |
 
 ## 已知限制与补偿
 
-- Testcontainers `1.20.6` 以 Docker API `1.32` 连接，而本机 Docker `29.7.1` 最低支持 API `1.40`，无法用于当前环境。迁移验证已由 Docker Compose 全新卷、API 自动迁移和 SQL 断言替代。
-- 基础审计写入器已实现并注册至应用属性；登录、查询和管理员操作尚未进入实现阶段，因此审计事件的业务触发验证将在阶段 4、6 和 8 回填。
-- Android 仪器化测试需要 Android 12 至 14 模拟器或真机，当前阶段未修改 Android 客户端；将在阶段 9 执行。
+- Testcontainers 与本机 Docker API 版本不兼容，数据库接口验证使用独立 Docker Compose 项目、全新数据卷和 API 断言替代。
+- 阶段 5 尚未实现 Android 管理员界面；当前完成服务端接口、契约和数据路径，管理员工作台将在阶段 8 接入这些接口。
+- 真实工作簿仅在隔离容器中进行无输出验证，验证结束后已删除对应容器与数据卷。
 
 ## 技术维度评分
 
 | 维度 | 分数 | 结论 |
 | --- | ---: | --- |
-| 代码质量 | 94/100 | 分层明确，迁移、连接池、审计、请求标识和错误响应职责分离。 |
-| 测试覆盖 | 90/100 | Ktor 自动测试与真实 Compose 迁移验证通过；审计业务触发留待后续业务接口验证。 |
-| 规范遵循 | 95/100 | 遵循现有 Ktor 模块、测试、Docker Compose 和版本化迁移约定。 |
+| 代码质量 | 95/100 | 解析、路由、工作流和持久化职责分离，迁移与回滚快照边界明确。 |
+| 测试覆盖 | 94/100 | 单元测试和真实工作簿隔离集成验证覆盖主要流程、边界和失败恢复；Testcontainers 受环境限制。 |
+| 规范遵循 | 96/100 | 使用 Kotlin、Ktor、Flyway、PostgreSQL 和现有审计模式，所有新增说明均为简体中文。 |
 
 ## 战略维度评分
 
 | 维度 | 分数 | 结论 |
 | --- | ---: | --- |
-| 需求匹配 | 94/100 | 覆盖阶段 3 的迁移、数据模型、错误响应、请求标识和审计基础能力。 |
-| 架构一致性 | 95/100 | Flyway、PostgreSQL、Hikari 和 Ktor 与已确认 ADR 一致。 |
-| 风险评估 | 91/100 | 已记录 Docker API 与 Testcontainers 兼容性限制，并采用可重复的本地替代验证。 |
+| 需求匹配 | 96/100 | 完成阶段 5 的解析、预览、发布、回滚、追溯和五类车辆要求。 |
+| 架构一致性 | 95/100 | 与既有 JWT、Ktor 模块装配、Flyway 迁移、JSONB 和乐观锁约定一致。 |
+| 风险评估 | 95/100 | 已处理多车牌、字段超长、预览后数据变更和回滚覆盖风险。 |
 
 ## 结论
 
-- **综合评分：** 93/100
+- **综合评分：** 95/100
 - **建议：** 通过
-- **决策依据：** 评分不低于 90；Ktor 自动测试、容器化迁移、核心表、索引、请求标识和重复启动验证均已通过；剩余审计触发验证已明确归入后续业务阶段。
+- **决策依据：** 本地自动测试、真实工作簿隔离验证、事务发布、创建与更新回滚、回滚冲突保护和接口错误码均已验证；可以进入阶段 6 车辆查询服务。
 
 ## 可重复验证步骤
 
 ```bash
 cd /home/neo/project/AiProject/codex-ui/PlateView/server
-./gradlew --no-daemon -p . test
+./gradlew --no-daemon test
 
 cd /home/neo/project/AiProject/codex-ui/PlateView
 docker build --network host \
@@ -66,7 +68,6 @@ docker build --network host \
   --build-arg HTTPS_PROXY=http://127.0.0.1:7890 \
   --build-arg NO_PROXY=localhost,127.0.0.0/8,::1 \
   -t plateview-api ./server
-POSTGRES_PASSWORD=local-validation-only docker compose up -d --no-build
-curl --fail http://127.0.0.1:8080/health
-POSTGRES_PASSWORD=local-validation-only docker compose down -v --remove-orphans
+
+# 使用独立的 Compose 项目名、端口和仅用于验证的本地环境变量启动，再执行登录、上传、发布和回滚断言。
 ```
