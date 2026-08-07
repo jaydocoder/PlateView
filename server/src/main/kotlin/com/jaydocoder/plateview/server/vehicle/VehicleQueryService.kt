@@ -141,6 +141,6 @@ internal data class LongTermVehicleProfile(
     val remarks: String?,
 )
 
-internal class VehicleSearchKeywordException : RuntimeException("请至少输入3个有效车牌字符")
+internal class VehicleSearchKeywordException : RuntimeException("请输入有效车牌字符")
 
 internal class VehicleNotFoundException : RuntimeException()

@@ -27,11 +27,11 @@ class SearchViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun `有效字符少于三位时不请求车辆仓库`() = runTest {
+    fun `没有有效字符时不请求车辆仓库`() = runTest {
         val vehicleRepository = FakeVehicleRepository()
         val viewModel = createViewModel(vehicleRepository = vehicleRepository)
 
-        viewModel.updateQuery("A1")
+        viewModel.updateQuery("·")
         advanceTimeBy(250)
         advanceUntilIdle()
 
@@ -40,16 +40,16 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `三位有效字符会归一化后查询并显示候选`() = runTest {
+    fun `首个有效字符会归一化后查询并显示候选`() = runTest {
         val candidate = VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆")
         val vehicleRepository = FakeVehicleRepository(searchResult = listOf(candidate))
         val viewModel = createViewModel(vehicleRepository = vehicleRepository)
 
-        viewModel.updateQuery(" 新a-12 ")
+        viewModel.updateQuery(" 新 ")
         advanceTimeBy(250)
         advanceUntilIdle()
 
-        assertEquals(listOf("新A12"), vehicleRepository.searchKeywords)
+        assertEquals(listOf("新"), vehicleRepository.searchKeywords)
         assertEquals(listOf(candidate), viewModel.uiState.value.candidates)
         assertEquals(SearchResultState.Idle, viewModel.uiState.value.resultState)
     }

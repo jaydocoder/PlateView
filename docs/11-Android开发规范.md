@@ -71,7 +71,7 @@ android/app/
 ## 9. 普通用户查询流程落地约定
 
 - `SearchViewModel` 以 `StateFlow<SearchUiState>` 管理输入、候选、历史和查询反馈，以 `Flow<SearchEvent>` 发送一次性详情导航事件；界面不得持有仓库或直接发起请求。
-- 搜索顺序固定为“输入原文 -> 车牌归一化 -> 250 毫秒防抖 -> 四字符门槛 -> 仓库查询”。归一化统一大写，因此前端和服务端均不受英文字母大小写影响。
+- 搜索顺序固定为“输入原文 -> 车牌归一化 -> 250 毫秒防抖 -> 首个有效字符门槛 -> 仓库查询”。归一化统一大写，因此前端和服务端均不受英文字母大小写影响。
 - `SearchRoute` 负责申请 `RECORD_AUDIO` 运行时权限；`VoiceRecognizer` 只适配系统语音服务。任何权限或识别故障都必须回退为手动输入，而不是阻断查询页。
 - `SearchDestination` 和 `VehicleDetailDestination` 使用序列化类型安全目的地；详情路由只携带 `vehicleId`，由详情 ViewModel 从仓库重新读取当前数据。
 - 搜索历史通过 Room 的 `search_history` 表按 `username` 查询、删除和清空，最多保留 50 条。实体禁止新增身份证号、联系方式、完整详情、令牌或语音原文列。

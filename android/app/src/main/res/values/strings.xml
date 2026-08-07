@@ -1,19 +1,19 @@
 <resources>
     <string name="app_name">PlateView</string>
-    <string name="search_title">车辆核验</string>
-    <string name="search_subtitle">景区入口快速查询</string>
+    <string name="search_title">喀纳斯车辆核验</string>
+    <string name="search_subtitle">景区通行实时核验</string>
     <string name="search_logout">退出登录</string>
     <string name="search_input_label">输入车牌号</string>
-    <string name="search_input_placeholder">例如：新A1234</string>
+    <string name="search_input_placeholder">输入车牌即可实时匹配</string>
     <string name="search_voice_start">语音输入车牌号</string>
     <string name="search_voice_listening">正在识别，请说出车牌号</string>
-    <string name="search_awaiting_input">请输入至少 3 个有效车牌字符</string>
+    <string name="search_awaiting_input">请输入有效车牌字符</string>
     <string name="search_loading">正在查询车辆数据</string>
     <string name="search_empty">未找到匹配车牌</string>
     <string name="search_service_unavailable">无法连接车辆数据服务</string>
     <string name="search_session_expired">登录状态已失效，请重新登录</string>
     <string name="search_retry">重新查询</string>
-    <string name="search_candidates_title">匹配车辆</string>
+    <string name="search_candidates_title">实时匹配</string>
     <string name="search_candidate_description">车牌 %1$s，车辆所属类型 %2$s</string>
     <string name="search_history_title">历史查询</string>
     <string name="search_history_clear">清空</string>

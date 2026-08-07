@@ -4,7 +4,6 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
@@ -56,15 +55,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -146,18 +144,32 @@ fun SearchScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.search_title),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = stringResource(R.string.search_subtitle),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(42.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = CircleShape,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_plateview_launcher_foreground),
+                                contentDescription = null,
+                                modifier = Modifier.padding(5.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = stringResource(R.string.search_title),
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = stringResource(R.string.search_subtitle),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary,
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -232,7 +244,26 @@ fun SearchScreen(
 
             if (uiState.candidates.isNotEmpty()) {
                 item(key = "candidate_heading") {
-                    SectionTitle(text = stringResource(R.string.search_candidates_title))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SectionTitle(
+                            text = stringResource(R.string.search_candidates_title),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+                        ) {
+                            Text(
+                                text = "${uiState.candidates.size} 条",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
                 }
                 items(
                     items = uiState.candidates,
@@ -292,20 +323,25 @@ private fun SearchBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(4.dp, RoundedCornerShape(PlateViewDimensions.cornerLarge))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
+            )
             .testTag("search_input"),
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge)
+        shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
+        tonalElevation = 2.dp,
     ) {
         TextField(
             value = query,
             onValueChange = onQueryChanged,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { 
+            placeholder = {
                 Text(
                     stringResource(R.string.search_input_placeholder),
-                    color = MaterialTheme.colorScheme.outline
-                ) 
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             },
             leadingIcon = {
                 Icon(
@@ -467,11 +503,11 @@ private fun VehicleCandidateRow(
             .fillMaxWidth()
             .heightIn(min = PlateViewDimensions.candidateMinimumHeight)
             .testTag("candidate_${candidate.id}"),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = PlateViewDimensions.cardElevation),
     ) {
         Row(
             modifier = Modifier
@@ -487,13 +523,20 @@ private fun VehicleCandidateRow(
                 Text(
                     text = candidate.categoryLabel,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    text = "核验已就绪",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Surface(
+                    modifier = Modifier.padding(top = 4.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+                ) {
+                    Text(
+                        text = "核验就绪",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
             }
             
             Icon(
@@ -571,21 +614,24 @@ private fun SearchHistoryRow(
 @Composable
 private fun PlateComponent(number: String) {
     Surface(
-        color = Color(0xFF0047BB), // 智感蓝车牌背景
-        contentColor = Color.White,
-        shape = RoundedCornerShape(4.dp),
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
         modifier = Modifier
-            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-            .shadow(2.dp, RoundedCornerShape(4.dp))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.24f),
+                shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+            )
+            .shadow(1.dp, RoundedCornerShape(PlateViewDimensions.cornerSmall)),
     ) {
-        Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
             Text(
                 text = number,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                ),
             )
         }
     }

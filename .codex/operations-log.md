@@ -610,3 +610,18 @@
 
 - 已检查管理员仓库、ViewModel、首页查询和 Compose 测试模式；所有功能均在既有边界内扩展。
 - 未引入第三方分页、网络、设计或图标依赖。
+
+## 首字符实时匹配与首页视觉改造
+
+时间：2026-08-07
+
+### 编码前检查
+
+- 已查阅 `.codex/context-summary-realtime-search-ui.md`，并分析 `SearchViewModel.kt`、`SearchScreen.kt`、`PlateViewTheme.kt`、`PlateQueryNormalizer.kt`、服务端 `PlateNormalizer.kt` 和对应测试。
+- 复用既有防抖、归一化、候选上限、StateFlow、Material 3 和 Compose 真机测试路径。
+
+### 编码后声明
+
+- 前后端查询门槛改为首个有效字符，空输入和纯分隔符不请求服务；250 毫秒防抖与 20 条候选上限保持不变。
+- 首页采用圆润的搜索面板、实时候选数量、状态胶囊与统一车牌样式；全局主题更新为湖水蓝、松林绿、日照金、暮紫和云雾白。
+- 通过显式代理调用图像接口并完成认证，但中转响应没有 Base64 图像字段，官方生图脚本无法落盘 PNG；保留上一版启动器图标，不伪造生成结果。
