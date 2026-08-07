@@ -758,3 +758,34 @@
 - 已将对应 API 镜像、部署文件与 Redis 镜像部署到阿里云 `/opt/plateview`，并重建 API 与 Redis 服务。
 - 已验证 Flyway 版本 5、Redis 连通性、API 容器回环健康检查、公网健康检查与正式 APK 的 V3 签名。
 - 保留 `server/gradle/wrapper/gradle-wrapper.properties` 的未提交本地修改，未暂存、未提交、未部署。
+
+## 雪山启动图标替换 - 编码前检查
+
+时间：2026-08-08
+
+- 已查阅 `.codex/context-summary-launcher-icon-snow-mountain.md`，并分析清单、自适应图标定义、首页资源引用和现有 Android 测试配置。
+- 将复用 `ic_plateview_launcher_foreground.png`、`ic_plateview_launcher.xml` 与清单的既有资源入口，只替换用户提供的位图。
+- 不新增依赖、不修改业务代码；验证范围为资源有效性、发布静态检查、正式 APK 构建和签名校验。
+
+### 构建异常与恢复
+
+- 首次正式构建在 `mergeExtDexRelease` 阶段失败，Gradle 日志显示 Java 堆内存不足；图标资源已正常进入发布资源中间产物。
+- 未修改全局 Gradle 配置，也未关闭 Android Studio；停止本项目守护进程后，仅在重试命令中将堆内存提高到 2048MB。
+- 重试构建成功，新的正式 APK 已生成；后续 `lintRelease` 也执行成功。
+
+## 雪山启动图标替换 - 编码后声明
+
+时间：2026-08-08
+
+### 复用的既有组件
+
+- `ic_plateview_launcher.xml`：保留原有自适应图标背景和前景组合，由 Android 系统处理启动器裁切。
+- `AndroidManifest.xml`：保持应用图标和圆形图标的既有资源引用。
+- `SearchScreen.kt`：保持首页顶栏对同名前景资源的复用，因此无需修改界面代码。
+
+### 实施与验证结果
+
+- 已将用户提供的 1254 x 1254 雪山图片替换为 `ic_plateview_launcher_foreground.png`。
+- `:app:assembleRelease` 已成功生成新的正式 APK；APK 中包含 `drawable/ic_plateview_launcher_foreground` 与 `mipmap/ic_plateview_launcher` 资源。
+- `:app:lintRelease` 通过，`apksigner verify` 确认 V3 签名有效。
+- 本轮不部署服务器、不推送远端；用户已有的 `server/gradle/wrapper/gradle-wrapper.properties` 修改保持未触碰。
