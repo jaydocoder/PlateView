@@ -7,5 +7,5 @@ internal fun normalizePlate(value: String): String = value
     .replace(Regex("[\\s　·•．.—_\\-]+"), "")
     .replace(Regex("[^\\p{IsHan}A-Z0-9]"), "")
 
-internal const val MINIMUM_SEARCH_KEYWORD_LENGTH = 4
+internal const val MINIMUM_SEARCH_KEYWORD_LENGTH = 3
 internal const val MAXIMUM_SEARCH_RESULT_COUNT = 20

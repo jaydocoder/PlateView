@@ -1,7 +1,12 @@
 package com.jaydocoder.plateview.domain.admin
 
 interface AdminRepository {
-    suspend fun listVehicles(accessToken: String, keyword: String? = null): List<ManagedVehicleSummary>
+    suspend fun listVehicles(
+        accessToken: String,
+        keyword: String? = null,
+        limit: Int = 100,
+        offset: Int = 0,
+    ): ManagedVehiclePage
     suspend fun getVehicle(accessToken: String, vehicleId: Long): ManagedVehicle
     suspend fun createVehicle(accessToken: String, command: VehicleWriteCommand): ManagedVehicle
     suspend fun updateVehicle(accessToken: String, vehicleId: Long, version: Int, command: VehicleWriteCommand): ManagedVehicle

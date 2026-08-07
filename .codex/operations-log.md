@@ -483,3 +483,130 @@
 - Cloudflare 橙云代理请求返回 `525`，源站直连 TLS 正常；该问题不属于 Android、API、证书或阿里云端口配置。待 Cloudflare 回源规则生效或切换 API 记录为灰云后重测公网与真机登录。
 - 正式 API 地址 APK 构建暴露 Compose 兼容性问题。已修复缺失 `sp` 导入、过时 `containerColor` 参数和已弃用的右箭头图标；强制 Android JVM 测试与 Lint 均通过，APK 已安装并成功启动真机登录页。
 - 用户已将 `api.plateview.top` 切换为仅 DNS。权威 DNS 与服务器解析已是 `47.96.190.39`；本机的部分公共递归 DNS 仍缓存旧 Cloudflare 地址，公网访问暂未切换，等待 TTL 传播后验证。
+
+## 阶段 10 生产真机登录 TLS 诊断
+
+时间：2026-08-07 00:59:21 CST
+
+### 工具链记录
+
+- 当前环境未提供 `sequential-thinking`、`shrimp-task-manager`、`desktop-commander`、Context7 或 GitHub MCP；以结构化上下文分析、`rg`、SSH、ADB、Docker、Caddy、DNS 和本地 APK 检查替代。
+- 已读取项目 Android 总 Skill 与 `diagnosing-bugs` Skill；先建立可重复的失败反馈环，再做单变量定位。
+
+### 编码前检查 - 生产真机登录诊断
+
+- 已查阅上下文摘要：`.codex/context-summary-production-login-diagnosis.md`。
+- 已分析并复用 `AuthRuntime.kt`、`LoginViewModel.kt`、`NetworkModule.kt`、`AuthFeature.kt`、`Caddyfile`、生产编排及三个现有测试模式。
+- 已确认项目命名、分层、构建属性、测试框架和生产网络边界；当前不创建业务功能或第二套网络客户端。
+- 已确认正式 APK 内嵌正式 HTTPS 地址，管理员账号启用且具有密码哈希；问题不在默认模拟器地址、账户状态或数据库。
+
+### 失败反馈环
+
+- ADB 已连接 Android 12 真机。自动启动应用、填入有效账号凭据、提交登录后，界面语义树稳定显示“账号或密码错误，或无法连接服务”。
+- 同一时间段内服务器 Caddy 与 Ktor 未记录 `/auth/login` 请求，证明失败发生在 HTTP 路由之前。
+- Cloudflare 访问 `https://api.plateview.top/health` 返回 HTTP `525`；服务器本机回环地址的 HTTPS 健康检查返回成功。
+- 服务器抓包确认外部连接在 TLS ClientHello 后断开，未出现 HTTP 请求。APK 中已确认的正式地址与生产地址一致。
+
+### 当前假设与验证顺序
+
+1. Cloudflare 代理或旧解析路径参与回源，导致源站握手失败。
+2. Caddy 对来自公网的特定 TLS ClientHello 未完成握手，需要受限握手日志确认。
+3. 服务端认证错误仅在请求进入 `/auth/login` 后才成立；现有证据不支持该假设。
+
+### 后续动作
+
+- 临时启用受限的 Caddy TLS 调试日志，只捕获握手错误类别；完成后立即恢复正常日志级别。
+- 根据握手证据修复 Cloudflare 或 Caddy 入口配置，随后使用同一 ADB 反馈环验收登录成功。
+- 成功后更新阶段 10 计划、进度、发现、验证报告并提交 Git；失败时不得宣称部署验收完成。
+
+## Cronet 修复执行 - 编码前检查
+
+时间：2026-08-07
+
+- 已查阅 `.codex/context-summary-production-login-diagnosis.md`，并分析 `NetworkModule.kt`、`AuthRuntime.kt`、`NetworkVehicleRepository.kt`、`SearchViewModelTest.kt` 与 `VehicleQueryScreenTest.kt`。
+- 将复用 Hilt 提供的单例 Retrofit 边界、Repository 到 API 的既有分层，以及 AndroidX 仪器化测试约定；不修改 Compose、ViewModel、Repository、服务端 API、Caddy 或证书配置。
+- 官方 Android 文档确认 `play-services-cronet:18.0.1` 与 `CronetProviderInstaller.installProvider(context)` 的配套用法；当前只新增匿名健康检查探针，探针通过前不接入生产调用路径。
+- 当前项目 `gradle.properties` 未设置 JVM 堆大小；已有测试文档规定以 `-Dorg.gradle.jvmargs='-Xmx1024m -XX:MaxMetaspaceSize=384m' --max-workers=1` 运行。此前构建因默认 512 MiB 堆频繁 GC 退出，后续构建沿用该已记录的本地验证参数。
+
+## 阶段 10 生产真机登录诊断结论
+
+## Cloudflare 回源与服务器入口异常
+
+时间：2026-08-07
+
+- 用户已正确将 `api.plateview.top` 的 A 记录切换为 Cloudflare 橙云代理，并保持 SSL/TLS 模式为“完全（严格）”。公网解析已切换到 Cloudflare 边缘地址。
+- Cloudflare 返回 HTTP 525，浏览器与 Cloudflare 边缘均正常，失败点是 Cloudflare 与阿里云源站之间的 TLS 握手。
+- 服务器内部 `127.0.0.1:443` 严格证书校验和 `/health` 返回 200；Caddy、Ktor、PostgreSQL 均运行。外部直连源站却会在 TLS 握手阶段异常断开。
+- 真机抓包中，正常 ClientHello 的 TTL 为 51，后续伪装为同一来源的 ACK TTL 为 243，Caddy 已发送完整握手数据。该证据不支持将问题归因为 Android 业务代码、账户、数据库或基础端口未开放。
+- 当前 SSH TCP 端口可达，但服务器在密钥交换前关闭连接；经单次显式代理连接则在 SSH 横幅阶段超时。未发现可用的阿里云 CLI 控制面，不能在未恢复 SSH 的条件下自动调整 Caddy。
+- 已撤回未通过真机验收的 Cronet 依赖、清单、传输适配器和临时仪器化测试；`git diff --check` 通过，基线 APK、Android JVM 测试和 Lint 已成功构建。
+- 后续需通过阿里云控制台恢复 SSH 或 Web 终端后，部署 Cloudflare Origin Certificate 到 Caddy，保持严格 HTTPS，再执行 Cloudflare、真机 Retrofit 与登录回归。
+
+## 阶段 10 生产真机登录诊断结论
+
+时间：2026-08-07 14:28:02 CST
+
+- 使用 Android 12 真机的仪器化探针请求匿名 `/health`，复现结果稳定：默认 TLS 与限定 TLS 1.2 均在 `ConscryptEngineSocket.startHandshake()` 报 `SocketException: Connection reset`。
+- 同一手机 Chrome 可通过 HTTP/2 访问该健康检查并获得 HTTP 200；Caddy 对 Chrome 与探针均能选择 `api.plateview.top` 的有效证书。
+- 探针失败时 Caddy 报告在向对端写入 TLS 握手数据时连接被复位，未记录 `/auth/login`；数据库中的管理员账号为 `ACTIVE`，本次问题发生在账户校验前。
+- 服务器本机 TLS 1.2、TLS 1.3 与证书链校验均成功；Caddy、Ktor API 和 PostgreSQL 容器均健康。公共 DNS 已统一解析到服务器，手机未启用 VPN 或 HTTP 代理。
+- 已临时启用并移除 Caddy 调试日志；临时 Android TLS 探针已删除，未保留失败测试或非默认 Caddy 证书配置。生产 Caddy 已恢复普通配置并通过服务器内部 HTTPS 健康检查。
+- 结论：生产 Android 网络验收仍阻断于 Android 原生 TLS 客户端与 Caddy 证书回包或公网链路的兼容性，不能归因于账号、密码、权限、后端路由、数据库、DNS 或安全组。
+- 已核验 Caddy 与 Let’s Encrypt 官方文档：当前 ECDSA `YE1` 默认链会经 Root YE 与 ISRG Root X2 到 ISRG Root X1；最短链会终止于 Root YE，反而不适合作为 Android 兼容性修复。
+- 后续修复应优先让 Caddy 使用 `key_type rsa2048` 重新签发 Let’s Encrypt RSA 终端证书，使链路经 R10 至 R14 直接达到 Android 12 已信任的 ISRG Root X1；变更后必须用同一真机匿名探针通过，再回归真实登录。
+
+## Cloudflare Tunnel 源服务修复
+
+时间：2026-08-07 17:09 CST
+
+- 已通过 `ssh aliyun` 确认服务器管理通道恢复，SSH 密钥认证可用。
+- Cloudflared 系统服务已建立连接，但访问 `127.0.0.1:8080` 时被拒绝，公网健康检查返回 HTTP 502。
+- API 容器日志确认 Ktor 正常监听容器内 `0.0.0.0:8080`；Docker 检查确认 API 仅连接 `internal: true` 的 `plateview_backend` 网络，端口发布未创建实际监听。
+- 生产编排已将 API 同时加入既有非内部 `edge` 网络，并保持端口严格绑定为 `127.0.0.1:8080:8080`。
+- 已将受版本控制的 `compose.production.yaml` 上传到服务器，并将服务器旧文件备份为 `/opt/plateview/compose.production.yaml.before-cloudflare-tunnel`。
+- 本地 Compose 解析、服务器 Compose 解析、API 强制重建、服务器回环健康检查和 Cloudflare 公网健康检查均通过。
+
+## 管理员导入发布按钮修复
+
+时间：2026-08-07 17:33 CST
+
+- 真机中批次 2 的“正式发布数据”按钮显示为已启用，但触发后未产生 `IMPORT_PUBLISH` 审计记录，批次状态保持 `VALIDATED`。
+- 已确认服务器发布路由、导入批次、数据统计和数据库事务均正常；本次不修改服务器业务代码。
+- 已移除 `AlertDialog` 确认操作槽位中的额外 `Row`，将发布和回滚改为直接按钮，并增加稳定测试标签。
+- 已新增真机 Compose 回归测试，验证可发布批次点击发布按钮会调用发布回调。
+- 已补齐既有管理员 UI 测试的车辆新增标签与账号状态文案断言，使管理员测试类恢复通过。
+- 已构建 API 地址为 `https://api.plateview.top/` 的调试 APK 并安装到 Android 12 真机；未触发正式发布，批次 2 数据仍保持未发布状态。
+
+## 车辆档案连续加载与会话时长调整 - 编码前检查
+
+时间：2026-08-07
+
+- 已查阅 `.codex/context-summary-vehicle-archive-lazy-load.md`，并分析 `AdminManagementService.kt`、`AdminWorkspaceViewModel.kt`、`AdminWorkspaceScreen.kt`、`SearchViewModel.kt`、`SearchViewModelTest.kt` 与 `AdminWorkspaceViewModelTest.kt`。
+- 复用既有 `AdminRepository`、`StateFlow<AdminUiState>`、`LazyColumn`、车牌归一化和 Compose 测试标签模式；不引入第三方分页库。
+- 服务端车辆列表通过 `limit`、`offset` 和 `total` 提供分页契约；客户端使用每页 100 条、搜索重置和按车辆标识去重的追加策略。
+- 同步将前后端最小匹配长度统一为 3 个有效车牌字符，避免客户端允许而服务端拒绝。
+- 用户要求访问令牌时长为 30 天，因此默认 `ACCESS_TOKEN_MINUTES` 调整为 43200；生产 `.env` 将在部署步骤更新，避免输出任何敏感配置值。
+
+## 车辆档案连续加载与会话时长调整 - 编码后声明
+
+时间：2026-08-07
+
+### 复用的既有组件
+
+- `AdminRepository`：扩展既有车辆列表调用以传递 `limit`、`offset` 和总数，不新增第二套数据源。
+- `AdminUiState` 与 `AdminWorkspaceViewModel`：沿用单向状态流，新增档案搜索词、总数和分页加载状态。
+- `SearchViewModel` 与 `PlateQueryNormalizer`：沿用 250 毫秒防抖和归一化策略，将最小长度统一为 3。
+- `LazyColumn`：沿用既有稳定车辆标识键，通过 `snapshotFlow` 在接近底部时请求下一页。
+
+### 实施结果
+
+- 管理端接口响应增加 `total`；数据库在同一连接内取得分页数据和匹配总数。
+- 车辆档案页显示真实档案数、已加载进度、车牌检索框和追加加载状态；每次新搜索从第 1 页开始。
+- 后端和 Android 客户端均支持 3 个有效车牌字符起查；部署手册同步更新。
+- Material 3 主题切换为青绿、霜白、路牌黄和林墨，启动器图标改为自适应车牌标识。
+- 默认和生产访问令牌时长均为 43200 分钟，刷新令牌仍为 30 天。
+
+### 未重复实现的证明
+
+- 已检查管理员仓库、ViewModel、首页查询和 Compose 测试模式；所有功能均在既有边界内扩展。
+- 未引入第三方分页、网络、设计或图标依赖。

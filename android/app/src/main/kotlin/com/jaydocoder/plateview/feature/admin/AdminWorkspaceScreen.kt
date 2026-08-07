@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -29,12 +30,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
@@ -62,7 +65,11 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -80,6 +87,8 @@ import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportRow
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun AdminWorkspaceRoute(
@@ -96,6 +105,8 @@ fun AdminWorkspaceRoute(
         onNavigateUp = onNavigateUp,
         onTabSelected = viewModel::selectTab,
         onRefresh = viewModel::refresh,
+        onVehicleSearchQueryChanged = viewModel::updateVehicleSearchQuery,
+        onLoadMoreVehicles = viewModel::loadMoreVehicles,
         onCreateVehicle = viewModel::createVehicle,
         onEditVehicle = viewModel::editVehicle,
         onVehicleEditorChanged = viewModel::updateVehicleEditor,
@@ -125,6 +136,9 @@ fun AdminWorkspaceScreen(
     onNavigateUp: () -> Unit,
     onTabSelected: (AdminTab) -> Unit,
     onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    onVehicleSearchQueryChanged: (String) -> Unit = {},
+    onLoadMoreVehicles: () -> Unit = {},
     onCreateVehicle: () -> Unit,
     onEditVehicle: (Long) -> Unit,
     onVehicleEditorChanged: ((VehicleEditorState) -> VehicleEditorState) -> Unit,
@@ -144,7 +158,6 @@ fun AdminWorkspaceScreen(
     onImportResolution: (Long, String) -> Unit,
     onPublishImport: () -> Unit,
     onRollbackImport: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier,
@@ -214,7 +227,7 @@ fun AdminWorkspaceScreen(
                 } else {
                     when (uiState.tab) {
                         AdminTab.Dashboard -> DashboardPane(
-                            vehiclesCount = uiState.vehicles.size,
+                            vehiclesCount = uiState.vehicleTotalCount,
                             usersCount = uiState.users.size,
                             importsCount = uiState.importBatches.size,
                             onTabSelected = onTabSelected,
@@ -222,7 +235,12 @@ fun AdminWorkspaceScreen(
 
                         AdminTab.Vehicles -> VehiclesPane(
                             items = uiState.vehicles,
+                            searchQuery = uiState.vehicleSearchQuery,
+                            totalCount = uiState.vehicleTotalCount,
+                            isPageLoading = uiState.isVehiclePageLoading,
                             isSaving = uiState.isSaving,
+                            onSearchQueryChanged = onVehicleSearchQueryChanged,
+                            onLoadMore = onLoadMoreVehicles,
                             onCreate = onCreateVehicle,
                             onEdit = onEditVehicle,
                             onDeactivate = onDeactivateVehicle,
@@ -390,19 +408,48 @@ private fun DashboardCard(
 @Composable
 private fun VehiclesPane(
     items: List<ManagedVehicleSummary>,
+    searchQuery: String,
+    totalCount: Int,
+    isPageLoading: Boolean,
     isSaving: Boolean,
+    onSearchQueryChanged: (String) -> Unit,
+    onLoadMore: () -> Unit,
     onCreate: () -> Unit,
     onEdit: (Long) -> Unit,
     onDeactivate: (ManagedVehicleSummary) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            items.isNotEmpty() && lastVisibleIndex >= layoutInfo.totalItemsCount - LOAD_MORE_TRIGGER_DISTANCE
+        }
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { shouldLoadMore }
+            .distinctUntilChanged()
+            .collect { nearEnd -> if (nearEnd) onLoadMore() }
+    }
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier.fillMaxSize().testTag("admin_vehicle_archive"),
         contentPadding = PaddingValues(PlateViewDimensions.pageHorizontal, PlateViewDimensions.pageVertical),
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("所有车辆", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("车辆档案", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "$totalCount 条档案",
+                        modifier = Modifier.testTag("admin_vehicle_total"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Button(
                     onClick = onCreate,
                     enabled = !isSaving,
@@ -415,9 +462,74 @@ private fun VehiclesPane(
                 }
             }
         }
-        if (items.isEmpty()) item { EmptyPane("暂无车辆记录") }
+        item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChanged,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("admin_vehicle_search"),
+                label = { Text("按车牌号检索档案") },
+                placeholder = { Text("输入任意车牌字符") },
+                leadingIcon = {
+                    Icon(Icons.Outlined.Search, contentDescription = null)
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onSearchQueryChanged("") },
+                            modifier = Modifier.testTag("admin_vehicle_search_clear"),
+                        ) {
+                            Icon(Icons.Outlined.Close, contentDescription = "清除车牌检索")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+            )
+        }
+        item {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text(
+                text = "已加载 ${items.size} / $totalCount 条",
+                modifier = Modifier.padding(top = PlateViewDimensions.compactSpacing),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+        if (items.isEmpty() && !isPageLoading) item {
+            EmptyPane(if (searchQuery.isBlank()) "暂无车辆记录" else "未找到匹配的车辆档案")
+        }
         items(items, key = ManagedVehicleSummary::id) { item ->
             AdminVehicleItem(item, onEdit, onDeactivate, isSaving)
+        }
+        if (isPageLoading) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = PlateViewDimensions.compactSpacing)
+                        .testTag("admin_vehicle_load_more"),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    Text("正在加载车辆档案", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else if (items.isNotEmpty() && items.size < totalCount) {
+            item {
+                Text(
+                    text = "继续下滑加载更多档案",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = PlateViewDimensions.compactSpacing)
+                        .testTag("admin_vehicle_load_hint"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
         }
     }
 }
@@ -869,3 +981,4 @@ private val USER_STATUSES = listOf(ChoiceOption("ACTIVE", "启用"), ChoiceOptio
 
 private const val EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 private const val LEGACY_EXCEL_MIME_TYPE = "application/vnd.ms-excel"
+private const val LOAD_MORE_TRIGGER_DISTANCE = 4

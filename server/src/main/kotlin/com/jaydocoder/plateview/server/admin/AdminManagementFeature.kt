@@ -32,13 +32,13 @@ internal fun Application.configureAdminManagementFeature() {
                 route("/vehicles") {
                     get {
                         val actorId = call.requireAdministrator() ?: return@get
-                        val vehicles = service.listVehicles(
+                        val page = service.listVehicles(
                             keyword = call.request.queryParameters["keyword"],
                             limit = call.pageLimit(),
                             offset = call.pageOffset(),
                         )
                         call.auditAdmin(actorId, "VEHICLE_LIST", "VEHICLE", null)
-                        call.respond(AdminVehicleListResponse(vehicles.map(AdminVehicleListItem::toResponse)))
+                        call.respond(AdminVehicleListResponse(page.items.map(AdminVehicleListItem::toResponse), page.total))
                     }
                     post {
                         val actorId = call.requireAdministrator() ?: return@post
@@ -270,7 +270,7 @@ private fun AdminAuditEntry.toResponse(): AdminAuditEntryResponse = AdminAuditEn
     createdAt = createdAt,
 )
 
-@Serializable private data class AdminVehicleListResponse(val items: List<AdminVehicleListItemResponse>)
+@Serializable private data class AdminVehicleListResponse(val items: List<AdminVehicleListItemResponse>, val total: Int)
 @Serializable private data class AdminVehicleListItemResponse(val id: Long, val plateNumber: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?)
 @Serializable private data class AdminVehicleResponse(val id: Long, val plateNumber: String, val normalizedPlate: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?, val attributes: JsonObject, val residentProfile: AdminResidentProfileResponse?, val longTermProfile: AdminLongTermProfileResponse?)
 @Serializable private data class AdminResidentProfileResponse(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)

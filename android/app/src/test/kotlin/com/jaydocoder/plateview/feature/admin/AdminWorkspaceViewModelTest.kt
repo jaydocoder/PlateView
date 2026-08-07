@@ -10,6 +10,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
+import com.jaydocoder.plateview.domain.admin.ManagedVehiclePage
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
@@ -21,6 +22,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -83,6 +85,43 @@ class AdminWorkspaceViewModelTest {
         assertEquals(AdminFailure.Conflict, viewModel.uiState.value.failure)
     }
 
+    @Test
+    fun `车辆档案滚动加载下一页并保留真实总数`() = runTest {
+        val firstVehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
+        val secondVehicle = ManagedVehicleSummary(102, "新A12346", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
+        val repository = FakeAdminRepository(
+            vehiclePages = listOf(listOf(firstVehicle), listOf(secondVehicle)),
+            vehicleTotal = 2,
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
+        viewModel.loadMoreVehicles()
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.uiState.value.vehicleTotalCount)
+        assertEquals(listOf(firstVehicle, secondVehicle), viewModel.uiState.value.vehicles)
+        assertEquals(listOf(0, 0, 1), repository.vehicleOffsets)
+    }
+
+    @Test
+    fun `车辆档案搜索会重置分页并传递车牌关键字`() = runTest {
+        val repository = FakeAdminRepository()
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
+        viewModel.updateVehicleSearchQuery("新A1")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertEquals("新A1", repository.vehicleKeywords.last())
+        assertEquals(0, repository.vehicleOffsets.last())
+    }
+
     private fun createViewModel(
         repository: FakeAdminRepository = FakeAdminRepository(),
         role: String = "ADMIN",
@@ -95,14 +134,28 @@ class AdminWorkspaceViewModelTest {
 
 private class FakeAdminRepository(
     private val updateUserFailure: Throwable? = null,
+    private val vehiclePages: List<List<ManagedVehicleSummary>> = emptyList(),
+    private val vehicleTotal: Int = 1,
 ) : AdminRepository {
     var createdVehicleCount = 0
+    val vehicleOffsets = mutableListOf<Int>()
+    val vehicleKeywords = mutableListOf<String?>()
 
     private val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
     private val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
     private val batch = ManagedImportBatchSummary(1, "测试.xlsx", "VALIDATED", 1, 1, 0, 0, 0, null, null, null)
 
-    override suspend fun listVehicles(accessToken: String, keyword: String?): List<ManagedVehicleSummary> = listOf(vehicle)
+    override suspend fun listVehicles(
+        accessToken: String,
+        keyword: String?,
+        limit: Int,
+        offset: Int,
+    ): ManagedVehiclePage {
+        vehicleOffsets += offset
+        vehicleKeywords += keyword
+        val page = vehiclePages.getOrElse(if (offset == 0) 0 else 1) { listOf(vehicle) }
+        return ManagedVehiclePage(page, vehicleTotal)
+    }
     override suspend fun getVehicle(accessToken: String, vehicleId: Long): ManagedVehicle = error("本测试不编辑已有车辆")
     override suspend fun createVehicle(accessToken: String, command: VehicleWriteCommand): ManagedVehicle {
         createdVehicleCount += 1

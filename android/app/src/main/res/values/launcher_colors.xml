@@ -1,4 +1,4 @@
 <resources>
-    <color name="ic_plateview_launcher_background">#143A3A</color>
-    <color name="ic_plateview_launcher_foreground">#FFFFFF</color>
+    <color name="ic_plateview_launcher_background">#0D515B</color>
+    <color name="ic_plateview_launcher_foreground">#F6FAF8</color>
 </resources>

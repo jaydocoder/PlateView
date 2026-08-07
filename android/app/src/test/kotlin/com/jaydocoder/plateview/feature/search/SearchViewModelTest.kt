@@ -27,11 +27,11 @@ class SearchViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun `有效字符少于四位时不请求车辆仓库`() = runTest {
+    fun `有效字符少于三位时不请求车辆仓库`() = runTest {
         val vehicleRepository = FakeVehicleRepository()
         val viewModel = createViewModel(vehicleRepository = vehicleRepository)
 
-        viewModel.updateQuery("A12")
+        viewModel.updateQuery("A1")
         advanceTimeBy(250)
         advanceUntilIdle()
 
@@ -40,16 +40,16 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `四位有效字符会归一化后查询并显示候选`() = runTest {
+    fun `三位有效字符会归一化后查询并显示候选`() = runTest {
         val candidate = VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆")
         val vehicleRepository = FakeVehicleRepository(searchResult = listOf(candidate))
         val viewModel = createViewModel(vehicleRepository = vehicleRepository)
 
-        viewModel.updateQuery(" 新a-123 ")
+        viewModel.updateQuery(" 新a-12 ")
         advanceTimeBy(250)
         advanceUntilIdle()
 
-        assertEquals(listOf("新A123"), vehicleRepository.searchKeywords)
+        assertEquals(listOf("新A12"), vehicleRepository.searchKeywords)
         assertEquals(listOf(candidate), viewModel.uiState.value.candidates)
         assertEquals(SearchResultState.Idle, viewModel.uiState.value.resultState)
     }
@@ -58,7 +58,7 @@ class SearchViewModelTest {
     fun `无匹配时显示空结果状态`() = runTest {
         val viewModel = createViewModel(vehicleRepository = FakeVehicleRepository())
 
-        viewModel.updateQuery("新A999")
+        viewModel.updateQuery("新A99")
         advanceTimeBy(250)
         advanceUntilIdle()
 
@@ -101,10 +101,10 @@ class SearchViewModelTest {
     fun `录音权限拒绝后保留手动输入路径`() = runTest {
         val viewModel = createViewModel()
 
-        viewModel.updateQuery("新A123")
+        viewModel.updateQuery("新A12")
         viewModel.onVoicePermissionDenied()
 
-        assertEquals("新A123", viewModel.uiState.value.query)
+        assertEquals("新A12", viewModel.uiState.value.query)
         assertEquals(VoiceInputFailure.PermissionDenied, viewModel.uiState.value.voiceFailure)
     }
 
@@ -118,12 +118,12 @@ class SearchViewModelTest {
         )
 
         viewModel.startVoiceInput()
-        voiceRecognizer.emitResult(" 新a-123 ")
+        voiceRecognizer.emitResult(" 新a-12 ")
         advanceTimeBy(250)
         advanceUntilIdle()
 
-        assertEquals(" 新a-123 ", viewModel.uiState.value.query)
-        assertEquals(listOf("新A123"), vehicleRepository.searchKeywords)
+        assertEquals(" 新a-12 ", viewModel.uiState.value.query)
+        assertEquals(listOf("新A12"), vehicleRepository.searchKeywords)
     }
 
     private fun createViewModel(

@@ -17,6 +17,8 @@ interface AdminApi {
     suspend fun listVehicles(
         @Header("Authorization") authorization: String,
         @Query("keyword") keyword: String?,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
     ): AdminVehicleListResponseDto
 
     @GET("admin/vehicles/{vehicleId}")

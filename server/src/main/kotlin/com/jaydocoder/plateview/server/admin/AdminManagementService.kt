@@ -18,10 +18,10 @@ import org.mindrot.jbcrypt.BCrypt
 internal class AdminManagementService(
     private val dataSource: DataSource,
 ) {
-    fun listVehicles(keyword: String?, limit: Int, offset: Int): List<AdminVehicleListItem> {
+    fun listVehicles(keyword: String?, limit: Int, offset: Int): AdminVehiclePage {
         val normalizedKeyword = keyword?.takeIf(String::isNotBlank)?.let(::normalizePlate)
         return dataSource.connection.use { connection ->
-            connection.prepareStatement(SELECT_VEHICLES).use { statement ->
+            val items = connection.prepareStatement(SELECT_VEHICLES).use { statement ->
                 statement.setString(1, normalizedKeyword?.let { "%$it%" })
                 statement.setString(2, normalizedKeyword?.let { "%$it%" })
                 statement.setInt(3, limit.coerceIn(1, MAX_PAGE_SIZE))
@@ -32,6 +32,12 @@ internal class AdminManagementService(
                     }
                 }
             }
+            val total = connection.prepareStatement(COUNT_VEHICLES).use { statement ->
+                statement.setString(1, normalizedKeyword?.let { "%$it%" })
+                statement.setString(2, normalizedKeyword?.let { "%$it%" })
+                statement.executeQuery().use { result -> result.next(); result.getInt(1) }
+            }
+            AdminVehiclePage(items = items, total = total)
         }
     }
 
@@ -371,6 +377,12 @@ internal class AdminManagementService(
             LIMIT ? OFFSET ?
         """
 
+        const val COUNT_VEHICLES = """
+            SELECT COUNT(*)
+            FROM vehicles
+            WHERE (? IS NULL OR normalized_plate LIKE ?)
+        """
+
         const val SELECT_VEHICLE = """
             SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.status, v.version, v.vehicle_type,
                    v.attributes::text AS attributes,
@@ -490,6 +502,11 @@ internal data class AdminVehicleListItem(
     val status: AdminVehicleStatus,
     val version: Int,
     val vehicleType: String?,
+)
+
+internal data class AdminVehiclePage(
+    val items: List<AdminVehicleListItem>,
+    val total: Int,
 )
 
 internal data class AdminVehicleRecord(

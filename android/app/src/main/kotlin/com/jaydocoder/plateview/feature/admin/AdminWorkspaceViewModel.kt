@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
@@ -24,6 +26,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     private val sessionProvider: AuthSessionProvider,
     private val importFileReader: AdminImportFileReader,
 ) : ViewModel() {
+    private var vehicleSearchJob: Job? = null
     private val _uiState = MutableStateFlow(AdminUiState())
     val uiState: StateFlow<AdminUiState> = _uiState.asStateFlow()
 
@@ -36,16 +39,44 @@ class AdminWorkspaceViewModel @Inject constructor(
         refresh()
     }
 
-    fun refresh() = launchAdminAction { accessToken ->
-        _uiState.update { it.copy(isLoading = true, failure = null) }
-        when (_uiState.value.tab) {
-            AdminTab.Dashboard -> loadDashboard(accessToken)
-            AdminTab.Vehicles -> _uiState.update { it.copy(vehicles = repository.listVehicles(accessToken)) }
-            AdminTab.Users -> _uiState.update { it.copy(users = repository.listUsers(accessToken)) }
-            AdminTab.Imports -> _uiState.update { it.copy(importBatches = repository.listImportBatches(accessToken)) }
-            AdminTab.Audit -> _uiState.update { it.copy(auditEntries = repository.listAuditEntries(accessToken)) }
+    fun refresh() {
+        if (_uiState.value.tab == AdminTab.Vehicles) {
+            refreshVehicles()
+            return
         }
-        _uiState.update { it.copy(isLoading = false) }
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isLoading = true, failure = null) }
+            when (_uiState.value.tab) {
+                AdminTab.Dashboard -> loadDashboard(accessToken)
+                AdminTab.Vehicles -> Unit
+                AdminTab.Users -> _uiState.update { it.copy(users = repository.listUsers(accessToken)) }
+                AdminTab.Imports -> _uiState.update { it.copy(importBatches = repository.listImportBatches(accessToken)) }
+                AdminTab.Audit -> _uiState.update { it.copy(auditEntries = repository.listAuditEntries(accessToken)) }
+            }
+            _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun updateVehicleSearchQuery(query: String) {
+        _uiState.update {
+            it.copy(
+                vehicleSearchQuery = query,
+                isVehiclePageLoading = false,
+                failure = null,
+            )
+        }
+        vehicleSearchJob?.cancel()
+        vehicleSearchJob = viewModelScope.launch {
+            delay(VEHICLE_SEARCH_DEBOUNCE_MILLIS)
+            refreshVehicles()
+        }
+    }
+
+    fun loadMoreVehicles() {
+        if (_uiState.value.tab != AdminTab.Vehicles) return
+        launchAdminAction { accessToken ->
+            loadVehicles(accessToken, reset = false)
+        }
     }
 
     fun createVehicle() {
@@ -80,7 +111,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 repository.updateVehicle(accessToken, editor.id, editor.version, editor.toCommand())
             }
             _uiState.update { it.copy(isSaving = false, vehicleEditor = null) }
-            loadVehicles(accessToken)
+            loadVehicles(accessToken, reset = true)
         }
     }
 
@@ -98,7 +129,7 @@ class AdminWorkspaceViewModel @Inject constructor(
             _uiState.update { it.copy(isSaving = true, failure = null, pendingVehicleDeactivation = null) }
             repository.deactivateVehicle(accessToken, vehicle.id, vehicle.version)
             _uiState.update { it.copy(isSaving = false) }
-            loadVehicles(accessToken)
+            loadVehicles(accessToken, reset = true)
         }
     }
 
@@ -186,14 +217,56 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun loadDashboard(accessToken: String) {
-        val vehicles = repository.listVehicles(accessToken)
+        val vehiclePage = repository.listVehicles(accessToken)
         val users = repository.listUsers(accessToken)
         val batches = repository.listImportBatches(accessToken)
-        _uiState.update { it.copy(vehicles = vehicles, users = users, importBatches = batches) }
+        _uiState.update {
+            it.copy(
+                vehicles = vehiclePage.items,
+                vehicleTotalCount = vehiclePage.total,
+                users = users,
+                importBatches = batches,
+            )
+        }
     }
 
-    private suspend fun loadVehicles(accessToken: String) {
-        _uiState.update { it.copy(vehicles = repository.listVehicles(accessToken)) }
+    private fun refreshVehicles() = launchAdminAction { accessToken ->
+        loadVehicles(accessToken, reset = true)
+    }
+
+    private suspend fun loadVehicles(accessToken: String, reset: Boolean) {
+        val previousState = _uiState.value
+        if (!reset && (
+                previousState.isVehiclePageLoading ||
+                    previousState.vehicles.size >= previousState.vehicleTotalCount
+                )
+        ) {
+            return
+        }
+        val query = previousState.vehicleSearchQuery
+        val offset = if (reset) 0 else previousState.vehicles.size
+        _uiState.update {
+            it.copy(
+                isLoading = reset && it.vehicles.isEmpty(),
+                isVehiclePageLoading = true,
+                failure = null,
+            )
+        }
+        val page = repository.listVehicles(
+            accessToken = accessToken,
+            keyword = query.trim().ifEmpty { null },
+            limit = VEHICLE_PAGE_SIZE,
+            offset = offset,
+        )
+        if (_uiState.value.vehicleSearchQuery != query) return
+        _uiState.update { state ->
+            state.copy(
+                isLoading = false,
+                isVehiclePageLoading = false,
+                vehicles = if (reset) page.items else (state.vehicles + page.items).distinctBy { it.id },
+                vehicleTotalCount = page.total,
+            )
+        }
     }
 
     private suspend fun loadUsers(accessToken: String) {
@@ -218,6 +291,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                     it.copy(
                         isLoading = false,
                         isSaving = false,
+                        isVehiclePageLoading = false,
                         failure = throwable.toAdminFailure(),
                     )
                 }
@@ -229,6 +303,8 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private companion object {
+        const val VEHICLE_PAGE_SIZE = 100
+        const val VEHICLE_SEARCH_DEBOUNCE_MILLIS = 250L
         const val HTTP_UNAUTHORIZED = 401
     }
 }

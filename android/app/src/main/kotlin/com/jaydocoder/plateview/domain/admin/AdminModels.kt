@@ -10,6 +10,11 @@ data class ManagedVehicleSummary(
     val vehicleType: String?,
 )
 
+data class ManagedVehiclePage(
+    val items: List<ManagedVehicleSummary>,
+    val total: Int,
+)
+
 data class ManagedVehicle(
     val id: Long,
     val plateNumber: String,

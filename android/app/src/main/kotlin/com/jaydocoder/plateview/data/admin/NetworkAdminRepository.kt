@@ -10,6 +10,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedLongTermProfile
 import com.jaydocoder.plateview.domain.admin.ManagedResidentProfile
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
+import com.jaydocoder.plateview.domain.admin.ManagedVehiclePage
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
@@ -25,10 +26,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class NetworkAdminRepository @Inject constructor(
     private val api: AdminApi,
 ) : AdminRepository {
-    override suspend fun listVehicles(accessToken: String, keyword: String?): List<ManagedVehicleSummary> = api
-        .listVehicles(bearer(accessToken), keyword)
-        .items
-        .map(AdminVehicleListItemDto::toDomain)
+    override suspend fun listVehicles(
+        accessToken: String,
+        keyword: String?,
+        limit: Int,
+        offset: Int,
+    ): ManagedVehiclePage = api
+        .listVehicles(bearer(accessToken), keyword, limit, offset)
+        .let { response -> ManagedVehiclePage(response.items.map(AdminVehicleListItemDto::toDomain), response.total) }
 
     override suspend fun getVehicle(accessToken: String, vehicleId: Long): ManagedVehicle = api
         .getVehicle(bearer(accessToken), vehicleId)

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedUser
@@ -20,6 +21,56 @@ import org.junit.Test
 class AdminWorkspaceScreenTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun 车辆档案显示真实总数并接受车牌检索输入() {
+        var query: String? = null
+        val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, "小型汽车")
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Vehicles,
+                        vehicles = listOf(vehicle),
+                        vehicleTotalCount = 1165,
+                        isLoading = false,
+                    ),
+                    onNavigateUp = {},
+                    onTabSelected = {},
+                    onRefresh = {},
+                    onVehicleSearchQueryChanged = { query = it },
+                    onLoadMoreVehicles = {},
+                    onCreateVehicle = {},
+                    onEditVehicle = {},
+                    onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {},
+                    onSaveVehicle = {},
+                    onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {},
+                    onConfirmVehicleDeactivation = {},
+                    onCreateUser = {},
+                    onEditUser = {},
+                    onUserEditorChanged = {},
+                    onDismissUserEditor = {},
+                    onSaveUser = {},
+                    onChooseImport = {},
+                    onOpenImportBatch = {},
+                    onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> },
+                    onPublishImport = {},
+                    onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("1165 条档案").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_vehicle_search").performTextInput("新A1")
+
+        composeRule.runOnIdle {
+            assertEquals("新A1", query)
+        }
+    }
 
     @Test
     fun 车辆页展示新增入口和车辆编辑命令() {
