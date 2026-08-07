@@ -2,16 +2,24 @@ package com.jaydocoder.plateview.server.vehicle
 
 import java.sql.ResultSet
 import javax.sql.DataSource
+import com.jaydocoder.plateview.server.infrastructure.cache.RedisCache
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 internal class VehicleQueryService(
     private val dataSource: DataSource,
+    private val cache: RedisCache? = null,
 ) {
     fun search(keyword: String): List<VehicleSearchCandidate> {
         val normalizedKeyword = normalizeSearchKeyword(keyword)
-        return dataSource.connection.use { connection ->
+        val revision = catalogRevision()
+        val key = "vehicle:search:$revision:$normalizedKeyword"
+        cache?.get(key)?.let { return Json.decodeFromString(it) }
+        val candidates = dataSource.connection.use { connection ->
             connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
                 statement.setString(1, "%$normalizedKeyword%")
                 statement.setString(2, normalizedKeyword)
@@ -24,17 +32,52 @@ internal class VehicleQueryService(
                 }
             }
         }
+        cache?.put(key, Json.encodeToString(candidates), SEARCH_TTL_SECONDS)
+        return candidates
     }
 
     fun findDetail(vehicleId: Long): VehicleDetail? {
         require(vehicleId > 0) { "车辆标识无效" }
-        return dataSource.connection.use { connection ->
+        val revision = catalogRevision()
+        val key = "vehicle:detail:$revision:$vehicleId"
+        cache?.get(key)?.let { return Json.decodeFromString(it) }
+        val detail = dataSource.connection.use { connection ->
             connection.prepareStatement(SELECT_VEHICLE_DETAIL).use { statement ->
                 statement.setLong(1, vehicleId)
                 statement.executeQuery().use { result ->
                     if (result.next()) result.toVehicleDetail() else null
                 }
             }
+        }
+        detail?.let { cache?.put(key, Json.encodeToString(it), DETAIL_TTL_SECONDS) }
+        return detail
+    }
+
+    fun catalogVersion(): Long = catalogRevision()
+
+    fun catalog(limit: Int, offset: Int): VehicleCatalogPage {
+        require(limit in 1..500) { "目录分页大小必须在1到500之间" }
+        val revision = catalogRevision()
+        val key = "vehicle:catalog:$revision:$offset:$limit"
+        cache?.get(key)?.let { return Json.decodeFromString(it) }
+        val page = dataSource.connection.use { connection ->
+            val items = connection.prepareStatement(CATALOG_VEHICLES).use { statement ->
+                statement.setInt(1, limit)
+                statement.setInt(2, offset.coerceAtLeast(0))
+                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
+            }
+            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status = 'ACTIVE'").use { statement ->
+                statement.executeQuery().use { result -> result.next(); result.getInt(1) }
+            }
+            VehicleCatalogPage(revision, total, items)
+        }
+        cache?.put(key, Json.encodeToString(page), CATALOG_TTL_SECONDS)
+        return page
+    }
+
+    private fun catalogRevision(): Long = dataSource.connection.use { connection ->
+        connection.prepareStatement("SELECT revision FROM vehicle_catalog_state WHERE id = 1").use { statement ->
+            statement.executeQuery().use { result -> result.next(); result.getLong(1) }
         }
     }
 
@@ -96,6 +139,14 @@ internal class VehicleQueryService(
             LIMIT ?
         """
 
+        const val CATALOG_VEHICLES = """
+            SELECT id, plate_number, category FROM vehicles
+            WHERE status = 'ACTIVE' ORDER BY normalized_plate, id LIMIT ? OFFSET ?
+        """
+        const val SEARCH_TTL_SECONDS = 3_600L
+        const val DETAIL_TTL_SECONDS = 86_400L
+        const val CATALOG_TTL_SECONDS = 86_400L
+
         const val SELECT_VEHICLE_DETAIL = """
             SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.attributes::text,
                    rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
@@ -110,12 +161,14 @@ internal class VehicleQueryService(
     }
 }
 
+@Serializable
 internal data class VehicleSearchCandidate(
     val id: Long,
     val plateNumber: String,
     val category: VehicleCategory,
 )
 
+@Serializable
 internal data class VehicleDetail(
     val id: Long,
     val plateNumber: String,
@@ -127,6 +180,7 @@ internal data class VehicleDetail(
     val longTermProfile: LongTermVehicleProfile?,
 )
 
+@Serializable
 internal data class ResidentVehicleProfile(
     val ownerName: String,
     val identityCardNumber: String,
@@ -134,12 +188,16 @@ internal data class ResidentVehicleProfile(
     val remarks: String?,
 )
 
+@Serializable
 internal data class LongTermVehicleProfile(
     val organizationName: String?,
     val passHolder: String?,
     val passageDetails: String?,
     val remarks: String?,
 )
+
+@Serializable
+internal data class VehicleCatalogPage(val revision: Long, val total: Int, val items: List<VehicleSearchCandidate>)
 
 internal class VehicleSearchKeywordException : RuntimeException("请输入有效车牌字符")
 

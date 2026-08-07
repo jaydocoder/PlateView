@@ -3,6 +3,7 @@ package com.jaydocoder.plateview.server.vehicle
 import com.jaydocoder.plateview.server.infrastructure.database.AuditEvent
 import com.jaydocoder.plateview.server.infrastructure.database.AuditLogWriterKey
 import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
+import com.jaydocoder.plateview.server.infrastructure.cache.RedisCacheKey
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
@@ -22,13 +23,22 @@ import kotlinx.serialization.json.put
 
 internal fun Application.configureVehicleQueryFeature() {
     val dataSource = attributes.getOrNull(DataSourceKey) ?: return
-    val service = VehicleQueryService(dataSource)
+    val service = VehicleQueryService(dataSource, attributes.getOrNull(RedisCacheKey))
     routing {
         authenticate("access-token") {
             route("/vehicles") {
                 get("/search") {
                     val candidates = service.search(call.request.queryParameters["keyword"].orEmpty())
-                    call.respond(VehicleSearchResponse(candidates.map(VehicleSearchCandidate::toResponse)))
+                    call.respond(VehicleSearchResponse(service.catalogVersion(), candidates.map(VehicleSearchCandidate::toResponse)))
+                }
+                get("/catalog/version") {
+                    call.respond(VehicleCatalogVersionResponse(service.catalogVersion()))
+                }
+                get("/catalog") {
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 500
+                    val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
+                    val page = service.catalog(limit, offset)
+                    call.respond(VehicleCatalogResponse(page.revision, page.total, page.items.map(VehicleSearchCandidate::toResponse)))
                 }
                 get("/{vehicleId}") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
@@ -39,7 +49,7 @@ internal fun Application.configureVehicleQueryFeature() {
                         throw VehicleNotFoundException()
                     }
                     call.auditVehicleDetail(actorId, vehicleId, detail.normalizedPlate, "SUCCESS")
-                    call.respond(detail.toResponse())
+                    call.respond(detail.toResponse(service.catalogVersion()))
                 }
             }
         }
@@ -84,7 +94,8 @@ private fun VehicleSearchCandidate.toResponse(): VehicleSearchCandidateResponse 
     categoryLabel = category.displayName,
 )
 
-private fun VehicleDetail.toResponse(): VehicleDetailResponse = VehicleDetailResponse(
+private fun VehicleDetail.toResponse(catalogVersion: Long): VehicleDetailResponse = VehicleDetailResponse(
+    catalogVersion = catalogVersion,
     id = id,
     plateNumber = plateNumber,
     normalizedPlate = normalizedPlate,
@@ -112,8 +123,15 @@ private fun VehicleDetail.toResponse(): VehicleDetailResponse = VehicleDetailRes
 
 @Serializable
 private data class VehicleSearchResponse(
+    val catalogVersion: Long,
     val candidates: List<VehicleSearchCandidateResponse>,
 )
+
+@Serializable
+private data class VehicleCatalogVersionResponse(val catalogVersion: Long)
+
+@Serializable
+private data class VehicleCatalogResponse(val catalogVersion: Long, val total: Int, val items: List<VehicleSearchCandidateResponse>)
 
 @Serializable
 private data class VehicleSearchCandidateResponse(
@@ -125,6 +143,7 @@ private data class VehicleSearchCandidateResponse(
 
 @Serializable
 private data class VehicleDetailResponse(
+    val catalogVersion: Long,
     val id: Long,
     val plateNumber: String,
     val normalizedPlate: String,
