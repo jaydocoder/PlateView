@@ -749,3 +749,12 @@
 - 已分析车辆查询服务、数据库索引、Room 搜索历史、认证会话、管理员写入与导入事务入口。
 - 缓存实施复用现有 Kotlin、Hilt、Room、Compose 状态流和 Docker Compose 模式；不引入第二套网络栈。
 - 本轮不执行部署、容器重启、远程访问或真机安装。
+
+## Redis 服务端缓存发布
+
+时间：2026-08-07 23:56 CST
+
+- 已确认提交 `7b0f4fa` 与 `origin/main` 一致。
+- 已将对应 API 镜像、部署文件与 Redis 镜像部署到阿里云 `/opt/plateview`，并重建 API 与 Redis 服务。
+- 已验证 Flyway 版本 5、Redis 连通性、API 容器回环健康检查、公网健康检查与正式 APK 的 V3 签名。
+- 保留 `server/gradle/wrapper/gradle-wrapper.properties` 的未提交本地修改，未暂存、未提交、未部署。
