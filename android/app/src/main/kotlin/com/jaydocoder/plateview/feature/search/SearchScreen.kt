@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -150,7 +151,7 @@ fun SearchScreen(
                             color = MaterialTheme.colorScheme.primaryContainer,
                             shape = CircleShape,
                         ) {
-                            Icon(
+                            Image(
                                 painter = painterResource(R.drawable.ic_plateview_launcher_foreground),
                                 contentDescription = null,
                                 modifier = Modifier.padding(5.dp),
