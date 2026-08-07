@@ -404,8 +404,9 @@ private fun VehiclesPane(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("所有车辆", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Button(
-                    onClick = onCreate, 
-                    enabled = !isSaving, 
+                    onClick = onCreate,
+                    enabled = !isSaving,
+                    modifier = Modifier.testTag("admin_new_vehicle"),
                     shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -725,14 +726,21 @@ private fun ImportBatchDialog(
             }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (batch.status == "PUBLISHED") {
-                    OutlinedButton(onClick = onRollback, enabled = !isSaving) { Text("撤销发布") }
-                } else {
-                    Button(
-                        onClick = onPublish, 
-                        enabled = !isSaving && batch.stats.pendingReviewRows == 0 && batch.stats.publishableRows > 0
-                    ) { Text("正式发布数据") }
+            if (batch.status == "PUBLISHED") {
+                OutlinedButton(
+                    onClick = { onRollback() },
+                    enabled = !isSaving,
+                    modifier = Modifier.testTag("admin_rollback_import"),
+                ) {
+                    Text("撤销发布")
+                }
+            } else {
+                Button(
+                    onClick = { onPublish() },
+                    enabled = !isSaving && batch.stats.pendingReviewRows == 0 && batch.stats.publishableRows > 0,
+                    modifier = Modifier.testTag("admin_publish_import"),
+                ) {
+                    Text("正式发布数据")
                 }
             }
         },

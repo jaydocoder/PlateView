@@ -6,6 +6,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.jaydocoder.plateview.domain.admin.ImportBatchStats
+import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.admin.AdminTab
@@ -95,6 +97,66 @@ class AdminWorkspaceScreenTest {
         }
 
         composeRule.onNodeWithText("operator").assertIsDisplayed()
-        composeRule.onNodeWithText("普通用户 · 启用").assertIsDisplayed()
+        composeRule.onNodeWithText("核验员 · 正常").assertIsDisplayed()
+    }
+
+    @Test
+    fun 导入预览中点击正式发布会调用发布命令() {
+        var publishCalled = 0
+        val batch = ManagedImportBatch(
+            id = 2,
+            sourceFileName = "导入数据.xlsx",
+            status = "VALIDATED",
+            stats = ImportBatchStats(
+                totalRows = 390,
+                newRows = 385,
+                updateRows = 0,
+                duplicateRows = 2,
+                errorRows = 2,
+                warningRows = 0,
+                publishableRows = 385,
+                pendingReviewRows = 0,
+            ),
+            createdAt = null,
+            publishedAt = null,
+            rollbackAt = null,
+            rows = emptyList(),
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(tab = AdminTab.Imports, isLoading = false, selectedImportBatch = batch),
+                    onNavigateUp = {},
+                    onTabSelected = {},
+                    onRefresh = {},
+                    onCreateVehicle = {},
+                    onEditVehicle = {},
+                    onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {},
+                    onSaveVehicle = {},
+                    onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {},
+                    onConfirmVehicleDeactivation = {},
+                    onCreateUser = {},
+                    onEditUser = {},
+                    onUserEditorChanged = {},
+                    onDismissUserEditor = {},
+                    onSaveUser = {},
+                    onChooseImport = {},
+                    onOpenImportBatch = {},
+                    onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> },
+                    onPublishImport = { publishCalled += 1 },
+                    onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("admin_publish_import").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, publishCalled)
+        }
     }
 }
