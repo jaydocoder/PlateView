@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,30 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.kapt)
     alias(libs.plugins.kotlin.serialization)
+}
+
+val releaseSigningProperties = Properties()
+val releaseSigningPropertiesFile = rootProject.file("keystore.properties")
+if (releaseSigningPropertiesFile.isFile) {
+    releaseSigningPropertiesFile.inputStream().use(releaseSigningProperties::load)
+}
+
+val releaseSigningRequiredKeys = listOf(
+    "storeFile",
+    "storePassword",
+    "keyAlias",
+    "keyPassword",
+)
+val hasReleaseSigning = releaseSigningRequiredKeys.all(releaseSigningProperties::containsKey)
+val releaseDistributionRequested = gradle.startParameter.taskNames.any { taskName ->
+    val normalizedTaskName = taskName.lowercase()
+    normalizedTaskName.endsWith("assemblerelease") || normalizedTaskName.endsWith("bundlerelease")
+}
+
+if (releaseDistributionRequested && !hasReleaseSigning) {
+    throw GradleException(
+        "正式构建缺少 android/keystore.properties。请先运行 android/scripts/create-release-signing.sh。",
+    )
 }
 
 android {
@@ -42,6 +68,28 @@ android {
 
     lint {
         lintConfig = file("lint.xml")
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseSigningProperties.getProperty("storeFile"))
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 }
 

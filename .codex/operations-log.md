@@ -655,3 +655,33 @@
 
 - 保持项目现有图标资源名称、自适应图标 XML 和清单入口，不新增第二套图标机制。
 - 图像处理仅使用项目已配置的 `remove_chroma_key.py` 工具，不引入新的运行时依赖。
+
+## 正式 Android 签名 - 编码前检查
+
+时间：2026-08-07
+
+- 已查阅 `.codex/context-summary-release-signing.md`，并分析 `android/app/build.gradle.kts`、`.gitignore`、`docs/12-部署运行手册.md` 和已有 Android 测试目录。
+- 将复用 Android Gradle Plugin 内置签名机制、Kotlin DSL 和现有本机忽略规则，不引入第三方发布插件。
+- 将提供由用户在可见终端输入密码的本机初始化脚本；密钥与密码不进入代理上下文、操作日志或 Git。
+
+## 正式 Android 签名 - 编码后声明
+
+时间：2026-08-07
+
+### 复用的既有组件
+
+- `android/app/build.gradle.kts`：沿用现有 Kotlin DSL 与正式地址 Gradle 属性，在同一 Android 模块内接入 `release` 签名配置。
+- `.gitignore`：沿用现有本机密钥与 APK 忽略规则，发布密钥、密码配置和构建产物均未进入版本控制。
+- `docs/12-部署运行手册.md`：在既有正式构建章节中补充密钥初始化、签名验证和真机安装步骤。
+
+### 实施结果
+
+- 已创建用户目录中的发布密钥和权限为 `600` 的未提交本机签名配置。
+- `assembleRelease` 与 `bundleRelease` 缺少签名配置时会在 Gradle 配置阶段清晰失败，避免误分发未签名 APK。
+- 已构建指向正式 HTTPS 地址的已签名 APK，并通过 `apksigner verify` 和发布变体单元测试。
+- 已新增交互式初始化脚本，密码输入不回显，脚本与构建配置均不输出或记录密码。
+
+### 未重复实现的证明
+
+- 使用 Android Gradle Plugin、`keytool` 和 `apksigner` 的标准能力，未引入第三方签名服务或构建插件。
+- 未修改 Android 应用业务代码、网络配置、数据模型或服务端部署。
