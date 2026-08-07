@@ -37,6 +37,23 @@ class ExcelImportParserTest {
     }
 
     @Test
+    fun `警车和应急车后缀作为完整车牌解析`() {
+        val rows = parser.parse(
+            workbookBytes { workbook ->
+                val sheet = workbook.createSheet("村民车辆")
+                writeRow(sheet, 0, "姓名", "身份证号", "车牌号")
+                writeRow(sheet, 1, "测试甲", "12345678901234567X", "新H0123警；新X4567应急")
+            },
+        )
+
+        assertEquals(2, rows.size)
+        assertTrue(rows.all { it.resultStatus == ImportResultStatus.VALID })
+        assertEquals(listOf("新H0123警", "新X4567应急"), rows.map { it.vehicle.normalizedPlate })
+        assertEquals(ImportResolution.PENDING, rows[0].resolution)
+        assertTrue(rows[0].warningMessage.orEmpty().contains("拆分为2个车牌"))
+    }
+
+    @Test
     fun `长期车辆工作表继承单位并拆分多车牌`() {
         val rows = parser.parse(
             workbookBytes { workbook ->

@@ -17,7 +17,12 @@ interface AdminRepository {
     suspend fun updateUser(accessToken: String, userId: Long, version: Int, command: UserUpdateCommand): ManagedUser
 
     suspend fun listImportBatches(accessToken: String): List<ManagedImportBatchSummary>
-    suspend fun getImportBatch(accessToken: String, batchId: Long): ManagedImportBatch
+    suspend fun getImportBatch(
+        accessToken: String,
+        batchId: Long,
+        limit: Int = 100,
+        offset: Int = 0,
+    ): ManagedImportBatch
     suspend fun previewImport(accessToken: String, fileName: String, content: ByteArray): ManagedImportBatch
     suspend fun updateImportResolution(accessToken: String, batchId: Long, rowId: Long, resolution: String): ManagedImportBatch
     suspend fun publishImport(accessToken: String, batchId: Long): ManagedImportBatch

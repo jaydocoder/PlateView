@@ -123,6 +123,7 @@ fun AdminWorkspaceRoute(
         onChooseImport = { documentPicker.launch(arrayOf(EXCEL_MIME_TYPE, LEGACY_EXCEL_MIME_TYPE)) },
         onOpenImportBatch = viewModel::openImportBatch,
         onDismissImportBatch = viewModel::dismissImportBatch,
+        onLoadMoreImportRows = viewModel::loadMoreImportRows,
         onImportResolution = viewModel::updateImportResolution,
         onPublishImport = viewModel::publishImport,
         onRollbackImport = viewModel::rollbackImport,
@@ -155,6 +156,7 @@ fun AdminWorkspaceScreen(
     onChooseImport: () -> Unit,
     onOpenImportBatch: (Long) -> Unit,
     onDismissImportBatch: () -> Unit,
+    onLoadMoreImportRows: () -> Unit = {},
     onImportResolution: (Long, String) -> Unit,
     onPublishImport: () -> Unit,
     onRollbackImport: () -> Unit,
@@ -305,7 +307,9 @@ fun AdminWorkspaceScreen(
         ImportBatchDialog(
             batch = batch,
             isSaving = uiState.isSaving,
+            isPageLoading = uiState.isImportPageLoading,
             onDismiss = onDismissImportBatch,
+            onLoadMore = onLoadMoreImportRows,
             onResolution = onImportResolution,
             onPublish = onPublishImport,
             onRollback = onRollbackImport,
@@ -812,16 +816,38 @@ private fun UserEditorDialog(
 private fun ImportBatchDialog(
     batch: ManagedImportBatch,
     isSaving: Boolean,
+    isPageLoading: Boolean,
     onDismiss: () -> Unit,
+    onLoadMore: () -> Unit,
     onResolution: (Long, String) -> Unit,
     onPublish: () -> Unit,
     onRollback: () -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val hasMoreRows = batch.rows.size < batch.stats.totalRows
+    val shouldLoadMore by remember(listState, batch.rows.size, batch.stats.totalRows, isPageLoading) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            batch.rows.isNotEmpty() &&
+                hasMoreRows &&
+                !isPageLoading &&
+                lastVisibleIndex >= layoutInfo.totalItemsCount - LOAD_MORE_TRIGGER_DISTANCE
+        }
+    }
+
+    LaunchedEffect(listState, batch.id, batch.rows.size, batch.stats.totalRows, isPageLoading) {
+        snapshotFlow { shouldLoadMore }
+            .distinctUntilChanged()
+            .collect { nearEnd -> if (nearEnd) onLoadMore() }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("数据预览与核对", fontWeight = FontWeight.Bold) },
         text = {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.heightIn(max = 440.dp),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
@@ -830,10 +856,43 @@ private fun ImportBatchDialog(
                         Text(batch.sourceFileName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text("当前状态: ${batch.status}", color = MaterialTheme.colorScheme.primary)
                         Text("待处理: ${batch.stats.pendingReviewRows} 行 | 可发布: ${batch.stats.publishableRows} 行", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = "已加载 ${batch.rows.size} / ${batch.stats.totalRows} 行",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
                     }
                 }
                 items(batch.rows, key = ManagedImportRow::id) { row ->
                     ImportRowItem(row, isSaving, onResolution)
+                }
+                if (isPageLoading) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = PlateViewDimensions.compactSpacing)
+                                .testTag("admin_import_load_more"),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                            Text("正在加载导入记录", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                } else if (hasMoreRows) {
+                    item {
+                        Text(
+                            text = "继续下滑加载更多记录",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = PlateViewDimensions.compactSpacing)
+                                .testTag("admin_import_load_hint"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
                 }
             }
         },

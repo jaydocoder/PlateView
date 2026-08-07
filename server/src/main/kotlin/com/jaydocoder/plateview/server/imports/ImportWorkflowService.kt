@@ -27,6 +27,7 @@ internal class ImportWorkflowService(
             val classifiedRows = classifyRows(connection, parsedRows)
             val stats = classifiedRows.toStats()
             val batchId = insertBatch(connection, fileName, sha256(bytes), stats, actorId)
+            val storedRows = classifiedRows.map { row -> row.toView(insertRow(connection, batchId, row, actorId)) }
             ImportBatchView(
                 id = batchId,
                 sourceFileName = fileName,
@@ -35,7 +36,7 @@ internal class ImportWorkflowService(
                 createdAt = null,
                 publishedAt = null,
                 rollbackAt = null,
-                rows = classifiedRows.map { row -> row.toView(insertRow(connection, batchId, row, actorId)) },
+                rows = storedRows.take(INITIAL_PREVIEW_PAGE_SIZE),
             )
         }
     }
@@ -853,6 +854,7 @@ internal class ImportWorkflowService(
         const val MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
         const val MAX_IMPORT_ROWS = 10_000
         const val MAX_PAGE_SIZE = 500
+        const val INITIAL_PREVIEW_PAGE_SIZE = 200
     }
 }
 

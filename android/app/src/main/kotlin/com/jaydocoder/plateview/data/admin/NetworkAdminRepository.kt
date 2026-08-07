@@ -79,8 +79,13 @@ class NetworkAdminRepository @Inject constructor(
         .items
         .map(AdminImportBatchSummaryDto::toDomain)
 
-    override suspend fun getImportBatch(accessToken: String, batchId: Long): ManagedImportBatch = api
-        .getImportBatch(bearer(accessToken), batchId)
+    override suspend fun getImportBatch(
+        accessToken: String,
+        batchId: Long,
+        limit: Int,
+        offset: Int,
+    ): ManagedImportBatch = api
+        .getImportBatch(bearer(accessToken), batchId, limit, offset)
         .toDomain()
 
     override suspend fun previewImport(accessToken: String, fileName: String, content: ByteArray): ManagedImportBatch {

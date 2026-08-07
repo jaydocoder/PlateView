@@ -710,3 +710,36 @@
 - 解析器应完整保存警车与应急车后缀，不能只截取普通车牌前缀，否则会破坏唯一检索键。
 - 修复应先新增匿名化警车、应急车、普通车牌和多车牌单元格回归测试，再扩展候选车牌规则。
 - 已创建的异常导入批次保存的是当时的解析快照；部署修复后必须重新上传原工作簿并创建新预览批次，旧异常行不会自动变为可发布记录。
+
+## 特殊车牌与导入预览分页修复 - 编码前检查
+
+时间：2026-08-07
+
+- 已查阅 `.codex/context-summary-special-plate-import-diagnosis.md`，并复用 `ExcelImportParserTest` 的内存工作簿夹具、`AdminWorkspaceViewModel` 的车辆分页模式、`AdminUiState` 状态流、`AdminApi` 查询参数和 `ImportBatchDialog` 的稳定行键。
+- 命名遵循现有 Kotlin 约定：分页参数采用 `limit`、`offset`，界面状态使用不可变 `AdminUiState`，近底加载沿用 `snapshotFlow`。
+- 不新增第三方库；服务端复用既有 `ImportWorkflowService.getBatch` 分页契约，移动端复用既有车辆列表的分页与去重策略。
+- 本轮仅改动本地工作区，不运行 Docker、SSH、部署脚本、服务器上传或真机安装命令。
+
+## 特殊车牌与导入预览分页修复 - 编码后声明
+
+时间：2026-08-07
+
+### 复用的既有组件
+
+- `ExcelImportParser` 与 `ExcelImportParserTest`：扩展已有候选抽取规则和 Apache POI 内存工作簿测试，不引入第二套导入器。
+- `ImportWorkflowService.getBatch`：继续使用既有 `limit`、`offset` 分页读取与批次统计，预览创建仅限制响应行数，不限制数据库保存行数。
+- `AdminRepository`、`AdminWorkspaceViewModel` 与 `AdminUiState`：沿用车辆档案的页大小、偏移量、加载状态和按标识去重追加模式。
+- `ImportBatchDialog`：沿用既有 `LazyColumn`、稳定行键和 `snapshotFlow` 近底加载模式。
+
+### 实施结果
+
+- 车牌抽取规则新增警车和应急车的完整后缀形式；归一化键保留后缀，普通车牌匹配保持不变。
+- 新建导入批次的响应只包含首个 200 行窗口，完整行仍持久化到 `import_rows`。
+- Android 客户端读取导入批次时传递 `limit`、`offset`，以每页 100 行在接近底部时继续加载，并显示已加载进度。
+- ViewModel 在加载中和已加载完整时拒绝重复请求；追加结果以导入行标识去重。
+- 本轮未部署服务器、未上传代码、未重装或启动真机 APK。
+
+### 未重复实现的证明
+
+- 未增加分页库、额外网络层或新的数据模型；实现完全复用既有 REST 分页和 Compose 列表模式。
+- 已检查现有车辆档案分页、导入工作流和解析器测试，确认不存在可直接覆盖特殊后缀与导入行懒加载的既有实现。

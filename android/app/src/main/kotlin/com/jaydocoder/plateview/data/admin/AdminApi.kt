@@ -72,6 +72,8 @@ interface AdminApi {
     suspend fun getImportBatch(
         @Header("Authorization") authorization: String,
         @Path("batchId") batchId: Long,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
     ): AdminImportBatchDto
 
     @Multipart

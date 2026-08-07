@@ -253,7 +253,7 @@ internal class ExcelImportParser {
         val IDENTITY_CARD_PATTERN = Regex("^[1-9]\\d{16}[0-9X]$")
         val PHONE_PATTERN = Regex("^(1[3-9]\\d{9}|0\\d{2,3}-?\\d{7,8})$")
         val PLATE_SEPARATOR = Regex("[\\r\\n,，、;；/|]+")
-        val PLATE_PATTERN = Regex("[\\p{IsHan}][A-Z][A-Z0-9]{5,6}")
+        val PLATE_PATTERN = Regex("[\\p{IsHan}][A-Z](?:[A-Z0-9]{4}(?:警|应急)|[A-Z0-9]{5,6})")
     }
 }
 

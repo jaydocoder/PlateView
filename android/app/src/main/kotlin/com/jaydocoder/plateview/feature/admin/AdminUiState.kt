@@ -14,6 +14,7 @@ data class AdminUiState(
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val isVehiclePageLoading: Boolean = false,
+    val isImportPageLoading: Boolean = false,
     val failure: AdminFailure? = null,
     val vehicles: List<ManagedVehicleSummary> = emptyList(),
     val vehicleSearchQuery: String = "",

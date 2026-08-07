@@ -8,6 +8,7 @@ import com.jaydocoder.plateview.domain.admin.ImportBatchStats
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
+import com.jaydocoder.plateview.domain.admin.ManagedImportRow
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
 import com.jaydocoder.plateview.domain.admin.ManagedVehiclePage
@@ -122,6 +123,28 @@ class AdminWorkspaceViewModelTest {
         assertEquals(0, repository.vehicleOffsets.last())
     }
 
+    @Test
+    fun `导入预览滚动加载下一页并在完整加载后停止请求`() = runTest {
+        val firstRow = ManagedImportRow(201, "驻景区单位", 3, 0, "新A12345", "SCENIC_UNIT", "测试单位", "VALID", "CREATE", "PUBLISH", null, null)
+        val secondRow = ManagedImportRow(202, "驻景区单位", 4, 0, "新A12346", "SCENIC_UNIT", "测试单位", "VALID", "CREATE", "PUBLISH", null, null)
+        val repository = FakeAdminRepository(
+            importPages = listOf(listOf(firstRow), listOf(secondRow)),
+            importTotal = 2,
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.openImportBatch(1)
+        advanceUntilIdle()
+        viewModel.loadMoreImportRows()
+        advanceUntilIdle()
+        viewModel.loadMoreImportRows()
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1), repository.importOffsets)
+        assertEquals(listOf(firstRow, secondRow), viewModel.uiState.value.selectedImportBatch?.rows)
+    }
+
     private fun createViewModel(
         repository: FakeAdminRepository = FakeAdminRepository(),
         role: String = "ADMIN",
@@ -136,10 +159,13 @@ private class FakeAdminRepository(
     private val updateUserFailure: Throwable? = null,
     private val vehiclePages: List<List<ManagedVehicleSummary>> = emptyList(),
     private val vehicleTotal: Int = 1,
+    private val importPages: List<List<ManagedImportRow>> = emptyList(),
+    private val importTotal: Int = 0,
 ) : AdminRepository {
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
     val vehicleKeywords = mutableListOf<String?>()
+    val importOffsets = mutableListOf<Int>()
 
     private val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
     private val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
@@ -170,7 +196,25 @@ private class FakeAdminRepository(
         return user
     }
     override suspend fun listImportBatches(accessToken: String): List<ManagedImportBatchSummary> = listOf(batch)
-    override suspend fun getImportBatch(accessToken: String, batchId: Long): ManagedImportBatch = error("本测试不读取导入详情")
+    override suspend fun getImportBatch(
+        accessToken: String,
+        batchId: Long,
+        limit: Int,
+        offset: Int,
+    ): ManagedImportBatch {
+        importOffsets += offset
+        val page = importPages.getOrElse(if (offset == 0) 0 else 1) { emptyList() }
+        return ManagedImportBatch(
+            id = batchId,
+            sourceFileName = "测试导入.xlsx",
+            status = "VALIDATED",
+            stats = ImportBatchStats(importTotal, importTotal, 0, 0, 0, 0, importTotal, 0),
+            createdAt = null,
+            publishedAt = null,
+            rollbackAt = null,
+            rows = page,
+        )
+    }
     override suspend fun previewImport(accessToken: String, fileName: String, content: ByteArray): ManagedImportBatch = error("本测试不上传文件")
     override suspend fun updateImportResolution(accessToken: String, batchId: Long, rowId: Long, resolution: String): ManagedImportBatch = error("本测试不处理导入行")
     override suspend fun publishImport(accessToken: String, batchId: Long): ManagedImportBatch = error("本测试不发布")
