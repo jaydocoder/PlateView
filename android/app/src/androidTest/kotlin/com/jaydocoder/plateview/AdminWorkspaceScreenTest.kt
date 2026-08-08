@@ -148,16 +148,17 @@ class AdminWorkspaceScreenTest {
         }
 
         composeRule.onNodeWithText("operator").assertIsDisplayed()
-        composeRule.onNodeWithText("核验员 · 正常").assertIsDisplayed()
+        composeRule.onNodeWithText("核验员").assertIsDisplayed()
+        composeRule.onNodeWithText("正常").assertIsDisplayed()
     }
 
     @Test
-    fun 导入预览中点击正式发布会调用发布命令() {
+    fun 已撤销导入预览中点击重新发布会调用发布命令() {
         var publishCalled = 0
         val batch = ManagedImportBatch(
             id = 2,
             sourceFileName = "导入数据.xlsx",
-            status = "VALIDATED",
+            status = "ROLLED_BACK",
             stats = ImportBatchStats(
                 totalRows = 390,
                 newRows = 385,
@@ -204,6 +205,8 @@ class AdminWorkspaceScreenTest {
             }
         }
 
+        composeRule.onNodeWithText("该批次已经撤销，可重新发布").assertIsDisplayed()
+        composeRule.onNodeWithText("重新发布数据").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_publish_import").performClick()
 
         composeRule.runOnIdle {

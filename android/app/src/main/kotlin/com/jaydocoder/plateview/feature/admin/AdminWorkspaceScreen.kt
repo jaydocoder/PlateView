@@ -28,8 +28,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
@@ -395,11 +397,20 @@ private fun DashboardCard(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Box(
-                modifier = Modifier.size(40.dp).background(color.copy(alpha = 0.1f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp), tint = color)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(40.dp).background(color.copy(alpha = 0.1f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp), tint = color)
+                }
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    Icons.AutoMirrored.Outlined.ArrowForward,
+                    contentDescription = "打开$title",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.outline,
+                )
             }
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -444,20 +455,18 @@ private fun VehiclesPane(
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("车辆档案", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        text = "$totalCount 条档案",
-                        modifier = Modifier.testTag("admin_vehicle_total"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing)) {
+                AdminPaneHeading(
+                    title = "车辆档案",
+                    description = "按车牌核对、维护景区通行车辆",
+                    metric = "$totalCount 条档案",
+                    icon = Icons.Outlined.VerifiedUser,
+                    metricModifier = Modifier.testTag("admin_vehicle_total"),
+                )
                 Button(
                     onClick = onCreate,
                     enabled = !isSaving,
-                    modifier = Modifier.testTag("admin_new_vehicle"),
+                    modifier = Modifier.align(Alignment.End).testTag("admin_new_vehicle"),
                     shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)
                 ) {
                     Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -556,28 +565,22 @@ private fun AdminVehicleItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(item.plateNumber, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        color = if (item.status == "ACTIVE") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            item.statusLabel(), 
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (item.status == "ACTIVE") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(item.categoryLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text(item.plateNumber, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    AdminStatusBadge(item.statusLabel(), item.status == "ACTIVE")
+                }
+                Spacer(Modifier.height(PlateViewDimensions.tinySpacing))
+                Text(item.categoryLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                item.vehicleType?.takeIf(String::isNotBlank)?.let { type ->
+                    Text(type, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
                 }
             }
             IconButton(onClick = { onEdit(item.id) }) {
-                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Outlined.Edit, contentDescription = "编辑 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             }
             IconButton(onClick = { onDeactivate(item) }, enabled = item.status == "ACTIVE" && !isSaving) {
-                Icon(Icons.Outlined.Block, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Outlined.Block, contentDescription = "停用 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -596,12 +599,17 @@ private fun UsersPane(
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("系统账号", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing)) {
+                AdminPaneHeading(
+                    title = "系统账号",
+                    description = "维护核验人员与管理员角色",
+                    metric = "${items.size} 个账号",
+                    icon = Icons.Outlined.SupervisorAccount,
+                )
                 Button(onClick = onCreate, enabled = !isSaving) {
                     Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("新增")
+                    Text("新增账号")
                 }
             }
         }
@@ -622,9 +630,11 @@ private fun UsersPane(
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(item.username, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("${item.roleLabel()} · ${item.statusLabel()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                        Text(item.roleLabel(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                     }
-                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.outline)
+                    AdminStatusBadge(item.statusLabel(), item.status == "ACTIVE")
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    Icon(Icons.Outlined.Edit, contentDescription = "编辑 ${item.username}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.outline)
                 }
             }
         }
@@ -644,8 +654,13 @@ private fun ImportsPane(
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("数据导入", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing)) {
+                AdminPaneHeading(
+                    title = "数据导入",
+                    description = "上传、核对并发布车辆资料",
+                    metric = "${items.size} 个批次",
+                    icon = Icons.Outlined.FileUpload,
+                )
                 Button(onClick = onChooseImport, enabled = !isSaving) {
                     Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
@@ -667,7 +682,10 @@ private fun ImportsPane(
                         Text(item.createdAt ?: "未知时间", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(item.sourceFileName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(item.sourceFileName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        AdminStatusBadge(item.importStatusLabel(), item.status == "PUBLISHED")
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row {
                         Text("共 ${item.totalRows} 行", style = MaterialTheme.typography.bodySmall)
@@ -686,7 +704,14 @@ private fun AuditPane(items: List<ManagedAuditEntry>) {
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(PlateViewDimensions.pageHorizontal, PlateViewDimensions.pageVertical),
     ) {
-        item { Text("安全审计日志", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp)) }
+        item {
+            AdminPaneHeading(
+                title = "操作审计",
+                description = "追踪账号、车辆与导入操作记录",
+                metric = "${items.size} 条记录",
+                icon = Icons.Outlined.Security,
+            )
+        }
         if (items.isEmpty()) item { EmptyPane("暂无审计记录") }
         items(items, key = ManagedAuditEntry::id) { item ->
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
@@ -705,7 +730,7 @@ private fun AuditPane(items: List<ManagedAuditEntry>) {
                     "${item.actorUsername ?: "系统"} 对 ${item.targetType}${item.targetId?.let { " #$it" }.orEmpty()} 执行了操作",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Text("状态: ${item.resultStatus}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                AdminStatusBadge(item.resultStatus, item.resultStatus == "SUCCESS")
                 HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
         }
@@ -725,6 +750,61 @@ private fun EmptyPane(message: String) {
 }
 
 @Composable
+private fun AdminPaneHeading(
+    title: String,
+    description: String,
+    metric: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    metricModifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            shape = CircleShape,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.padding(10.dp).size(22.dp))
+        }
+        Spacer(Modifier.width(PlateViewDimensions.itemSpacing))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Surface(
+            modifier = metricModifier,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        ) {
+            Text(metric, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun AdminStatusBadge(label: String, isPositive: Boolean) {
+    val containerColor = if (isPositive) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    val contentColor = if (isPositive) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(color = containerColor, contentColor = contentColor, shape = RoundedCornerShape(PlateViewDimensions.cornerSmall)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (isPositive) Icons.Outlined.CheckCircle else Icons.Outlined.Block,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
 private fun VehicleEditorDialog(
     editor: VehicleEditorState,
     isSaving: Boolean,
@@ -734,24 +814,30 @@ private fun VehicleEditorDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (editor.id == null) "新增车辆档案" else "编辑车辆信息", fontWeight = FontWeight.Bold) },
+        title = {
+            Column {
+                Text(if (editor.id == null) "新增车辆档案" else "编辑车辆档案", fontWeight = FontWeight.Bold)
+                Text("基础信息与通行核验", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
         text = {
             LazyColumn(
                 modifier = Modifier.heightIn(max = 480.dp),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
+                item { EditorSectionHeading("车辆基础信息", "车牌、分类与启用状态") }
                 item { EditorTextField("车牌号码", editor.plateNumber) { value -> onChanged { it.copy(plateNumber = value, error = null) } } }
                 item { ChoiceField("所属类别", editor.category, VEHICLE_CATEGORIES) { value -> onChanged { it.copy(category = value, error = null) } } }
                 item { ChoiceField("当前状态", editor.status, VEHICLE_STATUSES) { value -> onChanged { it.copy(status = value) } } }
                 item { EditorTextField("车辆型号", editor.vehicleType) { value -> onChanged { it.copy(vehicleType = value) } } }
                 
                 if (editor.isResident) {
-                    item { Text("人员信息", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
+                    item { EditorSectionHeading("身份核验信息", "用于核对村民车辆归属") }
                     item { EditorTextField("姓名", editor.ownerName) { value -> onChanged { it.copy(ownerName = value, error = null) } } }
                     item { EditorTextField("身份证号", editor.identityCardNumber) { value -> onChanged { it.copy(identityCardNumber = value, error = null) } } }
                     item { EditorTextField("手机号码", editor.contactPhone) { value -> onChanged { it.copy(contactPhone = value) } } }
                 } else {
-                    item { Text("通行权限信息", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
+                    item { EditorSectionHeading("单位与通行信息", "用于核对长期通行车辆") }
                     item { EditorTextField("单位名称", editor.organizationName) { value -> onChanged { it.copy(organizationName = value) } } }
                     item { EditorTextField("通行持有人", editor.passHolder) { value -> onChanged { it.copy(passHolder = value) } } }
                     item { EditorTextField("通行事由", editor.passageDetails, singleLine = false) { value -> onChanged { it.copy(passageDetails = value) } } }
@@ -782,10 +868,16 @@ private fun UserEditorDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (editor.isCreate) "创建新账号" else "维护账号信息", fontWeight = FontWeight.Bold) },
+        title = {
+            Column {
+                Text(if (editor.isCreate) "创建新账号" else "维护账号信息", fontWeight = FontWeight.Bold)
+                Text("角色决定可访问的管理范围", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing)) {
                 if (editor.isCreate) {
+                    EditorSectionHeading("账号凭据", "创建后请妥善保存登录密码")
                     EditorTextField("用户名", editor.username) { value -> onChanged { it.copy(username = value, error = null) } }
                     OutlinedTextField(
                         value = editor.password,
@@ -801,6 +893,7 @@ private fun UserEditorDialog(
                         Text(editor.username, modifier = Modifier.padding(16.dp).fillMaxWidth(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
+                EditorSectionHeading("访问权限", "角色与账号启用状态会立即生效")
                 ChoiceField("分配角色", editor.role, USER_ROLES) { value -> onChanged { it.copy(role = value) } }
                 ChoiceField("账号状态", editor.status, USER_STATUSES) { value -> onChanged { it.copy(status = value) } }
                 editor.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -810,6 +903,15 @@ private fun UserEditorDialog(
         dismissButton = { TextButton(onClick = onDismiss, enabled = !isSaving) { Text("放弃") } },
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge)
     )
+}
+
+@Composable
+private fun EditorSectionHeading(title: String, description: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
 }
 
 @Composable
@@ -1027,6 +1129,12 @@ private fun AdminFailure.message(): String = when (this) {
 private fun ManagedVehicleSummary.statusLabel(): String = if (status == "ACTIVE") "已启用" else "停用中"
 private fun ManagedUser.roleLabel(): String = if (role == "ADMIN") "管理员" else "核验员"
 private fun ManagedUser.statusLabel(): String = if (status == "ACTIVE") "正常" else "已禁用"
+private fun ManagedImportBatchSummary.importStatusLabel(): String = when (status) {
+    "VALIDATED" -> "待发布"
+    "PUBLISHED" -> "已发布"
+    "ROLLED_BACK" -> "已撤销"
+    else -> status
+}
 
 private data class ChoiceOption(val value: String, val label: String)
 
