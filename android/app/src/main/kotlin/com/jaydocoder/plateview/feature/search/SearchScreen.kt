@@ -209,26 +209,32 @@ fun SearchScreen(
             )
         },
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding),
-            contentPadding = PaddingValues(
-                horizontal = PlateViewDimensions.pageHorizontal,
-                vertical = PlateViewDimensions.pageVertical,
-            ),
-            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
         ) {
-            item(key = "search_input") {
-                SearchBar(
-                    query = uiState.query,
-                    onQueryChanged = onQueryChanged,
-                    onVoiceInput = onVoiceInput,
-                    isListening = uiState.isListening
-                )
-            }
+            SearchBar(
+                query = uiState.query,
+                onQueryChanged = onQueryChanged,
+                onVoiceInput = onVoiceInput,
+                isListening = uiState.isListening,
+                modifier = Modifier.padding(
+                    horizontal = PlateViewDimensions.pageHorizontal,
+                    vertical = PlateViewDimensions.pageVertical,
+                ),
+            )
 
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(
+                    start = PlateViewDimensions.pageHorizontal,
+                    end = PlateViewDimensions.pageHorizontal,
+                    bottom = PlateViewDimensions.pageVertical,
+                ),
+                verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
+            ) {
             if (uiState.isListening) {
                 item(key = "voice_listening") {
                     StatusStrip(
@@ -322,6 +328,7 @@ fun SearchScreen(
                     )
                 }
             }
+            }
         }
     }
 }
@@ -331,10 +338,11 @@ private fun SearchBar(
     query: String,
     onQueryChanged: (String) -> Unit,
     onVoiceInput: () -> Unit,
-    isListening: Boolean
+    isListening: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .border(
                 width = 1.dp,

@@ -1,4 +1,4 @@
-api.plateview.top {
+api.chenxiruyu.dpdns.org {
 	encode zstd gzip
 	reverse_proxy api:8080
 }
