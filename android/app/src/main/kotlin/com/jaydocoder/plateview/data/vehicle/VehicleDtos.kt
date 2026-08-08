@@ -6,6 +6,22 @@ data class VehicleSearchResponseDto(
     val candidates: List<VehicleCandidateDto>,
 )
 
+data class VehicleCatalogVersionDto(
+    val catalogVersion: Long,
+)
+
+data class VehicleCatalogResponseDto(
+    val catalogVersion: Long,
+    val total: Int,
+    val items: List<VehicleCandidateDto>,
+)
+
+data class VehicleFullCatalogResponseDto(
+    val catalogVersion: Long,
+    val total: Int,
+    val items: List<VehicleDetailDto>,
+)
+
 data class VehicleCandidateDto(
     val id: Long,
     val plateNumber: String,

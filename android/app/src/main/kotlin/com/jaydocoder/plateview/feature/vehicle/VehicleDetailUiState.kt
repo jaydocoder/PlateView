@@ -9,7 +9,10 @@ data class VehicleDetailUiState(
 sealed interface VehicleDetailContent {
     data object Loading : VehicleDetailContent
 
-    data class Data(val vehicle: VehicleDetail) : VehicleDetailContent
+    data class Data(
+        val vehicle: VehicleDetail,
+        val isCached: Boolean = false,
+    ) : VehicleDetailContent
 
     data class Error(val reason: VehicleDetailFailure) : VehicleDetailContent
 }

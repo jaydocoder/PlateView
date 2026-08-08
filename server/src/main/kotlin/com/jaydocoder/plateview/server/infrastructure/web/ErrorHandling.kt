@@ -8,6 +8,7 @@ import com.jaydocoder.plateview.server.admin.AdminResourceNotFoundException
 import com.jaydocoder.plateview.server.admin.AdminValidationException
 import com.jaydocoder.plateview.server.vehicle.VehicleNotFoundException
 import com.jaydocoder.plateview.server.vehicle.VehicleSearchKeywordException
+import com.jaydocoder.plateview.server.vehicle.VehicleCatalogVersionConflictException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.application
@@ -20,6 +21,16 @@ import kotlinx.serialization.Serializable
 
 internal fun Application.configureErrorHandling() {
     install(StatusPages) {
+        exception<VehicleCatalogVersionConflictException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.Conflict,
+                message = ApiErrorResponse(
+                    code = "VEHICLE_CATALOG_VERSION_CONFLICT",
+                    message = cause.message ?: "车辆目录已更新，请重新同步",
+                    requestId = call.callId,
+                ),
+            )
+        }
         exception<VehicleSearchKeywordException> { call, cause ->
             call.respond(
                 status = HttpStatusCode.BadRequest,

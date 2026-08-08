@@ -4,7 +4,9 @@ import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleAttribute
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
+import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
+import com.jaydocoder.plateview.domain.vehicle.VehicleFullCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,6 +23,39 @@ class NetworkVehicleRepository @Inject constructor(
     override suspend fun getVehicle(accessToken: String, vehicleId: Long): VehicleDetail = api
         .getVehicle(authorization = bearer(accessToken), vehicleId = vehicleId)
         .toDomain()
+
+    override suspend fun getCatalogVersion(accessToken: String): Long = api
+        .getCatalogVersion(authorization = bearer(accessToken))
+        .catalogVersion
+
+    override suspend fun getCatalog(accessToken: String, limit: Int, offset: Int): VehicleCatalogPage = api
+        .getCatalog(authorization = bearer(accessToken), limit = limit, offset = offset)
+        .let { response ->
+            VehicleCatalogPage(
+                catalogVersion = response.catalogVersion,
+                total = response.total,
+                candidates = response.items.map(VehicleCandidateDto::toDomain),
+            )
+        }
+
+    override suspend fun getFullCatalog(
+        accessToken: String,
+        version: Long,
+        limit: Int,
+        offset: Int,
+    ): VehicleFullCatalogPage = api
+        .getFullCatalog(
+            authorization = bearer(accessToken),
+            version = version,
+            limit = limit,
+            offset = offset,
+        ).let { response ->
+            VehicleFullCatalogPage(
+                catalogVersion = response.catalogVersion,
+                total = response.total,
+                vehicles = response.items.map(VehicleDetailDto::toDomain),
+            )
+        }
 
     private fun bearer(accessToken: String): String = "Bearer $accessToken"
 }

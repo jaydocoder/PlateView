@@ -3,7 +3,12 @@ package com.jaydocoder.plateview.feature.search
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.history.SearchHistoryRepository
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
+import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
+import com.jaydocoder.plateview.domain.vehicle.CachedVehicleDetail
+import com.jaydocoder.plateview.domain.vehicle.CatalogSyncResult
+import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
+import com.jaydocoder.plateview.domain.vehicle.VehicleFullCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
@@ -52,6 +57,23 @@ class SearchViewModelTest {
         assertEquals(listOf("新"), vehicleRepository.searchKeywords)
         assertEquals(listOf(candidate), viewModel.uiState.value.candidates)
         assertEquals(SearchResultState.Idle, viewModel.uiState.value.resultState)
+    }
+
+    @Test
+    fun `本地候选优先展示且不调用远程搜索`() = runTest {
+        val cached = VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆")
+        val vehicleRepository = FakeVehicleRepository()
+        val viewModel = createViewModel(
+            vehicleRepository = vehicleRepository,
+            vehicleCacheRepository = FakeVehicleCacheRepository(localCandidates = listOf(cached)),
+        )
+
+        viewModel.updateQuery("新A")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertEquals(listOf(cached), viewModel.uiState.value.candidates)
+        assertTrue(vehicleRepository.searchKeywords.isEmpty())
     }
 
     @Test
@@ -128,10 +150,12 @@ class SearchViewModelTest {
 
     private fun createViewModel(
         vehicleRepository: FakeVehicleRepository = FakeVehicleRepository(),
+        vehicleCacheRepository: VehicleCacheRepository = FakeVehicleCacheRepository(),
         historyRepository: FakeSearchHistoryRepository = FakeSearchHistoryRepository(),
         voiceRecognizer: VoiceRecognizer = FakeVoiceRecognizer(),
     ): SearchViewModel = SearchViewModel(
         vehicleRepository = vehicleRepository,
+        vehicleCacheRepository = vehicleCacheRepository,
         historyRepository = historyRepository,
         sessionProvider = FakeAuthSessionProvider(),
         voiceRecognizer = voiceRecognizer,
@@ -152,6 +176,33 @@ private class FakeVehicleRepository(
 
     override suspend fun getVehicle(accessToken: String, vehicleId: Long): VehicleDetail =
         error("本测试不调用车辆详情")
+
+    override suspend fun getCatalogVersion(accessToken: String): Long = 1L
+
+    override suspend fun getCatalog(accessToken: String, limit: Int, offset: Int): VehicleCatalogPage =
+        VehicleCatalogPage(catalogVersion = 1L, total = 0, candidates = emptyList())
+
+    override suspend fun getFullCatalog(
+        accessToken: String,
+        version: Long,
+        limit: Int,
+        offset: Int,
+    ): VehicleFullCatalogPage = VehicleFullCatalogPage(catalogVersion = version, total = 0, vehicles = emptyList())
+}
+
+private class FakeVehicleCacheRepository(
+    private val localCandidates: List<VehicleCandidate> = emptyList(),
+) : VehicleCacheRepository {
+    override suspend fun search(normalizedKeyword: String): List<VehicleCandidate> = localCandidates
+
+    override suspend fun synchronizeCatalog(
+        accessToken: String,
+        forceVersionCheck: Boolean,
+    ): CatalogSyncResult = CatalogSyncResult(refreshed = false)
+
+    override suspend fun getDetail(vehicleId: Long): CachedVehicleDetail? = null
+
+    override suspend fun clearSnapshot() = Unit
 }
 
 private class FakeSearchHistoryRepository : SearchHistoryRepository {

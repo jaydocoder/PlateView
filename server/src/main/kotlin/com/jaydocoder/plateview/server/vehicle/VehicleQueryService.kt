@@ -1,5 +1,6 @@
 package com.jaydocoder.plateview.server.vehicle
 
+import java.sql.Connection
 import java.sql.ResultSet
 import javax.sql.DataSource
 import com.jaydocoder.plateview.server.infrastructure.cache.RedisCache
@@ -75,11 +76,47 @@ internal class VehicleQueryService(
         return page
     }
 
-    private fun catalogRevision(): Long = dataSource.connection.use { connection ->
+    fun fullCatalog(expectedRevision: Long, limit: Int, offset: Int): VehicleFullCatalogPage {
+        require(expectedRevision >= 0) { "目录版本无效" }
+        require(limit in 1..500) { "目录分页大小必须在1到500之间" }
+        if (catalogRevision() != expectedRevision) throw VehicleCatalogVersionConflictException()
+        val snapshotKey = "vehicle:full-catalog:$expectedRevision"
+        val snapshot = cache?.get(snapshotKey)
+            ?.let { Json.decodeFromString<VehicleFullCatalogSnapshot>(it) }
+            ?: loadFullCatalogSnapshot(expectedRevision).also { loaded ->
+                cache?.put(snapshotKey, Json.encodeToString(loaded), FULL_CATALOG_TTL_SECONDS)
+            }
+        val safeOffset = offset.coerceAtLeast(0)
+        return VehicleFullCatalogPage(
+            revision = snapshot.revision,
+            total = snapshot.items.size,
+            items = snapshot.items.drop(safeOffset).take(limit),
+        )
+    }
+
+    private fun loadFullCatalogSnapshot(expectedRevision: Long): VehicleFullCatalogSnapshot = dataSource.connection.use { connection ->
+        connection.autoCommit = false
+        connection.transactionIsolation = Connection.TRANSACTION_REPEATABLE_READ
+        try {
+            val revision = catalogRevision(connection)
+            if (revision != expectedRevision) throw VehicleCatalogVersionConflictException()
+            val items = connection.prepareStatement(SELECT_FULL_CATALOG).use { statement ->
+                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toVehicleDetail()) } }
+            }
+            connection.commit()
+            VehicleFullCatalogSnapshot(revision, items)
+        } catch (throwable: Throwable) {
+            runCatching { connection.rollback() }
+            throw throwable
+        }
+    }
+
+    private fun catalogRevision(): Long = dataSource.connection.use(::catalogRevision)
+
+    private fun catalogRevision(connection: Connection): Long =
         connection.prepareStatement("SELECT revision FROM vehicle_catalog_state WHERE id = 1").use { statement ->
             statement.executeQuery().use { result -> result.next(); result.getLong(1) }
         }
-    }
 
     private fun normalizeSearchKeyword(keyword: String): String {
         val normalizedKeyword = normalizePlate(keyword)
@@ -146,6 +183,7 @@ internal class VehicleQueryService(
         const val SEARCH_TTL_SECONDS = 3_600L
         const val DETAIL_TTL_SECONDS = 86_400L
         const val CATALOG_TTL_SECONDS = 86_400L
+        const val FULL_CATALOG_TTL_SECONDS = 86_400L
 
         const val SELECT_VEHICLE_DETAIL = """
             SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.attributes::text,
@@ -157,6 +195,19 @@ internal class VehicleQueryService(
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
             WHERE v.id = ? AND v.status = 'ACTIVE'
+        """
+
+        const val SELECT_FULL_CATALOG = """
+            SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.attributes::text,
+                   rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
+                   rp.remarks AS resident_remarks,
+                   lp.id AS long_term_profile_id, lp.organization_name, lp.pass_holder, lp.passage_details,
+                   lp.remarks AS long_term_remarks
+            FROM vehicles v
+            LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
+            LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
+            WHERE v.status = 'ACTIVE'
+            ORDER BY v.normalized_plate, v.id
         """
     }
 }
@@ -199,6 +250,13 @@ internal data class LongTermVehicleProfile(
 @Serializable
 internal data class VehicleCatalogPage(val revision: Long, val total: Int, val items: List<VehicleSearchCandidate>)
 
+@Serializable
+internal data class VehicleFullCatalogSnapshot(val revision: Long, val items: List<VehicleDetail>)
+
+internal data class VehicleFullCatalogPage(val revision: Long, val total: Int, val items: List<VehicleDetail>)
+
 internal class VehicleSearchKeywordException : RuntimeException("请输入有效车牌字符")
+
+internal class VehicleCatalogVersionConflictException : RuntimeException("车辆目录已更新，请重新同步")
 
 internal class VehicleNotFoundException : RuntimeException()

@@ -17,4 +17,24 @@ interface VehicleApi {
         @Header("Authorization") authorization: String,
         @Path("vehicleId") vehicleId: Long,
     ): VehicleDetailDto
+
+    @GET("vehicles/catalog/version")
+    suspend fun getCatalogVersion(
+        @Header("Authorization") authorization: String,
+    ): VehicleCatalogVersionDto
+
+    @GET("vehicles/catalog")
+    suspend fun getCatalog(
+        @Header("Authorization") authorization: String,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
+    ): VehicleCatalogResponseDto
+
+    @GET("vehicles/catalog/full")
+    suspend fun getFullCatalog(
+        @Header("Authorization") authorization: String,
+        @Query("version") version: Long,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
+    ): VehicleFullCatalogResponseDto
 }

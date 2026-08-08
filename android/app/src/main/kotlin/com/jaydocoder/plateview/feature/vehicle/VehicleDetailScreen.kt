@@ -111,6 +111,7 @@ fun VehicleDetailScreen(
 
                 is VehicleDetailContent.Data -> VehicleDetailContent(
                     vehicle = content.vehicle,
+                    isCached = content.isCached,
                 )
             }
         }
@@ -168,6 +169,7 @@ private fun ErrorContent(
 @Composable
 private fun VehicleDetailContent(
     vehicle: VehicleDetail,
+    isCached: Boolean,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -178,6 +180,15 @@ private fun VehicleDetailContent(
         ),
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
+        if (isCached) {
+            item(key = "cache_notice") {
+                Text(
+                    text = stringResource(R.string.detail_cached_notice),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+        }
         item(key = "identity") {
             VehicleIdentityBanner(vehicle = vehicle)
         }

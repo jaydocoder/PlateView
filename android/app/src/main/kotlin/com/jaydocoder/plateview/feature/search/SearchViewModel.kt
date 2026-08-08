@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.history.SearchHistoryRepository
 import com.jaydocoder.plateview.domain.vehicle.PlateQueryNormalizer
+import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
@@ -33,6 +34,7 @@ import retrofit2.HttpException
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class SearchViewModel @Inject constructor(
     private val vehicleRepository: VehicleRepository,
+    private val vehicleCacheRepository: VehicleCacheRepository,
     private val historyRepository: SearchHistoryRepository,
     private val sessionProvider: AuthSessionProvider,
     private val voiceRecognizer: VoiceRecognizer,
@@ -48,6 +50,7 @@ class SearchViewModel @Inject constructor(
     init {
         observeQuery()
         observeHistory()
+        syncCatalogInBackground()
     }
 
     fun updateQuery(value: String) {
@@ -62,6 +65,10 @@ class SearchViewModel @Inject constructor(
 
     fun retrySearch() {
         retryVersion.update(Int::inc)
+    }
+
+    fun onAppForeground() {
+        syncCatalogInBackground(forceVersionCheck = true)
     }
 
     fun selectCandidate(candidate: VehicleCandidate) {
@@ -161,12 +168,6 @@ class SearchViewModel @Inject constructor(
             return
         }
 
-        _uiState.update {
-            it.copy(
-                candidates = emptyList(),
-                resultState = SearchResultState.Loading,
-            )
-        }
         val session = sessionProvider.session.first()
         if (session == null) {
             _uiState.update {
@@ -175,29 +176,89 @@ class SearchViewModel @Inject constructor(
             return
         }
 
-        try {
-            val candidates = vehicleRepository.search(session.accessToken, normalizedQuery)
+        val localCandidates = runCatching {
+            vehicleCacheRepository.search(normalizedQuery)
+        }.getOrDefault(emptyList())
+        if (localCandidates.isNotEmpty()) {
+            _uiState.update {
+                it.copy(
+                    candidates = localCandidates,
+                    resultState = SearchResultState.Idle,
+                )
+            }
+            runCatching {
+                vehicleCacheRepository.synchronizeCatalog(
+                    accessToken = session.accessToken,
+                )
+            }.onSuccess {
+                val refreshedCandidates = runCatching {
+                    vehicleCacheRepository.search(normalizedQuery)
+                }.getOrDefault(emptyList())
+                _uiState.update {
+                    it.copy(candidates = refreshedCandidates)
+                }
+            }.onFailure { throwable ->
+                if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
+                    sessionProvider.logout()
+                }
+            }
+            return
+        }
+
+        _uiState.update { it.copy(candidates = emptyList(), resultState = SearchResultState.Loading) }
+        val remoteResult = runCatching {
+            vehicleRepository.search(session.accessToken, normalizedQuery)
+        }
+        if (remoteResult.isSuccess) {
+            val candidates = remoteResult.getOrThrow()
             _uiState.update {
                 it.copy(
                     candidates = candidates,
-                    resultState = if (candidates.isEmpty()) {
-                        SearchResultState.Empty
-                    } else {
-                        SearchResultState.Idle
-                    },
+                    resultState = if (candidates.isEmpty()) SearchResultState.Empty else SearchResultState.Idle,
                 )
             }
-        } catch (throwable: Throwable) {
-            if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
-                sessionProvider.logout()
-                _uiState.update {
-                    it.copy(resultState = SearchResultState.Error(SearchFailure.SessionExpired))
-                }
-            } else {
-                _uiState.update {
-                    it.copy(resultState = SearchResultState.Error(SearchFailure.ServiceUnavailable))
-                }
+        }
+        val synchronizationResult = runCatching {
+            vehicleCacheRepository.synchronizeCatalog(
+                accessToken = session.accessToken,
+            )
+        }
+        val synchronizedCandidates = runCatching {
+            vehicleCacheRepository.search(normalizedQuery)
+        }.getOrDefault(emptyList())
+        when {
+            synchronizedCandidates.isNotEmpty() -> _uiState.update {
+                it.copy(candidates = synchronizedCandidates, resultState = SearchResultState.Idle)
             }
+
+            remoteResult.isSuccess -> {
+                Unit
+            }
+
+            else -> handleSearchFailure(
+                remoteResult.exceptionOrNull() ?: synchronizationResult.exceptionOrNull(),
+            )
+        }
+    }
+
+    private fun syncCatalogInBackground(forceVersionCheck: Boolean = false) {
+        viewModelScope.launch {
+            val session = sessionProvider.session.first() ?: return@launch
+            runCatching {
+                vehicleCacheRepository.synchronizeCatalog(
+                    accessToken = session.accessToken,
+                    forceVersionCheck = forceVersionCheck,
+                )
+            }
+        }
+    }
+
+    private suspend fun handleSearchFailure(throwable: Throwable?) {
+        if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
+            sessionProvider.logout()
+            _uiState.update { it.copy(resultState = SearchResultState.Error(SearchFailure.SessionExpired)) }
+        } else {
+            _uiState.update { it.copy(resultState = SearchResultState.Error(SearchFailure.ServiceUnavailable)) }
         }
     }
 

@@ -40,6 +40,20 @@ internal fun Application.configureVehicleQueryFeature() {
                     val page = service.catalog(limit, offset)
                     call.respond(VehicleCatalogResponse(page.revision, page.total, page.items.map(VehicleSearchCandidate::toResponse)))
                 }
+                get("/catalog/full") {
+                    val version = call.request.queryParameters["version"]?.toLongOrNull()
+                        ?: throw IllegalArgumentException("缺少目录版本")
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
+                    val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
+                    val page = service.fullCatalog(version, limit, offset)
+                    call.respond(
+                        VehicleFullCatalogResponse(
+                            catalogVersion = page.revision,
+                            total = page.total,
+                            items = page.items.map { it.toResponse(page.revision) },
+                        ),
+                    )
+                }
                 get("/{vehicleId}") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
                     val vehicleId = call.vehicleId()
@@ -132,6 +146,13 @@ private data class VehicleCatalogVersionResponse(val catalogVersion: Long)
 
 @Serializable
 private data class VehicleCatalogResponse(val catalogVersion: Long, val total: Int, val items: List<VehicleSearchCandidateResponse>)
+
+@Serializable
+private data class VehicleFullCatalogResponse(
+    val catalogVersion: Long,
+    val total: Int,
+    val items: List<VehicleDetailResponse>,
+)
 
 @Serializable
 private data class VehicleSearchCandidateResponse(

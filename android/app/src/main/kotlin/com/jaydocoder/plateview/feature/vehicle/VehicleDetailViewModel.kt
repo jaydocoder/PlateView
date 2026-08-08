@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.jaydocoder.plateview.core.navigation.VehicleDetailDestination
+import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,6 +22,7 @@ import retrofit2.HttpException
 class VehicleDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val vehicleRepository: VehicleRepository,
+    private val vehicleCacheRepository: VehicleCacheRepository,
     private val sessionProvider: AuthSessionProvider,
 ) : ViewModel() {
     private val vehicleId = savedStateHandle.toRoute<VehicleDetailDestination>().vehicleId
@@ -34,7 +36,6 @@ class VehicleDetailViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(content = VehicleDetailContent.Loading) }
             val session = sessionProvider.session.first()
             if (session == null) {
                 _uiState.update {
@@ -43,10 +44,20 @@ class VehicleDetailViewModel @Inject constructor(
                 return@launch
             }
 
+            val cached = runCatching {
+                vehicleCacheRepository.getDetail(vehicleId)
+            }.getOrNull()
+            if (cached != null) {
+                _uiState.update { it.copy(content = VehicleDetailContent.Data(cached.vehicle, isCached = true)) }
+                return@launch
+            }
+
             try {
+                _uiState.update { it.copy(content = VehicleDetailContent.Loading) }
                 val vehicle = vehicleRepository.getVehicle(session.accessToken, vehicleId)
                 _uiState.update { it.copy(content = VehicleDetailContent.Data(vehicle)) }
             } catch (throwable: Throwable) {
+                if (cached != null) return@launch
                 val failure = when {
                     throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED -> {
                         sessionProvider.logout()

@@ -30,6 +30,7 @@
     <string name="detail_not_found">未找到该车辆或车辆已停用</string>
     <string name="detail_service_unavailable">无法加载车辆详情，请检查网络后重试</string>
     <string name="detail_retry">重新加载</string>
+    <string name="detail_cached_notice">正在显示本地缓存数据，联网后会自动核验最新信息</string>
     <string name="detail_vehicle_type">车辆类型</string>
     <string name="detail_resident_title">村民核验信息</string>
     <string name="detail_long_term_title">长期车辆通行信息</string>
