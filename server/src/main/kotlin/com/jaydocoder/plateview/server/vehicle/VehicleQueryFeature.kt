@@ -3,7 +3,6 @@ package com.jaydocoder.plateview.server.vehicle
 import com.jaydocoder.plateview.server.infrastructure.database.AuditEvent
 import com.jaydocoder.plateview.server.infrastructure.database.AuditLogWriterKey
 import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
-import com.jaydocoder.plateview.server.infrastructure.cache.RedisCacheKey
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
@@ -23,7 +22,7 @@ import kotlinx.serialization.json.put
 
 internal fun Application.configureVehicleQueryFeature() {
     val dataSource = attributes.getOrNull(DataSourceKey) ?: return
-    val service = VehicleQueryService(dataSource, attributes.getOrNull(RedisCacheKey))
+    val service = VehicleQueryService(dataSource)
     routing {
         authenticate("access-token") {
             route("/vehicles") {

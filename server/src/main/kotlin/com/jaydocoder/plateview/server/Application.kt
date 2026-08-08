@@ -2,7 +2,6 @@ package com.jaydocoder.plateview.server
 
 import com.jaydocoder.plateview.server.infrastructure.database.configureDatabaseMigration
 import com.jaydocoder.plateview.server.infrastructure.database.configureDatabaseRuntime
-import com.jaydocoder.plateview.server.infrastructure.cache.configureRedisCache
 import com.jaydocoder.plateview.server.admin.configureAdminManagementFeature
 import com.jaydocoder.plateview.server.auth.configureAuthenticationFeature
 import com.jaydocoder.plateview.server.infrastructure.web.configureErrorHandling
@@ -22,7 +21,6 @@ import kotlinx.serialization.Serializable
 fun Application.module() {
     configureDatabaseMigration()
     configureDatabaseRuntime()
-    configureRedisCache()
     configureRequestContext()
     configureErrorHandling()
 

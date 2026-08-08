@@ -32,7 +32,6 @@ dependencies {
     implementation("ch.qos.logback:logback-classic:1.5.18")
     implementation("org.mindrot:jbcrypt:0.4")
     implementation("org.apache.poi:poi-ooxml:5.3.0")
-    implementation("redis.clients:jedis:5.2.0")
 
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-server-test-host-jvm:3.1.3")

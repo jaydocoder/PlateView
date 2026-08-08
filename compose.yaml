@@ -29,16 +29,11 @@ services:
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?请在.env中设置初始管理员密码}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-43200}
       REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
-      REDIS_URL: redis://redis:6379
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
-
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
 
 volumes:
   postgres-data:

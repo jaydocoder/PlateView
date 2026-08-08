@@ -3,7 +3,6 @@ package com.jaydocoder.plateview.server.vehicle
 import java.sql.Connection
 import java.sql.ResultSet
 import javax.sql.DataSource
-import com.jaydocoder.plateview.server.infrastructure.cache.RedisCache
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -13,14 +12,10 @@ import kotlinx.serialization.json.jsonObject
 
 internal class VehicleQueryService(
     private val dataSource: DataSource,
-    private val cache: RedisCache? = null,
 ) {
     fun search(keyword: String): List<VehicleSearchCandidate> {
         val normalizedKeyword = normalizeSearchKeyword(keyword)
-        val revision = catalogRevision()
-        val key = "vehicle:search:$revision:$normalizedKeyword"
-        cache?.get(key)?.let { return Json.decodeFromString(it) }
-        val candidates = dataSource.connection.use { connection ->
+        return dataSource.connection.use { connection ->
             connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
                 statement.setString(1, "%$normalizedKeyword%")
                 statement.setString(2, normalizedKeyword)
@@ -33,16 +28,11 @@ internal class VehicleQueryService(
                 }
             }
         }
-        cache?.put(key, Json.encodeToString(candidates), SEARCH_TTL_SECONDS)
-        return candidates
     }
 
     fun findDetail(vehicleId: Long): VehicleDetail? {
         require(vehicleId > 0) { "车辆标识无效" }
-        val revision = catalogRevision()
-        val key = "vehicle:detail:$revision:$vehicleId"
-        cache?.get(key)?.let { return Json.decodeFromString(it) }
-        val detail = dataSource.connection.use { connection ->
+        return dataSource.connection.use { connection ->
             connection.prepareStatement(SELECT_VEHICLE_DETAIL).use { statement ->
                 statement.setLong(1, vehicleId)
                 statement.executeQuery().use { result ->
@@ -50,8 +40,6 @@ internal class VehicleQueryService(
                 }
             }
         }
-        detail?.let { cache?.put(key, Json.encodeToString(it), DETAIL_TTL_SECONDS) }
-        return detail
     }
 
     fun catalogVersion(): Long = catalogRevision()
@@ -59,9 +47,7 @@ internal class VehicleQueryService(
     fun catalog(limit: Int, offset: Int): VehicleCatalogPage {
         require(limit in 1..500) { "目录分页大小必须在1到500之间" }
         val revision = catalogRevision()
-        val key = "vehicle:catalog:$revision:$offset:$limit"
-        cache?.get(key)?.let { return Json.decodeFromString(it) }
-        val page = dataSource.connection.use { connection ->
+        return dataSource.connection.use { connection ->
             val items = connection.prepareStatement(CATALOG_VEHICLES).use { statement ->
                 statement.setInt(1, limit)
                 statement.setInt(2, offset.coerceAtLeast(0))
@@ -72,20 +58,12 @@ internal class VehicleQueryService(
             }
             VehicleCatalogPage(revision, total, items)
         }
-        cache?.put(key, Json.encodeToString(page), CATALOG_TTL_SECONDS)
-        return page
     }
 
     fun fullCatalog(expectedRevision: Long, limit: Int, offset: Int): VehicleFullCatalogPage {
         require(expectedRevision >= 0) { "目录版本无效" }
         require(limit in 1..500) { "目录分页大小必须在1到500之间" }
-        if (catalogRevision() != expectedRevision) throw VehicleCatalogVersionConflictException()
-        val snapshotKey = "vehicle:full-catalog:$expectedRevision"
-        val snapshot = cache?.get(snapshotKey)
-            ?.let { Json.decodeFromString<VehicleFullCatalogSnapshot>(it) }
-            ?: loadFullCatalogSnapshot(expectedRevision).also { loaded ->
-                cache?.put(snapshotKey, Json.encodeToString(loaded), FULL_CATALOG_TTL_SECONDS)
-            }
+        val snapshot = loadFullCatalogSnapshot(expectedRevision)
         val safeOffset = offset.coerceAtLeast(0)
         return VehicleFullCatalogPage(
             revision = snapshot.revision,
@@ -180,11 +158,6 @@ internal class VehicleQueryService(
             SELECT id, plate_number, category FROM vehicles
             WHERE status = 'ACTIVE' ORDER BY normalized_plate, id LIMIT ? OFFSET ?
         """
-        const val SEARCH_TTL_SECONDS = 3_600L
-        const val DETAIL_TTL_SECONDS = 86_400L
-        const val CATALOG_TTL_SECONDS = 86_400L
-        const val FULL_CATALOG_TTL_SECONDS = 86_400L
-
         const val SELECT_VEHICLE_DETAIL = """
             SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.attributes::text,
                    rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,

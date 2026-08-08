@@ -33,7 +33,6 @@ services:
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-43200}
       REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=60
-      REDIS_URL: redis://redis:6379
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -42,13 +41,6 @@ services:
     networks:
       - backend
       - edge
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
-    networks:
-      - backend
 
   caddy:
     image: caddy:2.8.4-alpine
