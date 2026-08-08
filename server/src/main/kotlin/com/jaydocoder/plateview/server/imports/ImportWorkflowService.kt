@@ -70,9 +70,13 @@ internal class ImportWorkflowService(
 
     fun publish(batchId: Long, actorId: Long): ImportBatchView {
         dataSource.inTransaction { connection ->
-            ensureStatus(lockBatch(connection, batchId), "VALIDATED")
+            val publishMode = prepareImportPublish(lockBatch(connection, batchId).status)
             val rows = publishableRows(connection, batchId)
             if (rows.isEmpty()) throw ImportWorkflowConflictException("IMPORT_NOTHING_TO_PUBLISH", "当前批次没有可发布的数据")
+            if (publishMode == ImportPublishMode.REPUBLISH) {
+                clearRollbackEffects(connection, batchId)
+                restoreBatchForRepublish(connection, batchId, actorId)
+            }
             rows.forEach { row ->
                 val vehicleId = when (row.plannedAction) {
                     ImportPlannedAction.CREATE -> publishCreate(connection, batchId, row, actorId)
@@ -552,6 +556,28 @@ internal class ImportWorkflowService(
                     ),
                 )
             }
+        }
+    }
+
+    private fun clearRollbackEffects(connection: Connection, batchId: Long) {
+        connection.prepareStatement("DELETE FROM import_effects WHERE import_batch_id = ?").use { statement ->
+            statement.setLong(1, batchId)
+            statement.executeUpdate()
+        }
+    }
+
+    private fun restoreBatchForRepublish(connection: Connection, batchId: Long, actorId: Long) {
+        connection.prepareStatement(
+            """
+            UPDATE import_batches
+            SET status = 'VALIDATED', published_at = NULL, published_by = NULL,
+                rollback_at = NULL, rollback_by = NULL, updated_by = ?, version = version + 1
+            WHERE id = ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, actorId)
+            statement.setLong(2, batchId)
+            statement.executeUpdate()
         }
     }
 

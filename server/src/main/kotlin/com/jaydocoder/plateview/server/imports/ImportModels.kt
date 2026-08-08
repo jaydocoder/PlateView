@@ -34,6 +34,17 @@ internal enum class ImportPlannedAction {
     NONE,
 }
 
+internal enum class ImportPublishMode {
+    INITIAL,
+    REPUBLISH,
+}
+
+internal fun prepareImportPublish(status: String): ImportPublishMode = when (status) {
+    "VALIDATED" -> ImportPublishMode.INITIAL
+    "ROLLED_BACK" -> ImportPublishMode.REPUBLISH
+    else -> throw ImportWorkflowConflictException("IMPORT_BATCH_NOT_PUBLISHABLE", "当前批次状态不允许发布")
+}
+
 internal data class ParsedVehicle(
     val originalPlate: String?,
     val normalizedPlate: String?,

@@ -1,0 +1,104 @@
+name: Android APK 构建
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: android
+
+jobs:
+  verify-and-build-debug:
+    name: 验证并构建调试 APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 执行单元测试、静态检查和调试构建
+        run: >-
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/
+
+      - name: 上传调试 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: plateview-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  build-and-release:
+    name: 构建并发布正式 APK
+    needs: verify-and-build-debug
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 还原发布签名
+        env:
+          PLATEVIEW_KEYSTORE_BASE64: ${{ secrets.PLATEVIEW_KEYSTORE_BASE64 }}
+          PLATEVIEW_STORE_PASSWORD: ${{ secrets.PLATEVIEW_STORE_PASSWORD }}
+          PLATEVIEW_KEY_ALIAS: ${{ secrets.PLATEVIEW_KEY_ALIAS }}
+          PLATEVIEW_KEY_PASSWORD: ${{ secrets.PLATEVIEW_KEY_PASSWORD }}
+        run: |
+          test -n "$PLATEVIEW_KEYSTORE_BASE64"
+          test -n "$PLATEVIEW_STORE_PASSWORD"
+          test -n "$PLATEVIEW_KEY_ALIAS"
+          test -n "$PLATEVIEW_KEY_PASSWORD"
+          printf '%s' "$PLATEVIEW_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/plateview-release.jks"
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/plateview-release.jks"
+            printf 'storePassword=%s\n' "$PLATEVIEW_STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$PLATEVIEW_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$PLATEVIEW_KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: 构建正式 APK
+        run: >-
+          ./gradlew :app:assembleRelease
+          -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/
+
+      - name: 上传正式 APK 工件
+        uses: actions/upload-artifact@v4
+        with:
+          name: plateview-release-apk-${{ github.ref_name }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: 创建 GitHub 正式发布
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: android/app/build/outputs/apk/release/app-release.apk

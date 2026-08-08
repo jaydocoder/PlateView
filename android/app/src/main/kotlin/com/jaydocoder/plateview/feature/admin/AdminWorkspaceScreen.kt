@@ -855,6 +855,9 @@ private fun ImportBatchDialog(
                     Column {
                         Text(batch.sourceFileName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text("当前状态: ${batch.status}", color = MaterialTheme.colorScheme.primary)
+                        if (batch.status == "ROLLED_BACK") {
+                            Text("该批次已经撤销，可重新发布", style = MaterialTheme.typography.bodySmall)
+                        }
                         Text("待处理: ${batch.stats.pendingReviewRows} 行 | 可发布: ${batch.stats.publishableRows} 行", style = MaterialTheme.typography.bodySmall)
                         Text(
                             text = "已加载 ${batch.rows.size} / ${batch.stats.totalRows} 行",
@@ -911,7 +914,7 @@ private fun ImportBatchDialog(
                     enabled = !isSaving && batch.stats.pendingReviewRows == 0 && batch.stats.publishableRows > 0,
                     modifier = Modifier.testTag("admin_publish_import"),
                 ) {
-                    Text("正式发布数据")
+                    Text(if (batch.status == "ROLLED_BACK") "重新发布数据" else "正式发布数据")
                 }
             }
         },
