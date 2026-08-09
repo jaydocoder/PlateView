@@ -1,6 +1,9 @@
 package com.jaydocoder.plateview.feature.admin
 
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
+import com.jaydocoder.plateview.domain.admin.ManagedAuditActor
+import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
+import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedLongTermProfile
@@ -15,6 +18,7 @@ data class AdminUiState(
     val isSaving: Boolean = false,
     val isVehiclePageLoading: Boolean = false,
     val isImportPageLoading: Boolean = false,
+    val isAuditPageLoading: Boolean = false,
     val failure: AdminFailure? = null,
     val vehicles: List<ManagedVehicleSummary> = emptyList(),
     val vehicleSearchQuery: String = "",
@@ -22,6 +26,11 @@ data class AdminUiState(
     val users: List<ManagedUser> = emptyList(),
     val importBatches: List<ManagedImportBatchSummary> = emptyList(),
     val auditEntries: List<ManagedAuditEntry> = emptyList(),
+    val auditFilter: AuditFilter = AuditFilter(),
+    val auditTotalCount: Int = 0,
+    val auditSummary: ManagedAuditSummary = ManagedAuditSummary(),
+    val auditActors: List<ManagedAuditActor> = emptyList(),
+    val auditActionTypes: List<String> = emptyList(),
     val vehicleEditor: VehicleEditorState? = null,
     val userEditor: UserEditorState? = null,
     val selectedImportBatch: ManagedImportBatch? = null,

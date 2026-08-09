@@ -106,9 +106,28 @@ internal fun Application.configureAdminManagementFeature() {
 
                 get("/audit") {
                     val actorId = call.requireAdministrator() ?: return@get
-                    val entries = service.listAuditEntries(call.pageLimit(), call.pageOffset())
+                    val page = service.listAuditEntries(
+                        filter = AdminAuditFilter(
+                            range = AdminAuditRange.fromRequest(call.request.queryParameters["range"]),
+                            actorId = call.request.queryParameters["actorId"]?.toLongOrNull()
+                                ?: call.request.queryParameters["actorId"]?.let { throw AdminValidationException("审计操作人标识无效") },
+                            actionType = call.request.queryParameters["actionType"],
+                            result = AdminAuditResult.fromRequest(call.request.queryParameters["result"]),
+                            keyword = call.request.queryParameters["keyword"],
+                        ),
+                        limit = call.auditPageLimit(),
+                        offset = call.pageOffset(),
+                    )
                     call.auditAdmin(actorId, "AUDIT_LIST", "AUDIT", null)
-                    call.respond(AdminAuditListResponse(entries.map(AdminAuditEntry::toResponse)))
+                    call.respond(
+                        AdminAuditListResponse(
+                            items = page.items.map(AdminAuditEntry::toResponse),
+                            total = page.summary.total,
+                            summary = page.summary.toResponse(),
+                            actors = page.actors.map(AdminAuditActor::toResponse),
+                            actionTypes = page.actionTypes,
+                        ),
+                    )
                 }
             }
         }
@@ -126,6 +145,7 @@ private fun ApplicationCall.expectedVersion(): Int = request.headers["If-Match-V
 
 private fun ApplicationCall.pageLimit(): Int = request.queryParameters["limit"]?.toIntOrNull() ?: DEFAULT_PAGE_LIMIT
 private fun ApplicationCall.pageOffset(): Int = request.queryParameters["offset"]?.toIntOrNull() ?: 0
+private fun ApplicationCall.auditPageLimit(): Int = request.queryParameters["limit"]?.toIntOrNull() ?: DEFAULT_AUDIT_PAGE_LIMIT
 
 private fun ApplicationCall.auditAdmin(actorId: Long, action: String, targetType: String, targetId: Long?) {
     application.attributes.getOrNull(AuditLogWriterKey)?.write(
@@ -270,6 +290,18 @@ private fun AdminAuditEntry.toResponse(): AdminAuditEntryResponse = AdminAuditEn
     createdAt = createdAt,
 )
 
+private fun AdminAuditSummary.toResponse(): AdminAuditSummaryResponse = AdminAuditSummaryResponse(
+    total = total,
+    successCount = successCount,
+    abnormalCount = abnormalCount,
+    activeActorCount = activeActorCount,
+)
+
+private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditActorResponse(
+    id = id,
+    username = username,
+)
+
 @Serializable private data class AdminVehicleListResponse(val items: List<AdminVehicleListItemResponse>, val total: Int)
 @Serializable private data class AdminVehicleListItemResponse(val id: Long, val plateNumber: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?)
 @Serializable private data class AdminVehicleResponse(val id: Long, val plateNumber: String, val normalizedPlate: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?, val attributes: JsonObject, val residentProfile: AdminResidentProfileResponse?, val longTermProfile: AdminLongTermProfileResponse?)
@@ -279,7 +311,16 @@ private fun AdminAuditEntry.toResponse(): AdminAuditEntryResponse = AdminAuditEn
 @Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?)
 @Serializable private data class AdminImportBatchListResponse(val items: List<AdminImportBatchSummaryResponse>)
 @Serializable private data class AdminImportBatchSummaryResponse(val id: Long, val sourceFileName: String, val status: String, val totalRows: Int, val validRows: Int, val duplicateRows: Int, val errorRows: Int, val version: Int, val createdAt: String?, val publishedAt: String?, val rollbackAt: String?)
-@Serializable private data class AdminAuditListResponse(val items: List<AdminAuditEntryResponse>)
+@Serializable private data class AdminAuditListResponse(
+    val items: List<AdminAuditEntryResponse>,
+    val total: Int,
+    val summary: AdminAuditSummaryResponse,
+    val actors: List<AdminAuditActorResponse>,
+    val actionTypes: List<String>,
+)
 @Serializable private data class AdminAuditEntryResponse(val id: Long, val actorUsername: String?, val actionType: String, val targetType: String, val targetId: Long?, val resultStatus: String, val createdAt: String)
+@Serializable private data class AdminAuditSummaryResponse(val total: Int, val successCount: Int, val abnormalCount: Int, val activeActorCount: Int)
+@Serializable private data class AdminAuditActorResponse(val id: Long, val username: String?)
 
 private const val DEFAULT_PAGE_LIMIT = 100
+private const val DEFAULT_AUDIT_PAGE_LIMIT = 50

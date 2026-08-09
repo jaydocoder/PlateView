@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jaydocoder.plateview.data.admin.AdminImportFileReader
 import com.jaydocoder.plateview.domain.admin.AdminRepository
+import com.jaydocoder.plateview.domain.admin.AuditFilter
+import com.jaydocoder.plateview.domain.admin.AuditRange
+import com.jaydocoder.plateview.domain.admin.AuditResult
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
@@ -27,6 +30,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     private val importFileReader: AdminImportFileReader,
 ) : ViewModel() {
     private var vehicleSearchJob: Job? = null
+    private var auditKeywordJob: Job? = null
     private val _uiState = MutableStateFlow(AdminUiState())
     val uiState: StateFlow<AdminUiState> = _uiState.asStateFlow()
 
@@ -51,7 +55,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 AdminTab.Vehicles -> Unit
                 AdminTab.Users -> _uiState.update { it.copy(users = repository.listUsers(accessToken)) }
                 AdminTab.Imports -> _uiState.update { it.copy(importBatches = repository.listImportBatches(accessToken)) }
-                AdminTab.Audit -> _uiState.update { it.copy(auditEntries = repository.listAuditEntries(accessToken)) }
+                AdminTab.Audit -> loadAuditEntries(accessToken, reset = true)
             }
             _uiState.update { it.copy(isLoading = false) }
         }
@@ -77,6 +81,37 @@ class AdminWorkspaceViewModel @Inject constructor(
         launchAdminAction { accessToken ->
             loadVehicles(accessToken, reset = false)
         }
+    }
+
+    fun updateAuditRange(range: AuditRange) = updateAuditFilter { it.copy(range = range) }
+
+    fun updateAuditActor(actorId: Long?) = updateAuditFilter { it.copy(actorId = actorId) }
+
+    fun updateAuditActionType(actionType: String?) = updateAuditFilter { it.copy(actionType = actionType) }
+
+    fun updateAuditResult(result: AuditResult) = updateAuditFilter { it.copy(result = result) }
+
+    fun updateAuditKeyword(keyword: String) {
+        if (_uiState.value.tab != AdminTab.Audit) return
+        auditKeywordJob?.cancel()
+        _uiState.update { state ->
+            state.copy(
+                auditFilter = state.auditFilter.copy(keyword = keyword),
+                auditEntries = emptyList(),
+                auditTotalCount = 0,
+                isAuditPageLoading = false,
+                failure = null,
+            )
+        }
+        auditKeywordJob = viewModelScope.launch {
+            delay(AUDIT_KEYWORD_DEBOUNCE_MILLIS)
+            launchAdminAction { accessToken -> loadAuditEntries(accessToken, reset = true) }
+        }
+    }
+
+    fun loadMoreAuditEntries() {
+        if (_uiState.value.tab != AdminTab.Audit) return
+        launchAdminAction { accessToken -> loadAuditEntries(accessToken, reset = false) }
     }
 
     fun createVehicle() {
@@ -319,6 +354,56 @@ class AdminWorkspaceViewModel @Inject constructor(
         }
     }
 
+    private fun updateAuditFilter(transform: (AuditFilter) -> AuditFilter) {
+        if (_uiState.value.tab != AdminTab.Audit) return
+        _uiState.update { state ->
+            state.copy(
+                auditFilter = transform(state.auditFilter),
+                auditEntries = emptyList(),
+                auditTotalCount = 0,
+                isAuditPageLoading = false,
+                failure = null,
+            )
+        }
+        launchAdminAction { accessToken -> loadAuditEntries(accessToken, reset = true) }
+    }
+
+    private suspend fun loadAuditEntries(accessToken: String, reset: Boolean) {
+        val previousState = _uiState.value
+        if (!reset && (
+                previousState.isAuditPageLoading ||
+                    previousState.auditEntries.size >= previousState.auditTotalCount
+                )
+        ) return
+        val filter = previousState.auditFilter
+        val offset = if (reset) 0 else previousState.auditEntries.size
+        _uiState.update {
+            it.copy(
+                isLoading = reset && it.auditEntries.isEmpty(),
+                isAuditPageLoading = true,
+                failure = null,
+            )
+        }
+        val page = repository.listAuditEntries(
+            accessToken = accessToken,
+            filter = filter,
+            limit = AUDIT_PAGE_SIZE,
+            offset = offset,
+        )
+        if (_uiState.value.auditFilter != filter) return
+        _uiState.update { state ->
+            state.copy(
+                isLoading = false,
+                isAuditPageLoading = false,
+                auditEntries = if (reset) page.items else (state.auditEntries + page.items).distinctBy { it.id },
+                auditTotalCount = page.total,
+                auditSummary = page.summary,
+                auditActors = page.actors,
+                auditActionTypes = page.actionTypes,
+            )
+        }
+    }
+
     private fun launchAdminAction(action: suspend (String) -> Unit) {
         viewModelScope.launch {
             try {
@@ -335,6 +420,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         isSaving = false,
                         isVehiclePageLoading = false,
                         isImportPageLoading = false,
+                        isAuditPageLoading = false,
                         failure = throwable.toAdminFailure(),
                     )
                 }
@@ -348,7 +434,9 @@ class AdminWorkspaceViewModel @Inject constructor(
     private companion object {
         const val VEHICLE_PAGE_SIZE = 100
         const val IMPORT_PAGE_SIZE = 100
+        const val AUDIT_PAGE_SIZE = 50
         const val VEHICLE_SEARCH_DEBOUNCE_MILLIS = 250L
+        const val AUDIT_KEYWORD_DEBOUNCE_MILLIS = 300L
         const val HTTP_UNAUTHORIZED = 401
     }
 }

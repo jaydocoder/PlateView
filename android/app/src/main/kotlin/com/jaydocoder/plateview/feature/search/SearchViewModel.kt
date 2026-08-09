@@ -113,11 +113,27 @@ class SearchViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isListening = false,
-                        voiceFailure = failure,
+                        voiceFailure = if (failure == VoiceInputFailure.ServiceUnavailable) null else failure,
                     )
+                }
+                if (failure == VoiceInputFailure.ServiceUnavailable) {
+                    viewModelScope.launch { _events.emit(SearchEvent.LaunchSystemVoiceRecognition) }
                 }
             },
         )
+    }
+
+    fun onSystemVoiceRecognized(recognizedText: String) {
+        if (recognizedText.isBlank()) {
+            onSystemVoiceFinished(VoiceInputFailure.NoMatch)
+            return
+        }
+        _uiState.update { it.copy(isListening = false, voiceFailure = null) }
+        updateQuery(recognizedText)
+    }
+
+    fun onSystemVoiceFinished(failure: VoiceInputFailure) {
+        _uiState.update { it.copy(isListening = false, voiceFailure = failure) }
     }
 
     fun onVoicePermissionDenied() {

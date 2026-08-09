@@ -103,5 +103,14 @@ interface AdminApi {
     ): AdminImportBatchDto
 
     @GET("admin/audit")
-    suspend fun listAudit(@Header("Authorization") authorization: String): AdminAuditListResponseDto
+    suspend fun listAudit(
+        @Header("Authorization") authorization: String,
+        @Query("range") range: String,
+        @Query("actorId") actorId: Long?,
+        @Query("actionType") actionType: String?,
+        @Query("result") result: String?,
+        @Query("keyword") keyword: String?,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
+    ): AdminAuditListResponseDto
 }

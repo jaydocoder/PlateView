@@ -210,28 +210,13 @@ internal class AdminManagementService(
         }
     }
 
-    fun listAuditEntries(limit: Int, offset: Int): List<AdminAuditEntry> = dataSource.connection.use { connection ->
-        connection.prepareStatement(SELECT_AUDIT_ENTRIES).use { statement ->
-            statement.setInt(1, limit.coerceIn(1, MAX_PAGE_SIZE))
-            statement.setInt(2, offset.coerceAtLeast(0))
-            statement.executeQuery().use { result ->
-                buildList {
-                    while (result.next()) {
-                        add(
-                            AdminAuditEntry(
-                                id = result.getLong("id"),
-                                actorUsername = result.getString("username"),
-                                actionType = result.getString("action_type"),
-                                targetType = result.getString("target_type"),
-                                targetId = result.getLongOrNull("target_id"),
-                                resultStatus = result.getString("result_status"),
-                                createdAt = result.getTimestamp("created_at").toIsoString().orEmpty(),
-                            ),
-                        )
-                    }
-                }
-            }
-        }
+    fun listAuditEntries(filter: AdminAuditFilter, limit: Int, offset: Int): AdminAuditPage = dataSource.connection.use { connection ->
+        val normalizedFilter = filter.normalized()
+        val items = connection.queryAuditEntries(normalizedFilter, limit, offset)
+        val summary = connection.queryAuditSummary(normalizedFilter)
+        val actors = connection.queryAuditActors(normalizedFilter.copy(actorId = null, actionType = null))
+        val actionTypes = connection.queryAuditActionTypes(normalizedFilter.copy(actionType = null))
+        AdminAuditPage(items, summary, actors, actionTypes)
     }
 
     private fun getUser(userId: Long): AdminUserRecord = dataSource.connection.use { connection ->
@@ -360,6 +345,84 @@ internal class AdminManagementService(
         statement.executeQuery().use { result -> result.next(); result.getInt(1) }
     }
 
+    private fun Connection.queryAuditEntries(filter: AdminAuditFilter, limit: Int, offset: Int): List<AdminAuditEntry> =
+        prepareStatement(AUDIT_SELECT_PREFIX + filter.whereClause() + " ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?").use { statement ->
+            var parameterIndex = statement.bindAuditFilter(filter)
+            statement.setInt(parameterIndex++, limit.coerceIn(1, MAX_PAGE_SIZE))
+            statement.setInt(parameterIndex, offset.coerceAtLeast(0))
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) add(result.toAuditEntry())
+                }
+            }
+        }
+
+    private fun Connection.queryAuditSummary(filter: AdminAuditFilter): AdminAuditSummary =
+        prepareStatement(AUDIT_SUMMARY_PREFIX + filter.whereClause()).use { statement ->
+            statement.bindAuditFilter(filter)
+            statement.executeQuery().use { result ->
+                result.next()
+                AdminAuditSummary(
+                    total = result.getInt("total"),
+                    successCount = result.getInt("success_count"),
+                    abnormalCount = result.getInt("abnormal_count"),
+                    activeActorCount = result.getInt("active_actor_count"),
+                )
+            }
+        }
+
+    private fun Connection.queryAuditActors(filter: AdminAuditFilter): List<AdminAuditActor> =
+        prepareStatement(AUDIT_ACTORS_PREFIX + filter.whereClause() + " AND a.actor_id IS NOT NULL GROUP BY a.actor_id, u.username ORDER BY u.username, a.actor_id").use { statement ->
+            statement.bindAuditFilter(filter)
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) add(AdminAuditActor(result.getLong("id"), result.getString("username")))
+                }
+            }
+        }
+
+    private fun Connection.queryAuditActionTypes(filter: AdminAuditFilter): List<String> =
+        prepareStatement(AUDIT_ACTION_TYPES_PREFIX + filter.whereClause() + " GROUP BY a.action_type ORDER BY a.action_type").use { statement ->
+            statement.bindAuditFilter(filter)
+            statement.executeQuery().use { result -> buildList { while (result.next()) add(result.getString("action_type")) } }
+        }
+
+    private fun ResultSet.toAuditEntry(): AdminAuditEntry = AdminAuditEntry(
+        id = getLong("id"),
+        actorUsername = getString("username"),
+        actionType = getString("action_type"),
+        targetType = getString("target_type"),
+        targetId = getLongOrNull("target_id"),
+        resultStatus = getString("result_status"),
+        createdAt = getTimestamp("created_at").toIsoString().orEmpty(),
+    )
+
+    private fun AdminAuditFilter.whereClause(): String = buildString {
+        append(" WHERE 1 = 1")
+        range.intervalLiteral?.let { append(" AND a.created_at >= now() - INTERVAL '$it'") }
+        if (actorId != null) append(" AND a.actor_id = ?")
+        if (actionType != null) append(" AND a.action_type = ?")
+        when (result) {
+            AdminAuditResult.SUCCESS -> append(" AND a.result_status = 'SUCCESS'")
+            AdminAuditResult.ABNORMAL -> append(" AND a.result_status IN ('FAILURE', 'DENIED')")
+            AdminAuditResult.ALL -> Unit
+        }
+        if (keyword != null) {
+            append(" AND (u.username ILIKE ? ESCAPE '\\' OR a.action_type ILIKE ? ESCAPE '\\' OR a.target_type ILIKE ? ESCAPE '\\' OR CAST(a.target_id AS TEXT) ILIKE ? ESCAPE '\\')")
+        }
+    }
+
+    private fun java.sql.PreparedStatement.bindAuditFilter(filter: AdminAuditFilter): Int {
+        var parameterIndex = 1
+        filter.actorId?.let { setLong(parameterIndex++, it) }
+        filter.actionType?.let { setString(parameterIndex++, it) }
+        filter.keyword?.let { keyword ->
+            val pattern = "%${keyword.escapeLike()}%"
+            repeat(4) { setString(parameterIndex++, pattern) }
+        }
+        return parameterIndex
+    }
+
     private fun SQLException.toAdminException(): RuntimeException = when (sqlState) {
         UNIQUE_VIOLATION -> AdminValidationException("启用状态下的规范化车牌已存在")
         else -> AdminPersistenceException("管理数据操作失败", this)
@@ -475,12 +538,31 @@ internal class AdminManagementService(
             LIMIT ? OFFSET ?
         """
 
-        const val SELECT_AUDIT_ENTRIES = """
+        const val AUDIT_SELECT_PREFIX = """
             SELECT a.id, u.username, a.action_type, a.target_type, a.target_id, a.result_status, a.created_at
             FROM audit_logs a
             LEFT JOIN users u ON u.id = a.actor_id
-            ORDER BY a.created_at DESC, a.id DESC
-            LIMIT ? OFFSET ?
+        """
+
+        const val AUDIT_SUMMARY_PREFIX = """
+            SELECT COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE a.result_status = 'SUCCESS') AS success_count,
+                   COUNT(*) FILTER (WHERE a.result_status IN ('FAILURE', 'DENIED')) AS abnormal_count,
+                   COUNT(DISTINCT a.actor_id) AS active_actor_count
+            FROM audit_logs a
+            LEFT JOIN users u ON u.id = a.actor_id
+        """
+
+        const val AUDIT_ACTORS_PREFIX = """
+            SELECT a.actor_id AS id, u.username
+            FROM audit_logs a
+            LEFT JOIN users u ON u.id = a.actor_id
+        """
+
+        const val AUDIT_ACTION_TYPES_PREFIX = """
+            SELECT a.action_type
+            FROM audit_logs a
+            LEFT JOIN users u ON u.id = a.actor_id
         """
     }
 }
@@ -585,6 +667,71 @@ internal data class AdminAuditEntry(
     val createdAt: String,
 )
 
+internal data class AdminAuditPage(
+    val items: List<AdminAuditEntry>,
+    val summary: AdminAuditSummary,
+    val actors: List<AdminAuditActor>,
+    val actionTypes: List<String>,
+)
+
+internal data class AdminAuditSummary(
+    val total: Int,
+    val successCount: Int,
+    val abnormalCount: Int,
+    val activeActorCount: Int,
+)
+
+internal data class AdminAuditActor(
+    val id: Long,
+    val username: String?,
+)
+
+internal data class AdminAuditFilter(
+    val range: AdminAuditRange = AdminAuditRange.THIRTY_DAYS,
+    val actorId: Long? = null,
+    val actionType: String? = null,
+    val result: AdminAuditResult = AdminAuditResult.ALL,
+    val keyword: String? = null,
+) {
+    fun normalized(): AdminAuditFilter = copy(
+        actorId = actorId?.requirePositive("审计操作人标识"),
+        actionType = actionType?.trim()?.takeIf(String::isNotEmpty)?.also {
+            if (it.length > 128) throw AdminValidationException("审计操作类型长度超过128个字符")
+        },
+        keyword = keyword?.trim()?.takeIf(String::isNotEmpty)?.also {
+            if (it.length > 128) throw AdminValidationException("审计关键词长度超过128个字符")
+        },
+    )
+}
+
+internal enum class AdminAuditRange(val requestValue: String, val intervalLiteral: String?) {
+    DAY("24h", "24 hours"),
+    WEEK("7d", "7 days"),
+    THIRTY_DAYS("30d", "30 days"),
+    ALL("all", null),
+    ;
+
+    companion object {
+        fun fromRequest(value: String?): AdminAuditRange = entries.firstOrNull {
+            it.requestValue == (value ?: THIRTY_DAYS.requestValue)
+        } ?: throw AdminValidationException("审计时间范围无效")
+    }
+}
+
+internal enum class AdminAuditResult {
+    ALL,
+    SUCCESS,
+    ABNORMAL,
+    ;
+
+    companion object {
+        fun fromRequest(value: String?): AdminAuditResult = value?.let {
+            entries.firstOrNull { result -> result.name == it }
+                ?: throw AdminValidationException("审计结果筛选无效")
+        } ?: ALL
+    }
+}
+
 internal class AdminResourceNotFoundException(message: String) : RuntimeException(message)
 internal class AdminValidationException(message: String) : RuntimeException(message)
 internal class AdminConflictException(message: String) : RuntimeException(message)
@@ -632,6 +779,7 @@ private fun AdminLongTermProfile.validate() {
 }
 
 private fun String?.trimToNull(): String? = this?.trim()?.takeIf(String::isNotEmpty)
+private fun String.escapeLike(): String = replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 private fun Int.requireNonNegative(name: String) = also { if (it < 0) throw AdminValidationException("${name}无效") }
 private fun Long.requirePositive(name: String) = also { if (it <= 0) throw AdminValidationException("${name}无效") }
 private fun java.sql.Timestamp?.toIsoString(): String? = this?.toInstant()?.toString()

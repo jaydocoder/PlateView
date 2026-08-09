@@ -148,6 +148,43 @@ class SearchViewModelTest {
         assertEquals(listOf("新A12"), vehicleRepository.searchKeywords)
     }
 
+    @Test
+    fun `直接语音服务不可用时启动系统语音识别兜底`() = runTest {
+        val voiceRecognizer = FakeVoiceRecognizer()
+        val viewModel = createViewModel(voiceRecognizer = voiceRecognizer)
+        val event = async { viewModel.events.first() }
+        runCurrent()
+
+        viewModel.startVoiceInput()
+        voiceRecognizer.emitFailure(VoiceInputFailure.ServiceUnavailable)
+
+        assertEquals(SearchEvent.LaunchSystemVoiceRecognition, event.await())
+        assertEquals(false, viewModel.uiState.value.isListening)
+        assertEquals(null, viewModel.uiState.value.voiceFailure)
+    }
+
+    @Test
+    fun `系统语音结果回填搜索框并触发查询`() = runTest {
+        val vehicleRepository = FakeVehicleRepository()
+        val viewModel = createViewModel(vehicleRepository = vehicleRepository)
+
+        viewModel.onSystemVoiceRecognized(" 新a12 ")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertEquals(" 新a12 ", viewModel.uiState.value.query)
+        assertEquals(listOf("新A12"), vehicleRepository.searchKeywords)
+    }
+
+    @Test
+    fun `系统语音取消会保留明确状态`() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.onSystemVoiceFinished(VoiceInputFailure.Cancelled)
+
+        assertEquals(VoiceInputFailure.Cancelled, viewModel.uiState.value.voiceFailure)
+    }
+
     private fun createViewModel(
         vehicleRepository: FakeVehicleRepository = FakeVehicleRepository(),
         vehicleCacheRepository: VehicleCacheRepository = FakeVehicleCacheRepository(),
@@ -251,5 +288,9 @@ private class FakeVoiceRecognizer : VoiceRecognizer {
 
     fun emitResult(value: String) {
         requireNotNull(onResult).invoke(value)
+    }
+
+    fun emitFailure(failure: VoiceInputFailure) {
+        requireNotNull(onFailure).invoke(failure)
     }
 }

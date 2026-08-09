@@ -26,6 +26,7 @@ enum class VoiceInputFailure {
     PermissionDenied,
     ServiceUnavailable,
     NoMatch,
+    Cancelled,
     RecognitionFailed,
 }
 
@@ -99,6 +100,10 @@ class AndroidVoiceRecognizer @Inject constructor(
 }
 
 private fun Int.toVoiceInputFailure(): VoiceInputFailure = when (this) {
+    SpeechRecognizer.ERROR_CLIENT,
+    SpeechRecognizer.ERROR_SERVER,
+    -> VoiceInputFailure.ServiceUnavailable
+
     SpeechRecognizer.ERROR_NO_MATCH,
     SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
     -> VoiceInputFailure.NoMatch

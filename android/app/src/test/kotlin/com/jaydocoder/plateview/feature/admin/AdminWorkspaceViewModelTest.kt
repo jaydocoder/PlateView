@@ -4,6 +4,10 @@ import android.net.Uri
 import com.jaydocoder.plateview.data.admin.AdminImportFileReader
 import com.jaydocoder.plateview.data.admin.SelectedAdminImportFile
 import com.jaydocoder.plateview.domain.admin.AdminRepository
+import com.jaydocoder.plateview.domain.admin.AuditFilter
+import com.jaydocoder.plateview.domain.admin.AuditRange
+import com.jaydocoder.plateview.domain.admin.ManagedAuditPage
+import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
@@ -145,6 +149,27 @@ class AdminWorkspaceViewModelTest {
         assertEquals(listOf(firstRow, secondRow), viewModel.uiState.value.selectedImportBatch?.rows)
     }
 
+    @Test
+    fun `审计筛选重置分页并追加下一页`() = runTest {
+        val first = ManagedAuditEntry(301, "admin", "LOGIN", "AUTH", null, "SUCCESS", "2026-08-09T10:00:00Z")
+        val second = ManagedAuditEntry(302, "admin", "VEHICLE_UPDATE", "VEHICLE", 9, "FAILURE", "2026-08-09T09:00:00Z")
+        val repository = FakeAdminRepository(auditPages = listOf(listOf(first), listOf(second)), auditTotal = 2)
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.Audit)
+        advanceUntilIdle()
+        viewModel.updateAuditRange(AuditRange.WEEK)
+        advanceUntilIdle()
+        viewModel.loadMoreAuditEntries()
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 0, 1), repository.auditOffsets)
+        assertEquals(AuditRange.WEEK, repository.auditFilters.last().range)
+        assertEquals(listOf(first, second), viewModel.uiState.value.auditEntries)
+        assertEquals(1, viewModel.uiState.value.auditSummary.abnormalCount)
+    }
+
     private fun createViewModel(
         repository: FakeAdminRepository = FakeAdminRepository(),
         role: String = "ADMIN",
@@ -161,11 +186,15 @@ private class FakeAdminRepository(
     private val vehicleTotal: Int = 1,
     private val importPages: List<List<ManagedImportRow>> = emptyList(),
     private val importTotal: Int = 0,
+    private val auditPages: List<List<ManagedAuditEntry>> = emptyList(),
+    private val auditTotal: Int = 0,
 ) : AdminRepository {
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
     val vehicleKeywords = mutableListOf<String?>()
     val importOffsets = mutableListOf<Int>()
+    val auditOffsets = mutableListOf<Int>()
+    val auditFilters = mutableListOf<AuditFilter>()
 
     private val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
     private val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
@@ -219,7 +248,23 @@ private class FakeAdminRepository(
     override suspend fun updateImportResolution(accessToken: String, batchId: Long, rowId: Long, resolution: String): ManagedImportBatch = error("本测试不处理导入行")
     override suspend fun publishImport(accessToken: String, batchId: Long): ManagedImportBatch = error("本测试不发布")
     override suspend fun rollbackImport(accessToken: String, batchId: Long): ManagedImportBatch = error("本测试不回滚")
-    override suspend fun listAuditEntries(accessToken: String): List<ManagedAuditEntry> = emptyList()
+    override suspend fun listAuditEntries(
+        accessToken: String,
+        filter: AuditFilter,
+        limit: Int,
+        offset: Int,
+    ): ManagedAuditPage {
+        auditOffsets += offset
+        auditFilters += filter
+        val page = auditPages.getOrElse(if (offset == 0) 0 else 1) { emptyList() }
+        return ManagedAuditPage(
+            items = page,
+            total = auditTotal,
+            summary = ManagedAuditSummary(auditTotal, auditTotal - page.count { it.resultStatus != "SUCCESS" }, page.count { it.resultStatus != "SUCCESS" }, 1),
+            actors = emptyList(),
+            actionTypes = emptyList(),
+        )
+    }
 }
 
 private class FakeAdminSessionProvider(role: String) : AuthSessionProvider {

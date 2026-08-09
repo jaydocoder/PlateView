@@ -28,5 +28,10 @@ interface AdminRepository {
     suspend fun publishImport(accessToken: String, batchId: Long): ManagedImportBatch
     suspend fun rollbackImport(accessToken: String, batchId: Long): ManagedImportBatch
 
-    suspend fun listAuditEntries(accessToken: String): List<ManagedAuditEntry>
+    suspend fun listAuditEntries(
+        accessToken: String,
+        filter: AuditFilter = AuditFilter(),
+        limit: Int = 50,
+        offset: Int = 0,
+    ): ManagedAuditPage
 }

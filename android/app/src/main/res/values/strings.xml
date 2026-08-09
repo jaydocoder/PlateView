@@ -22,6 +22,7 @@
     <string name="search_voice_permission_denied">未授予录音权限，可继续手动输入车牌号</string>
     <string name="search_voice_service_unavailable">当前设备未提供语音识别服务，可继续手动输入</string>
     <string name="search_voice_no_match">未识别到车牌号，可继续手动输入</string>
+    <string name="search_voice_cancelled">已取消语音识别，可继续手动输入</string>
     <string name="search_voice_failed">语音识别失败，可继续手动输入</string>
     <string name="detail_title">车辆详情</string>
     <string name="detail_back">返回查询结果</string>

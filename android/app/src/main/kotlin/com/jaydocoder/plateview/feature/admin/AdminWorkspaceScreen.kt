@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Refresh
@@ -48,6 +50,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -71,7 +75,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -83,7 +89,12 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
+import com.jaydocoder.plateview.domain.admin.AuditFilter
+import com.jaydocoder.plateview.domain.admin.AuditRange
+import com.jaydocoder.plateview.domain.admin.AuditResult
+import com.jaydocoder.plateview.domain.admin.ManagedAuditActor
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
+import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportRow
@@ -129,6 +140,12 @@ fun AdminWorkspaceRoute(
         onImportResolution = viewModel::updateImportResolution,
         onPublishImport = viewModel::publishImport,
         onRollbackImport = viewModel::rollbackImport,
+        onAuditRangeChanged = viewModel::updateAuditRange,
+        onAuditActorChanged = viewModel::updateAuditActor,
+        onAuditActionTypeChanged = viewModel::updateAuditActionType,
+        onAuditResultChanged = viewModel::updateAuditResult,
+        onAuditKeywordChanged = viewModel::updateAuditKeyword,
+        onLoadMoreAuditEntries = viewModel::loadMoreAuditEntries,
     )
 }
 
@@ -162,6 +179,12 @@ fun AdminWorkspaceScreen(
     onImportResolution: (Long, String) -> Unit,
     onPublishImport: () -> Unit,
     onRollbackImport: () -> Unit,
+    onAuditRangeChanged: (AuditRange) -> Unit = {},
+    onAuditActorChanged: (Long?) -> Unit = {},
+    onAuditActionTypeChanged: (String?) -> Unit = {},
+    onAuditResultChanged: (AuditResult) -> Unit = {},
+    onAuditKeywordChanged: (String) -> Unit = {},
+    onLoadMoreAuditEntries: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -264,7 +287,21 @@ fun AdminWorkspaceScreen(
                             onOpenBatch = onOpenImportBatch,
                         )
 
-                        AdminTab.Audit -> AuditPane(items = uiState.auditEntries)
+                        AdminTab.Audit -> AuditPane(
+                            items = uiState.auditEntries,
+                            filter = uiState.auditFilter,
+                            summary = uiState.auditSummary,
+                            totalCount = uiState.auditTotalCount,
+                            actors = uiState.auditActors,
+                            actionTypes = uiState.auditActionTypes,
+                            isPageLoading = uiState.isAuditPageLoading,
+                            onRangeChanged = onAuditRangeChanged,
+                            onActorChanged = onAuditActorChanged,
+                            onActionTypeChanged = onAuditActionTypeChanged,
+                            onResultChanged = onAuditResultChanged,
+                            onKeywordChanged = onAuditKeywordChanged,
+                            onLoadMore = onLoadMoreAuditEntries,
+                        )
                     }
                 }
             }
@@ -698,42 +735,216 @@ private fun ImportsPane(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AuditPane(items: List<ManagedAuditEntry>) {
+private fun AuditPane(
+    items: List<ManagedAuditEntry>,
+    filter: AuditFilter,
+    summary: ManagedAuditSummary,
+    totalCount: Int,
+    actors: List<ManagedAuditActor>,
+    actionTypes: List<String>,
+    isPageLoading: Boolean,
+    onRangeChanged: (AuditRange) -> Unit,
+    onActorChanged: (Long?) -> Unit,
+    onActionTypeChanged: (String?) -> Unit,
+    onResultChanged: (AuditResult) -> Unit,
+    onKeywordChanged: (String) -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val hasMoreItems = items.size < totalCount
+    val shouldLoadMore by remember(listState, items.size, totalCount, isPageLoading) {
+        derivedStateOf {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            items.isNotEmpty() && hasMoreItems && !isPageLoading &&
+                lastVisibleIndex >= listState.layoutInfo.totalItemsCount - LOAD_MORE_TRIGGER_DISTANCE
+        }
+    }
+    LaunchedEffect(listState, shouldLoadMore) {
+        snapshotFlow { shouldLoadMore }
+            .distinctUntilChanged()
+            .collect { nearEnd -> if (nearEnd) onLoadMore() }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(PlateViewDimensions.pageHorizontal, PlateViewDimensions.pageVertical),
+        verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
-        item {
+        item(key = "audit_heading") {
             AdminPaneHeading(
                 title = "操作审计",
-                description = "追踪账号、车辆与导入操作记录",
-                metric = "${items.size} 条记录",
+                description = "${filter.range.label}内的管理操作与异常追踪",
+                metric = "$totalCount 条记录",
                 icon = Icons.Outlined.Security,
             )
         }
-        if (items.isEmpty()) item { EmptyPane("暂无审计记录") }
-        items(items, key = ManagedAuditEntry::id) { item ->
-            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(item.actionType, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(item.createdAt, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        item(key = "audit_summary") {
+            AuditSummaryRow(summary)
+        }
+        item(key = "audit_keyword") {
+            OutlinedTextField(
+                value = filter.keyword,
+                onValueChange = onKeywordChanged,
+                modifier = Modifier.fillMaxWidth().testTag("admin_audit_keyword"),
+                label = { Text("筛选账号、操作或目标") },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                singleLine = true,
+                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+            )
+        }
+        item(key = "audit_ranges") {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
+                items(AuditRange.entries, key = AuditRange::name) { range ->
+                    FilterChip(
+                        selected = range == filter.range,
+                        onClick = { onRangeChanged(range) },
+                        label = { Text(range.label) },
+                    )
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "${item.actorUsername ?: "系统"} 对 ${item.targetType}${item.targetId?.let { " #$it" }.orEmpty()} 执行了操作",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                AdminStatusBadge(item.resultStatus, item.resultStatus == "SUCCESS")
-                HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
         }
+        item(key = "audit_selectors") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+            ) {
+                AuditSelector(
+                    modifier = Modifier.weight(1f),
+                    label = filter.actorId?.let { id -> actors.firstOrNull { it.id == id }?.username ?: "指定用户" } ?: "全部用户",
+                    options = listOf(AuditSelection<Long?>(null, "全部用户")) + actors.map { AuditSelection<Long?>(it.id, it.username ?: "系统") },
+                    onSelected = onActorChanged,
+                )
+                AuditSelector(
+                    modifier = Modifier.weight(1f),
+                    label = filter.actionType ?: "全部操作",
+                    options = listOf(AuditSelection<String?>(null, "全部操作")) + actionTypes.map { AuditSelection<String?>(it, it) },
+                    onSelected = onActionTypeChanged,
+                )
+            }
+        }
+        item(key = "audit_results") {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
+                items(AuditResult.entries, key = AuditResult::name) { result ->
+                    FilterChip(
+                        selected = result == filter.result,
+                        onClick = { onResultChanged(result) },
+                        label = { Text(result.label) },
+                        leadingIcon = if (result == AuditResult.ABNORMAL) {
+                            { Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                        } else null,
+                    )
+                }
+            }
+        }
+        if (items.isEmpty() && !isPageLoading) {
+            item(key = "audit_empty") { EmptyPane("当前筛选条件下暂无审计记录") }
+        }
+        items(items, key = ManagedAuditEntry::id) { item -> AuditEntryItem(item) }
+        if (isPageLoading) {
+            item(key = "audit_loading") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.compactSpacing),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    Text("正在加载审计记录", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else if (hasMoreItems) {
+            item(key = "audit_load_hint") {
+                Text(
+                    text = "继续下滑加载更多记录",
+                    modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.compactSpacing),
+                    color = MaterialTheme.colorScheme.outline,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuditSummaryRow(summary: ManagedAuditSummary) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+    ) {
+        AuditMetric("总记录", summary.total, MaterialTheme.colorScheme.primaryContainer, Modifier.weight(1f))
+        AuditMetric("正常", summary.successCount, MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
+        AuditMetric("异常", summary.abnormalCount, MaterialTheme.colorScheme.errorContainer, Modifier.weight(1f))
+        AuditMetric("操作人", summary.activeActorCount, MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun AuditMetric(label: String, value: Int, color: Color, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, color = color, shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+private data class AuditSelection<T>(val value: T, val label: String)
+
+@Composable
+private fun <T> AuditSelector(
+    label: String,
+    options: List<AuditSelection<T>>,
+    onSelected: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    Box(modifier = modifier) {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(label, maxLines = 1, modifier = Modifier.weight(1f))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = { expanded = false; onSelected(option.value) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuditEntryItem(item: ManagedAuditEntry) {
+    val isAbnormal = item.resultStatus == "FAILURE" || item.resultStatus == "DENIED"
+    val containerColor = if (isAbnormal) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+    val contentColor = if (isAbnormal) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = PlateViewDimensions.compactSpacing)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = containerColor, contentColor = contentColor, shape = RoundedCornerShape(PlateViewDimensions.cornerSmall)) {
+                Row(modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (isAbnormal) Icons.Outlined.ErrorOutline else Icons.Outlined.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(item.resultStatus, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+            Text(item.createdAt, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(item.actionType, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "${item.actorUsername ?: "系统"} · ${item.targetType}${item.targetId?.let { " #$it" }.orEmpty()}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
 }
 

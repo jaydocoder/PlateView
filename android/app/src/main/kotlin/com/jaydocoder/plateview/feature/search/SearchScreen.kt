@@ -1,6 +1,9 @@
 package com.jaydocoder.plateview.feature.search
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -77,6 +80,7 @@ import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SearchRoute(
@@ -97,11 +101,34 @@ fun SearchRoute(
             viewModel.onVoicePermissionDenied()
         }
     }
+    val systemVoiceRecognition = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val recognizedText = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.trim()
+        when {
+            result.resultCode == Activity.RESULT_OK && !recognizedText.isNullOrEmpty() -> viewModel.onSystemVoiceRecognized(recognizedText)
+            result.resultCode == Activity.RESULT_OK -> viewModel.onSystemVoiceFinished(VoiceInputFailure.NoMatch)
+            else -> viewModel.onSystemVoiceFinished(VoiceInputFailure.Cancelled)
+        }
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is SearchEvent.OpenVehicle -> onNavigateToVehicle(event.vehicleId)
+                SearchEvent.LaunchSystemVoiceRecognition -> {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINA.toLanguageTag())
+                    if (intent.resolveActivity(context.packageManager) == null) {
+                        viewModel.onSystemVoiceFinished(VoiceInputFailure.ServiceUnavailable)
+                    } else {
+                        systemVoiceRecognition.launch(intent)
+                    }
+                }
             }
         }
     }
@@ -672,5 +699,6 @@ private fun VoiceInputFailure.messageResource(): Int = when (this) {
     VoiceInputFailure.PermissionDenied -> R.string.search_voice_permission_denied
     VoiceInputFailure.ServiceUnavailable -> R.string.search_voice_service_unavailable
     VoiceInputFailure.NoMatch -> R.string.search_voice_no_match
+    VoiceInputFailure.Cancelled -> R.string.search_voice_cancelled
     VoiceInputFailure.RecognitionFailed -> R.string.search_voice_failed
 }

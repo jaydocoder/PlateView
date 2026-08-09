@@ -22,5 +22,13 @@ data class AdminImportRowDto(val id: Long, val sourceSheetName: String, val sour
 data class AdminImportResolutionRequestDto(val rows: List<AdminImportResolutionDto>)
 data class AdminImportResolutionDto(val rowId: Long, val resolution: String)
 
-data class AdminAuditListResponseDto(val items: List<AdminAuditEntryDto>)
+data class AdminAuditListResponseDto(
+    val items: List<AdminAuditEntryDto>,
+    val total: Int,
+    val summary: AdminAuditSummaryDto,
+    val actors: List<AdminAuditActorDto>,
+    val actionTypes: List<String>,
+)
 data class AdminAuditEntryDto(val id: Long, val actorUsername: String?, val actionType: String, val targetType: String, val targetId: Long?, val resultStatus: String, val createdAt: String)
+data class AdminAuditSummaryDto(val total: Int, val successCount: Int, val abnormalCount: Int, val activeActorCount: Int)
+data class AdminAuditActorDto(val id: Long, val username: String?)

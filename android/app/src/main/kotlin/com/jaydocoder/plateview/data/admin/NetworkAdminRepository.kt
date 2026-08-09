@@ -1,8 +1,12 @@
 package com.jaydocoder.plateview.data.admin
 
 import com.jaydocoder.plateview.domain.admin.AdminRepository
+import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
+import com.jaydocoder.plateview.domain.admin.ManagedAuditActor
+import com.jaydocoder.plateview.domain.admin.ManagedAuditPage
+import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportRow
@@ -115,10 +119,36 @@ class NetworkAdminRepository @Inject constructor(
         .rollbackImport(bearer(accessToken), batchId)
         .toDomain()
 
-    override suspend fun listAuditEntries(accessToken: String): List<ManagedAuditEntry> = api
-        .listAudit(bearer(accessToken))
-        .items
-        .map(AdminAuditEntryDto::toDomain)
+    override suspend fun listAuditEntries(
+        accessToken: String,
+        filter: AuditFilter,
+        limit: Int,
+        offset: Int,
+    ): ManagedAuditPage = api
+        .listAudit(
+            authorization = bearer(accessToken),
+            range = filter.range.requestValue,
+            actorId = filter.actorId,
+            actionType = filter.actionType,
+            result = filter.result.requestValue,
+            keyword = filter.keyword.trim().ifEmpty { null },
+            limit = limit,
+            offset = offset,
+        )
+        .let { response ->
+            ManagedAuditPage(
+                items = response.items.map(AdminAuditEntryDto::toDomain),
+                total = response.total,
+                summary = ManagedAuditSummary(
+                    total = response.summary.total,
+                    successCount = response.summary.successCount,
+                    abnormalCount = response.summary.abnormalCount,
+                    activeActorCount = response.summary.activeActorCount,
+                ),
+                actors = response.actors.map { ManagedAuditActor(it.id, it.username) },
+                actionTypes = response.actionTypes,
+            )
+        }
 
     private fun bearer(accessToken: String): String = "Bearer $accessToken"
 

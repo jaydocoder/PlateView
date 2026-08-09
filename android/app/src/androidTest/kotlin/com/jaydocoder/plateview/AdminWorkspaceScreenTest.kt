@@ -8,6 +8,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
+import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
+import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
@@ -212,5 +214,58 @@ class AdminWorkspaceScreenTest {
         composeRule.runOnIdle {
             assertEquals(1, publishCalled)
         }
+    }
+
+    @Test
+    fun 审计页显示筛选范围汇总和异常状态() {
+        val entry = ManagedAuditEntry(
+            id = 301,
+            actorUsername = "admin",
+            actionType = "VEHICLE_UPDATE",
+            targetType = "VEHICLE",
+            targetId = 101,
+            resultStatus = "FAILURE",
+            createdAt = "2026-08-09T10:00:00Z",
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Audit,
+                        isLoading = false,
+                        auditEntries = listOf(entry),
+                        auditTotalCount = 1,
+                        auditSummary = ManagedAuditSummary(1, 0, 1, 1),
+                    ),
+                    onNavigateUp = {},
+                    onTabSelected = {},
+                    onRefresh = {},
+                    onCreateVehicle = {},
+                    onEditVehicle = {},
+                    onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {},
+                    onSaveVehicle = {},
+                    onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {},
+                    onConfirmVehicleDeactivation = {},
+                    onCreateUser = {},
+                    onEditUser = {},
+                    onUserEditorChanged = {},
+                    onDismissUserEditor = {},
+                    onSaveUser = {},
+                    onChooseImport = {},
+                    onOpenImportBatch = {},
+                    onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> },
+                    onPublishImport = {},
+                    onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("近30天").assertIsDisplayed()
+        composeRule.onNodeWithText("FAILURE").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_audit_keyword").assertIsDisplayed()
     }
 }

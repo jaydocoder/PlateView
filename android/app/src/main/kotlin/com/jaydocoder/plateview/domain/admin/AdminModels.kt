@@ -134,3 +134,44 @@ data class ManagedAuditEntry(
     val resultStatus: String,
     val createdAt: String,
 )
+
+data class ManagedAuditPage(
+    val items: List<ManagedAuditEntry>,
+    val total: Int,
+    val summary: ManagedAuditSummary,
+    val actors: List<ManagedAuditActor>,
+    val actionTypes: List<String>,
+)
+
+data class ManagedAuditSummary(
+    val total: Int = 0,
+    val successCount: Int = 0,
+    val abnormalCount: Int = 0,
+    val activeActorCount: Int = 0,
+)
+
+data class ManagedAuditActor(
+    val id: Long,
+    val username: String?,
+)
+
+data class AuditFilter(
+    val range: AuditRange = AuditRange.THIRTY_DAYS,
+    val actorId: Long? = null,
+    val actionType: String? = null,
+    val result: AuditResult = AuditResult.ALL,
+    val keyword: String = "",
+)
+
+enum class AuditRange(val requestValue: String, val label: String) {
+    DAY("24h", "近24小时"),
+    WEEK("7d", "近7天"),
+    THIRTY_DAYS("30d", "近30天"),
+    ALL("all", "全部时间"),
+}
+
+enum class AuditResult(val requestValue: String?, val label: String) {
+    ALL(null, "全部结果"),
+    SUCCESS("SUCCESS", "正常"),
+    ABNORMAL("ABNORMAL", "异常"),
+}

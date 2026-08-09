@@ -31,4 +31,6 @@ enum class SearchFailure {
 
 sealed interface SearchEvent {
     data class OpenVehicle(val vehicleId: Long) : SearchEvent
+
+    data object LaunchSystemVoiceRecognition : SearchEvent
 }

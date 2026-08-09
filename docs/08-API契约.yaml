@@ -340,6 +340,39 @@ paths:
     get:
       summary: 管理员查询操作审计
       parameters:
+        - name: range
+          in: query
+          required: false
+          description: 服务端计算的时间范围，默认最近30天。
+          schema:
+            type: string
+            enum: [24h, 7d, 30d, all]
+            default: 30d
+        - name: actorId
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: actionType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: result
+          in: query
+          required: false
+          description: ABNORMAL 同时匹配 FAILURE 与 DENIED。
+          schema:
+            type: string
+            enum: [ALL, SUCCESS, ABNORMAL]
+            default: ALL
+        - name: keyword
+          in: query
+          required: false
+          description: 匹配账号、操作、目标类型或目标标识。
+          schema:
+            type: string
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageOffset'
       responses:
@@ -486,7 +519,7 @@ components:
               type: integer
     AdminVehicleList:
       type: object
-      required: [items]
+      required: [items, total]
       properties:
         items:
           type: array
@@ -591,7 +624,7 @@ components:
                 type: integer
     AdminAuditList:
       type: object
-      required: [items]
+      required: [items, total, summary, actors, actionTypes]
       properties:
         items:
           type: array
@@ -616,6 +649,35 @@ components:
               createdAt:
                 type: string
                 format: date-time
+        total:
+          type: integer
+        summary:
+          type: object
+          required: [total, successCount, abnormalCount, activeActorCount]
+          properties:
+            total:
+              type: integer
+            successCount:
+              type: integer
+            abnormalCount:
+              type: integer
+            activeActorCount:
+              type: integer
+        actors:
+          type: array
+          items:
+            type: object
+            required: [id]
+            properties:
+              id:
+                type: integer
+                format: int64
+              username:
+                type: [string, 'null']
+        actionTypes:
+          type: array
+          items:
+            type: string
     ImportBatch:
       type: object
       required: [id, sourceFileName, status, stats, rows]
