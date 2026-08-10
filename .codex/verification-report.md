@@ -773,3 +773,37 @@
 综合评分：95/100。
 
 结论：通过。剩余风险仅为未在本轮将调试仪器化 APK 安装到真机，已避免影响用户当前正式安装版本。
+
+# 0.3.10 断点续传更新下载验证报告
+
+时间：2026-08-11 01:00:00 CST
+
+## 需求与交付物映射
+
+| 需求 | 交付物 | 验证结果 |
+| --- | --- | --- |
+| 下载中断后继续 | `ResumableApkDownloader` 与 `.apk.part` 文件 | 通过：存在部分文件时发送对应字节的 HTTP `Range` 请求并追加写入。 |
+| 不支持范围请求时安全处理 | 下载器的 `200`、`416` 与错误 `Content-Range` 分支 | 通过：丢弃无效断点后使用完整响应，避免拼接错误 APK。 |
+| 错误恢复 | HTTP 失败分支与临时文件策略 | 通过：失败后保留部分文件，供下次用户主动下载继续。 |
+| 发布新正式 APK | 版本号、README、GitHub 工作流 | 通过：本地正式 APK 为 `0.3.10`、`versionCode 13`。 |
+
+## 本地自动验证
+
+- `./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease :app:assembleRelease :app:assembleDebugAndroidTest -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/`：通过。
+- 调试与正式 JVM 单元测试共 58 项，均为 0 失败、0 错误；其中 `ResumableApkDownloaderTest` 在两种变体各 5 项通过。
+- `MockWebServer` 覆盖 `206` 续传、服务器忽略范围请求、`416`、错误 `Content-Range` 与 HTTP 失败后的断点保留。
+- 调试、正式 Lint 均无 Error 或 Fatal；`assembleDebugAndroidTest` 成功编译仪器化测试 APK。
+- `aapt dump badging`：确认包名 `com.jaydocoder.plateview`、版本 `0.3.10`、`versionCode 13`。
+- `apksigner verify --verbose`：确认 Android 12 所需 V3 签名有效。
+
+## 审查结果
+
+- 代码质量：96/100。范围请求、响应校验和文件落盘在单一数据层组件中完成，仓库与 UI 边界保持清晰。
+- 测试覆盖：95/100。覆盖成功续传、协议降级和失败恢复；未将大文件下载中断场景安装到真机，但本地 HTTP 测试对协议分支具备确定性。
+- 规范遵循：96/100。沿用 Kotlin、协程、OkHttp、Material 3 既有栈；仅增加测试专用成熟依赖。
+- 需求匹配：97/100。用户再次点击下载时可从保留的断点继续，服务器不支持续传时不会生成错误文件。
+- 架构一致性与风险：95/100。缓存目录可能被 Android 清理，清理后自动从头下载；GitHub 网络可达性仍是更新发现和下载的外部前提。
+
+综合评分：96/100。
+
+结论：通过。

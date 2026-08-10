@@ -13,15 +13,11 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Qualifier
 import javax.inject.Singleton
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
@@ -67,36 +63,10 @@ class GitHubUpdateRepository @Inject constructor(
     override suspend fun download(
         update: AppUpdate,
         onProgress: (UpdateDownloadProgress) -> Unit,
-    ): File = withContext(Dispatchers.IO) {
-        val updateDirectory = File(context.cacheDir, "updates").apply { mkdirs() }
-        val apkFile = File(updateDirectory, "PlateView-${update.versionName}.apk")
-        val temporaryFile = File(updateDirectory, "PlateView-${update.versionName}.apk.part")
-        temporaryFile.delete()
-        val request = Request.Builder().url(update.downloadUrl).build()
-        client.newCall(request).execute().use { response ->
-            check(response.isSuccessful) { "下载更新失败，服务器返回 ${response.code}" }
-            val responseBody = checkNotNull(response.body) { "下载更新失败，未收到安装包" }
-            val totalBytes = responseBody.contentLength().takeIf { it > 0L }
-            responseBody.byteStream().use { input ->
-                temporaryFile.outputStream().buffered().use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var downloadedBytes = 0L
-                    onProgress(UpdateDownloadProgress(downloadedBytes, totalBytes))
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        downloadedBytes += count
-                        onProgress(UpdateDownloadProgress(downloadedBytes, totalBytes))
-                    }
-                }
-            }
-        }
-        check(temporaryFile.length() > 0L) { "下载更新失败，安装包为空" }
-        apkFile.delete()
-        check(temporaryFile.renameTo(apkFile)) { "下载更新失败，无法保存安装包" }
-        apkFile
-    }
+    ) = ResumableApkDownloader(
+        client = client,
+        downloadDirectory = java.io.File(context.cacheDir, "updates"),
+    ).download(update, onProgress)
 }
 
 @Qualifier

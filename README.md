@@ -13,6 +13,7 @@ PlateView 是面向景区入口、巡查与车辆信息核验场景的 Android �
 - 保存当前账号的本机搜索历史。
 - 使用 SQLCipher Room 保存加密车辆目录快照；目录未变化时，本地完成候选与详情查询，降低弱网场景的等待时间。
 - 通过目录版本在登录、页面恢复前台和联网后台任务中检查数据变化；检测到变化后原子替换本地快照。
+- 检测到新正式版后由用户主动下载；网络中断时保留安装包断点，下次下载自动继续。
 - 管理员工作台提供车辆档案、账号、Excel 导入、发布、回滚和审计查询。
 - Excel 导入采用预览、行级处置、确认发布与可追溯回滚流程，支持特殊后缀车牌。
 
@@ -90,9 +91,9 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 `main` 分支每次推送会自动执行 Android 单元测试、静态检查并上传调试 APK 工件。
 
-推送形如 `v0.3.9` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。用户应从 [GitHub 发行版](https://github.com/jaydocoder/PlateView/releases) 下载正式 APK，而不是从 GitHub 软件包页面下载。
+推送形如 `v0.3.10` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。用户应从 [GitHub 发行版](https://github.com/jaydocoder/PlateView/releases) 下载正式 APK，而不是从 GitHub 软件包页面下载。
 
-当前版本：`0.3.9`（`versionCode 12`）。
+当前版本：`0.3.10`（`versionCode 13`）。
 
 ## 文档索引
 

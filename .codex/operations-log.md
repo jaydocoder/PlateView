@@ -929,3 +929,35 @@
 - `assembleRelease` 已产出 `0.3.9`、`versionCode 12` 的正式 APK，V3 签名校验通过。
 - `assembleDebugAndroidTest` 已通过，未安装到真机，避免用调试签名覆盖用户当前的正式版。
 - 本次无服务端、数据库、镜像或部署配置改动；仅推送 Android 客户端版本与 GitHub 发行版。
+
+## 编码前检查 - 断点续传更新下载
+
+时间：2026-08-11 00:35:00 CST
+
+- 已查阅 `.codex/context-summary-断点续传更新下载.md`，并分析 `GitHubUpdateRepository`、`ContentResolverAdminImportFileReader`、`VehicleCacheSyncWorker` 与更新测试。
+- 将复用 `AppUpdateRepository`、更新专用 `OkHttpClient`、`UpdateDownloadProgress` 与 JUnit 协程测试模式。
+- 将遵循命名与分层约定：范围请求和文件续传位于 `data/update`，`ViewModel` 与 Compose 界面不感知 HTTP 细节。
+- 确认不重复造轮子：项目已有 OkHttp 和下载进度契约；仅增加标准 `MockWebServer` 测试依赖，不新建自定义网络协议或服务端模块。
+
+## 编码后声明 - 断点续传更新下载
+
+时间：2026-08-11 01:00:00 CST
+
+### 复用的既有组件
+
+- `AppUpdateRepository`：保留下载领域契约与 ViewModel 的依赖边界。
+- `GitHubUpdateRepository`：继续提供专用 HTTP 客户端、更新目录与 GitHub Release 地址。
+- `UpdateDownloadProgress`：续传开始时即上报已有字节数，现有下载进度界面无需修改。
+- JUnit、协程测试与 OkHttp：新增 `MockWebServer` 仅用于本地范围请求协议验证。
+
+### 遵循的项目约定
+
+- 文件续传逻辑集中在 `data/update/ResumableApkDownloader`，未向 Compose、ViewModel、导航、服务端或数据库扩散 HTTP 细节。
+- I/O 始终运行于 `Dispatchers.IO`，下载流使用固定 8KB 缓冲，不将 APK 读入内存。
+- 用户可见下载流程保持“主动点击、下载、系统确认安装”；本次不改变更新检查来源或安装权限流程。
+
+### 验证结果
+
+- 新增本地 `MockWebServer` 测试覆盖 `206` 续传、`200` 全量回退、`416` 重试、错误 `Content-Range` 回退和失败保留断点。
+- 调试与正式 JVM 单元测试共 58 项通过；调试、正式 Lint 无 Error 或 Fatal。
+- 正式 APK 为 `0.3.10`、`versionCode 13`，已通过 V3 签名校验；仪器化测试 APK 已编译，未安装到锁屏真机。
