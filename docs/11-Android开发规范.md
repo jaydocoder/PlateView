@@ -16,7 +16,7 @@
 android/app/
   core/                 通用网络、设计系统、导航和错误模型
   feature/auth/         登录
-  feature/search/       手动与语音搜索、候选、历史
+  feature/search/       手动搜索、候选、历史
   feature/vehicle/      车辆详情
   feature/admin/        用户、车辆、导入与审计管理
   data/                 API、Room、仓库实现
@@ -29,7 +29,7 @@ android/app/
 
 - 每个屏幕定义不可变 `UiState`、用户事件和一次性效果。
 - ViewModel 使用 `StateFlow` 持有状态；Compose 使用具备生命周期感知的方式订阅。
-- Composable 只负责渲染和派发事件，不直接调用网络、Room、语音服务或业务用例。
+- Composable 只负责渲染和派发事件，不直接调用网络、Room 或业务用例。
 - 列表项提供稳定键；非平凡 Composable 独立文件。
 - 所有加载、空结果、网络失败、权限拒绝和并发冲突均是明确状态，不使用静默失败。
 
@@ -49,7 +49,7 @@ android/app/
 
 ## 6. 依赖注入与命名
 
-- 使用 Hilt 提供 API 客户端、仓库、用例、Room 和系统服务适配器。
+- 使用 Hilt 提供 API 客户端、仓库、用例和 Room。
 - 类名使用领域含义，例如 `SearchVehiclesUseCase`、`VehicleRepository`、`SearchUiState`。
 - 布尔值以状态命名；事件使用动词；避免缩写和通用的 `Manager`、`Helper` 命名。
 - 注释使用中文，只说明约束、意图或非直观原因。
@@ -58,7 +58,6 @@ android/app/
 
 - ViewModel、用例、车牌归一化、候选排序和历史记录必须有单元测试。
 - 关键 Compose 页面必须覆盖输入、候选点击、详情跳转、错误状态和状态恢复。
-- 语音识别、录音权限和网络失败使用可替换适配器与测试替身。
 - 每项功能提交前运行相关单元测试、静态检查和受影响的 Android 测试。
 
 ## 8. Git 约定
@@ -72,7 +71,6 @@ android/app/
 
 - `SearchViewModel` 以 `StateFlow<SearchUiState>` 管理输入、候选、历史和查询反馈，以 `Flow<SearchEvent>` 发送一次性详情导航事件；界面不得持有仓库或直接发起请求。
 - 搜索顺序固定为“输入原文 -> 车牌归一化 -> 250 毫秒防抖 -> 首个有效字符门槛 -> 仓库查询”。归一化统一大写，因此前端和服务端均不受英文字母大小写影响。
-- `SearchRoute` 负责申请 `RECORD_AUDIO` 运行时权限；`VoiceRecognizer` 只适配系统语音服务。任何权限或识别故障都必须回退为手动输入，而不是阻断查询页。
 - `SearchDestination` 和 `VehicleDetailDestination` 使用序列化类型安全目的地；详情路由只携带 `vehicleId`，由详情 ViewModel 从仓库重新读取当前数据。
 - 搜索历史通过 Room 的 `search_history` 表按 `username` 查询、删除和清空，最多保留 50 条。实体禁止新增身份证号、联系方式、完整详情、令牌或语音原文列。
 - 交互控件应提供可理解的文本或 `contentDescription`；候选、历史和详情字段使用稳定键，查询、失败和空结果必须以文本状态可被辅助功能读取。

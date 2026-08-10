@@ -37,7 +37,6 @@ class SearchViewModel @Inject constructor(
     private val vehicleCacheRepository: VehicleCacheRepository,
     private val historyRepository: SearchHistoryRepository,
     private val sessionProvider: AuthSessionProvider,
-    private val voiceRecognizer: VoiceRecognizer,
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val retryVersion = MutableStateFlow(0)
@@ -55,12 +54,7 @@ class SearchViewModel @Inject constructor(
 
     fun updateQuery(value: String) {
         query.value = value
-        _uiState.update {
-            it.copy(
-                query = value,
-                voiceFailure = null,
-            )
-        }
+        _uiState.update { it.copy(query = value) }
     }
 
     fun retrySearch() {
@@ -100,54 +94,6 @@ class SearchViewModel @Inject constructor(
                 historyRepository.clear(session.username)
             }
         }
-    }
-
-    fun startVoiceInput() {
-        _uiState.update { it.copy(isListening = true, voiceFailure = null) }
-        voiceRecognizer.start(
-            onResult = { recognizedText ->
-                _uiState.update { it.copy(isListening = false) }
-                updateQuery(recognizedText)
-            },
-            onFailure = { failure ->
-                _uiState.update {
-                    it.copy(
-                        isListening = false,
-                        voiceFailure = if (failure == VoiceInputFailure.ServiceUnavailable) null else failure,
-                    )
-                }
-                if (failure == VoiceInputFailure.ServiceUnavailable) {
-                    viewModelScope.launch { _events.emit(SearchEvent.LaunchSystemVoiceRecognition) }
-                }
-            },
-        )
-    }
-
-    fun onSystemVoiceRecognized(recognizedText: String) {
-        if (recognizedText.isBlank()) {
-            onSystemVoiceFinished(VoiceInputFailure.NoMatch)
-            return
-        }
-        _uiState.update { it.copy(isListening = false, voiceFailure = null) }
-        updateQuery(recognizedText)
-    }
-
-    fun onSystemVoiceFinished(failure: VoiceInputFailure) {
-        _uiState.update { it.copy(isListening = false, voiceFailure = failure) }
-    }
-
-    fun onVoicePermissionDenied() {
-        _uiState.update {
-            it.copy(
-                isListening = false,
-                voiceFailure = VoiceInputFailure.PermissionDenied,
-            )
-        }
-    }
-
-    override fun onCleared() {
-        voiceRecognizer.release()
-        super.onCleared()
     }
 
     private fun observeQuery() {

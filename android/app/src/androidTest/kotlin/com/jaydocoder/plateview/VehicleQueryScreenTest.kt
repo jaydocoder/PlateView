@@ -33,7 +33,6 @@ class VehicleQueryScreenTest {
                 SearchScreen(
                     uiState = SearchUiState(candidates = listOf(candidate)),
                     onQueryChanged = {},
-                    onVoiceInput = {},
                     onCandidateSelected = { selectedVehicleId = it.id },
                     onHistorySelected = {},
                     onDeleteHistory = {},
@@ -104,7 +103,6 @@ class VehicleQueryScreenTest {
                 SearchScreen(
                     uiState = SearchUiState(history = listOf(history)),
                     onQueryChanged = {},
-                    onVoiceInput = {},
                     onCandidateSelected = {},
                     onHistorySelected = {},
                     onDeleteHistory = {},

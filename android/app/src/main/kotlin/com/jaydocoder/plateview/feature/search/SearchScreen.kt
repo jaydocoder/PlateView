@@ -1,11 +1,5 @@
 package com.jaydocoder.plateview.feature.search
 
-import android.Manifest
-import android.app.Activity
-import android.content.Intent
-import android.speech.RecognizerIntent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -36,7 +30,6 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,14 +54,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -80,7 +71,6 @@ import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import java.text.DateFormat
 import java.util.Date
-import java.util.Locale
 
 @Composable
 fun SearchRoute(
@@ -90,45 +80,12 @@ fun SearchRoute(
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val microphonePermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) {
-            viewModel.startVoiceInput()
-        } else {
-            viewModel.onVoicePermissionDenied()
-        }
-    }
-    val systemVoiceRecognition = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val recognizedText = result.data
-            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            ?.firstOrNull()
-            ?.trim()
-        when {
-            result.resultCode == Activity.RESULT_OK && !recognizedText.isNullOrEmpty() -> viewModel.onSystemVoiceRecognized(recognizedText)
-            result.resultCode == Activity.RESULT_OK -> viewModel.onSystemVoiceFinished(VoiceInputFailure.NoMatch)
-            else -> viewModel.onSystemVoiceFinished(VoiceInputFailure.Cancelled)
-        }
-    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is SearchEvent.OpenVehicle -> onNavigateToVehicle(event.vehicleId)
-                SearchEvent.LaunchSystemVoiceRecognition -> {
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINA.toLanguageTag())
-                    if (intent.resolveActivity(context.packageManager) == null) {
-                        viewModel.onSystemVoiceFinished(VoiceInputFailure.ServiceUnavailable)
-                    } else {
-                        systemVoiceRecognition.launch(intent)
-                    }
-                }
             }
         }
     }
@@ -143,17 +100,6 @@ fun SearchRoute(
     SearchScreen(
         uiState = uiState,
         onQueryChanged = viewModel::updateQuery,
-        onVoiceInput = {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO,
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (hasPermission) {
-                viewModel.startVoiceInput()
-            } else {
-                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        },
         onCandidateSelected = viewModel::selectCandidate,
         onHistorySelected = viewModel::selectHistory,
         onDeleteHistory = viewModel::deleteHistory,
@@ -169,7 +115,6 @@ fun SearchRoute(
 fun SearchScreen(
     uiState: SearchUiState,
     onQueryChanged: (String) -> Unit,
-    onVoiceInput: () -> Unit,
     onCandidateSelected: (VehicleCandidate) -> Unit,
     onHistorySelected: (SearchHistoryItem) -> Unit,
     onDeleteHistory: (Long) -> Unit,
@@ -245,8 +190,6 @@ fun SearchScreen(
             SearchBar(
                 query = uiState.query,
                 onQueryChanged = onQueryChanged,
-                onVoiceInput = onVoiceInput,
-                isListening = uiState.isListening,
                 modifier = Modifier.padding(
                     horizontal = PlateViewDimensions.pageHorizontal,
                     vertical = PlateViewDimensions.pageVertical,
@@ -262,25 +205,6 @@ fun SearchScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
-            if (uiState.isListening) {
-                item(key = "voice_listening") {
-                    StatusStrip(
-                        message = stringResource(R.string.search_voice_listening),
-                        isError = false,
-                        icon = Icons.Outlined.Mic
-                    )
-                }
-            }
-
-            uiState.voiceFailure?.let { failure ->
-                item(key = "voice_failure") {
-                    StatusStrip(
-                        message = stringResource(failure.messageResource()),
-                        isError = true,
-                    )
-                }
-            }
-
             item(key = "search_feedback") {
                 SearchFeedback(
                     resultState = uiState.resultState,
@@ -364,8 +288,6 @@ fun SearchScreen(
 private fun SearchBar(
     query: String,
     onQueryChanged: (String) -> Unit,
-    onVoiceInput: () -> Unit,
-    isListening: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -397,24 +319,6 @@ private fun SearchBar(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
-            },
-            trailingIcon = {
-                if (isListening) {
-                    CircularProgressIndicator(
-                        modifier = Modifier
-                            .padding(PlateViewDimensions.compactSpacing)
-                            .size(20.dp),
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    IconButton(onClick = onVoiceInput) {
-                        Icon(
-                            imageVector = Icons.Outlined.Mic,
-                            contentDescription = stringResource(R.string.search_voice_start),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
             },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
             singleLine = true,
@@ -693,12 +597,4 @@ private fun formatSearchTime(timestamp: Long): String = androidx.compose.runtime
 private fun SearchFailure.messageResource(): Int = when (this) {
     SearchFailure.SessionExpired -> R.string.search_session_expired
     SearchFailure.ServiceUnavailable -> R.string.search_service_unavailable
-}
-
-private fun VoiceInputFailure.messageResource(): Int = when (this) {
-    VoiceInputFailure.PermissionDenied -> R.string.search_voice_permission_denied
-    VoiceInputFailure.ServiceUnavailable -> R.string.search_voice_service_unavailable
-    VoiceInputFailure.NoMatch -> R.string.search_voice_no_match
-    VoiceInputFailure.Cancelled -> R.string.search_voice_cancelled
-    VoiceInputFailure.RecognitionFailed -> R.string.search_voice_failed
 }

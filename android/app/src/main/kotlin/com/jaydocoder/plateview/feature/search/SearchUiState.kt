@@ -8,8 +8,6 @@ data class SearchUiState(
     val resultState: SearchResultState = SearchResultState.Idle,
     val candidates: List<VehicleCandidate> = emptyList(),
     val history: List<SearchHistoryItem> = emptyList(),
-    val isListening: Boolean = false,
-    val voiceFailure: VoiceInputFailure? = null,
 )
 
 sealed interface SearchResultState {
@@ -31,6 +29,4 @@ enum class SearchFailure {
 
 sealed interface SearchEvent {
     data class OpenVehicle(val vehicleId: Long) : SearchEvent
-
-    data object LaunchSystemVoiceRecognition : SearchEvent
 }
