@@ -115,13 +115,14 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun createVehicle() {
-        _uiState.update { it.copy(vehicleEditor = VehicleEditorState(), failure = null) }
+        _uiState.update { it.copy(vehicleEditor = VehicleEditorState(), isVehicleEditorLoading = false, failure = null) }
     }
 
     fun editVehicle(vehicleId: Long) = launchAdminAction { accessToken ->
-        _uiState.update { it.copy(isLoading = true, failure = null) }
+        if (_uiState.value.isVehicleEditorLoading) return@launchAdminAction
+        _uiState.update { it.copy(isVehicleEditorLoading = true, failure = null) }
         val vehicle = repository.getVehicle(accessToken, vehicleId)
-        _uiState.update { it.copy(isLoading = false, vehicleEditor = vehicle.toEditor()) }
+        _uiState.update { it.copy(isVehicleEditorLoading = false, vehicleEditor = vehicle.toEditor()) }
     }
 
     fun updateVehicleEditor(transform: (VehicleEditorState) -> VehicleEditorState) {
@@ -129,7 +130,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun dismissVehicleEditor() {
-        _uiState.update { it.copy(vehicleEditor = null) }
+        _uiState.update { it.copy(vehicleEditor = null, isVehicleEditorLoading = false) }
     }
 
     fun saveVehicle() {
@@ -418,6 +419,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                     it.copy(
                         isLoading = false,
                         isSaving = false,
+                        isVehicleEditorLoading = false,
                         isVehiclePageLoading = false,
                         isImportPageLoading = false,
                         isAuditPageLoading = false,

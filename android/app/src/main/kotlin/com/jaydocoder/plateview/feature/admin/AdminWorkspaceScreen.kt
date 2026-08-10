@@ -86,6 +86,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
@@ -318,6 +320,9 @@ fun AdminWorkspaceScreen(
             onSave = onSaveVehicle,
         )
     }
+    if (uiState.isVehicleEditorLoading) {
+        VehicleEditorLoadingDialog()
+    }
     uiState.userEditor?.let { editor ->
         UserEditorDialog(
             editor = editor,
@@ -328,18 +333,10 @@ fun AdminWorkspaceScreen(
         )
     }
     uiState.pendingVehicleDeactivation?.let { vehicle ->
-        AlertDialog(
-            onDismissRequest = onDismissVehicleDeactivation,
-            title = { Text("确认停用车辆") },
-            text = { Text("停用后车牌 [${vehicle.plateNumber}] 将无法在普通查询结果中显示，您可以随时重新启用。") },
-            confirmButton = { 
-                Button(
-                    onClick = onConfirmVehicleDeactivation,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("确认停用") } 
-            },
-            dismissButton = { TextButton(onClick = onDismissVehicleDeactivation) { Text("取消") } },
-            shape = RoundedCornerShape(PlateViewDimensions.cornerLarge)
+        VehicleDeactivationDialog(
+            vehicle = vehicle,
+            onDismiss = onDismissVehicleDeactivation,
+            onConfirm = onConfirmVehicleDeactivation,
         )
     }
     uiState.selectedImportBatch?.let { batch ->
@@ -1023,50 +1020,44 @@ private fun VehicleEditorDialog(
     onDismiss: () -> Unit,
     onSave: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(if (editor.id == null) "新增车辆档案" else "编辑车辆档案", fontWeight = FontWeight.Bold)
-                Text("基础信息与通行核验", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        text = {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 480.dp),
-                verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
-            ) {
-                item { EditorSectionHeading("车辆基础信息", "车牌、分类与启用状态") }
-                item { EditorTextField("车牌号码", editor.plateNumber) { value -> onChanged { it.copy(plateNumber = value, error = null) } } }
-                item { ChoiceField("所属类别", editor.category, VEHICLE_CATEGORIES) { value -> onChanged { it.copy(category = value, error = null) } } }
-                item { ChoiceField("当前状态", editor.status, VEHICLE_STATUSES) { value -> onChanged { it.copy(status = value) } } }
-                item { EditorTextField("车辆型号", editor.vehicleType) { value -> onChanged { it.copy(vehicleType = value) } } }
-                
-                if (editor.isResident) {
-                    item { EditorSectionHeading("身份核验信息", "用于核对村民车辆归属") }
-                    item { EditorTextField("姓名", editor.ownerName) { value -> onChanged { it.copy(ownerName = value, error = null) } } }
-                    item { EditorTextField("身份证号", editor.identityCardNumber) { value -> onChanged { it.copy(identityCardNumber = value, error = null) } } }
-                    item { EditorTextField("手机号码", editor.contactPhone) { value -> onChanged { it.copy(contactPhone = value) } } }
-                } else {
-                    item { EditorSectionHeading("单位与通行信息", "用于核对长期通行车辆") }
-                    item { EditorTextField("单位名称", editor.organizationName) { value -> onChanged { it.copy(organizationName = value) } } }
-                    item { EditorTextField("通行持有人", editor.passHolder) { value -> onChanged { it.copy(passHolder = value) } } }
-                    item { EditorTextField("通行事由", editor.passageDetails, singleLine = false) { value -> onChanged { it.copy(passageDetails = value) } } }
-                }
-                
-                editor.error?.let { message -> 
-                    item { 
-                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(4.dp)) {
-                            Text(message, modifier = Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
-                        }
-                    } 
-                }
-            }
-        },
-        confirmButton = { Button(onClick = onSave, enabled = !isSaving) { Text(if (isSaving) "正在同步..." else "提交保存") } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isSaving) { Text("取消") } },
-        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge)
-    )
+    AdminEditorDialog(
+        title = if (editor.id == null) "新增车辆档案" else "编辑车辆档案",
+        subtitle = "按车辆类别完成通行资料核验",
+        identity = editor.plateNumber.ifBlank { "待录入车牌" },
+        icon = Icons.Outlined.VerifiedUser,
+        isSaving = isSaving,
+        onDismiss = onDismiss,
+        onSave = onSave,
+        saveLabel = "保存档案",
+    ) {
+        item { EditorSectionHeading("车辆信息", "车牌、分类和启用状态") }
+        item { EditorTextField("车牌号码", editor.plateNumber) { value -> onChanged { it.copy(plateNumber = value, error = null) } } }
+        item { ChoiceField("所属类别", editor.category, VEHICLE_CATEGORIES) { value -> onChanged { it.copy(category = value, error = null) } } }
+        item { ChoiceField("当前状态", editor.status, VEHICLE_STATUSES) { value -> onChanged { it.copy(status = value) } } }
+        item { EditorTextField("车辆型号", editor.vehicleType) { value -> onChanged { it.copy(vehicleType = value) } } }
+
+        if (editor.isResident) {
+            item { EditorSectionHeading("身份核验", "用于核对村民车辆归属") }
+            item { EditorTextField("姓名", editor.ownerName) { value -> onChanged { it.copy(ownerName = value, error = null) } } }
+            item { EditorTextField("身份证号", editor.identityCardNumber) { value -> onChanged { it.copy(identityCardNumber = value, error = null) } } }
+            item { EditorTextField("手机号码", editor.contactPhone) { value -> onChanged { it.copy(contactPhone = value) } } }
+        } else {
+            item { EditorSectionHeading("单位与通行", "用于核对长期通行车辆") }
+            item { EditorTextField("单位名称", editor.organizationName) { value -> onChanged { it.copy(organizationName = value) } } }
+            item { EditorTextField("通行持有人", editor.passHolder) { value -> onChanged { it.copy(passHolder = value) } } }
+            item { EditorTextField("通行事由", editor.passageDetails, singleLine = false) { value -> onChanged { it.copy(passageDetails = value) } } }
+        }
+
+        item { EditorSectionHeading("补充资料", "方便现场核对和通行放行") }
+        item { EditorTextField("车辆用途", editor.vehicleUse) { value -> onChanged { it.copy(vehicleUse = value) } } }
+        item { EditorTextField("通行区域", editor.passageArea) { value -> onChanged { it.copy(passageArea = value) } } }
+        item { EditorTextField("所属位置", editor.position) { value -> onChanged { it.copy(position = value) } } }
+        item { EditorTextField("品牌型号", editor.brandModel) { value -> onChanged { it.copy(brandModel = value) } } }
+        item { EditorTextField("核定载客数", editor.approvedCapacity) { value -> onChanged { it.copy(approvedCapacity = value) } } }
+        item { EditorTextField("车牌颜色", editor.plateColor) { value -> onChanged { it.copy(plateColor = value) } } }
+        item { EditorTextField("备注", editor.remarks, singleLine = false) { value -> onChanged { it.copy(remarks = value) } } }
+        editor.error?.let { message -> item { EditorErrorMessage(message) } }
+    }
 }
 
 @Composable
@@ -1077,43 +1068,229 @@ private fun UserEditorDialog(
     onDismiss: () -> Unit,
     onSave: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(if (editor.isCreate) "创建新账号" else "维护账号信息", fontWeight = FontWeight.Bold)
-                Text("角色决定可访问的管理范围", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    AdminEditorDialog(
+        title = if (editor.isCreate) "创建新账号" else "维护账号信息",
+        subtitle = "角色和启用状态会立即生效",
+        identity = editor.username.ifBlank { "待创建账号" },
+        icon = Icons.Outlined.SupervisorAccount,
+        isSaving = isSaving,
+        onDismiss = onDismiss,
+        onSave = onSave,
+        saveLabel = if (editor.isCreate) "创建账号" else "保存账号",
+    ) {
+        if (editor.isCreate) {
+            item { EditorSectionHeading("账号凭据", "创建后请妥善保存登录密码") }
+            item { EditorTextField("用户名", editor.username) { value -> onChanged { it.copy(username = value, error = null) } } }
+            item {
+                OutlinedTextField(
+                    value = editor.password,
+                    onValueChange = { value -> onChanged { it.copy(password = value, error = null) } },
+                    label = { Text("登录密码") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                )
             }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing)) {
-                if (editor.isCreate) {
-                    EditorSectionHeading("账号凭据", "创建后请妥善保存登录密码")
-                    EditorTextField("用户名", editor.username) { value -> onChanged { it.copy(username = value, error = null) } }
-                    OutlinedTextField(
-                        value = editor.password,
-                        onValueChange = { value -> onChanged { it.copy(password = value, error = null) } },
-                        label = { Text("登录密码") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)
-                    )
-                } else {
-                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)) {
-                        Text(editor.username, modifier = Modifier.padding(16.dp).fillMaxWidth(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+        item { EditorSectionHeading("访问权限", "决定可访问的管理范围") }
+        item { ChoiceField("分配角色", editor.role, USER_ROLES) { value -> onChanged { it.copy(role = value) } } }
+        item { ChoiceField("账号状态", editor.status, USER_STATUSES) { value -> onChanged { it.copy(status = value) } } }
+        editor.error?.let { message -> item { EditorErrorMessage(message) } }
+    }
+}
+
+@Composable
+private fun AdminEditorDialog(
+    title: String,
+    subtitle: String,
+    identity: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isSaving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    saveLabel: String,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    Dialog(
+        onDismissRequest = { if (!isSaving) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(PlateViewDimensions.pageHorizontal)
+                .heightIn(max = 700.dp),
+            shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(PlateViewDimensions.itemSpacing),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                        shape = CircleShape,
+                    ) {
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            modifier = Modifier.padding(10.dp).size(22.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Spacer(Modifier.width(PlateViewDimensions.itemSpacing))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    TextButton(onClick = onDismiss, enabled = !isSaving) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
                     }
                 }
-                EditorSectionHeading("访问权限", "角色与账号启用状态会立即生效")
-                ChoiceField("分配角色", editor.role, USER_ROLES) { value -> onChanged { it.copy(role = value) } }
-                ChoiceField("账号状态", editor.status, USER_STATUSES) { value -> onChanged { it.copy(status = value) } }
-                editor.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.56f),
+                ) {
+                    Text(
+                        identity,
+                        modifier = Modifier.padding(horizontal = PlateViewDimensions.itemSpacing, vertical = PlateViewDimensions.compactSpacing),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(horizontal = PlateViewDimensions.itemSpacing, vertical = PlateViewDimensions.itemSpacing),
+                    verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
+                    content = content,
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(PlateViewDimensions.itemSpacing),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss, enabled = !isSaving) { Text("取消") }
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    Button(onClick = onSave, enabled = !isSaving) {
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                            Text("正在保存")
+                        } else {
+                            Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                            Text(saveLabel)
+                        }
+                    }
+                }
             }
-        },
-        confirmButton = { Button(onClick = onSave, enabled = !isSaving) { Text("保存更新") } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isSaving) { Text("放弃") } },
-        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge)
-    )
+        }
+    }
+}
+
+@Composable
+private fun VehicleEditorLoadingDialog() {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(PlateViewDimensions.itemSpacing * 1.5f),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                Spacer(Modifier.width(PlateViewDimensions.itemSpacing))
+                Column {
+                    Text("正在读取车辆档案", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("即将打开编辑页面", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VehicleDeactivationDialog(
+    vehicle: ManagedVehicleSummary,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(modifier = Modifier.padding(PlateViewDimensions.pageHorizontal)) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = CircleShape,
+                ) {
+                    Icon(
+                        Icons.Outlined.Block,
+                        contentDescription = null,
+                        modifier = Modifier.padding(10.dp).size(22.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
+                Text("停用车辆档案", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(PlateViewDimensions.tinySpacing))
+                Text(
+                    "${vehicle.plateNumber} 将不再出现在普通查询结果中。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("保留档案") }
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    Button(
+                        onClick = onConfirm,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    ) { Text("确认停用") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorErrorMessage(message: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+    ) {
+        Row(
+            modifier = Modifier.padding(PlateViewDimensions.compactSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+        }
+    }
 }
 
 @Composable

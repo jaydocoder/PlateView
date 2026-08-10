@@ -16,6 +16,7 @@ data class AdminUiState(
     val tab: AdminTab = AdminTab.Dashboard,
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
+    val isVehicleEditorLoading: Boolean = false,
     val isVehiclePageLoading: Boolean = false,
     val isImportPageLoading: Boolean = false,
     val isAuditPageLoading: Boolean = false,

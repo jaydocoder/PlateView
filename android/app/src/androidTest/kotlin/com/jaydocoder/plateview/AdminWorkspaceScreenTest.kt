@@ -2,6 +2,8 @@ package com.jaydocoder.plateview
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -15,6 +17,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.admin.AdminTab
 import com.jaydocoder.plateview.feature.admin.AdminUiState
+import com.jaydocoder.plateview.feature.admin.VehicleEditorState
 import com.jaydocoder.plateview.feature.admin.AdminWorkspaceScreen
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -152,6 +155,51 @@ class AdminWorkspaceScreenTest {
         composeRule.onNodeWithText("operator").assertIsDisplayed()
         composeRule.onNodeWithText("核验员").assertIsDisplayed()
         composeRule.onNodeWithText("正常").assertIsDisplayed()
+    }
+
+    @Test
+    fun 编辑车辆时显示局部读取提示而非整页同步() {
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(tab = AdminTab.Vehicles, isLoading = false, isVehicleEditorLoading = true),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("正在读取车辆档案").assertIsDisplayed()
+        composeRule.onAllNodesWithText("正在同步管理数据...").assertCountEquals(0)
+    }
+
+    @Test
+    fun 编辑弹框按资料分区并提供固定保存操作() {
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Vehicles,
+                        isLoading = false,
+                        vehicleEditor = VehicleEditorState(id = 101, plateNumber = "新A12345"),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("车辆信息").assertIsDisplayed()
+        composeRule.onNodeWithText("身份核验").assertIsDisplayed()
+        composeRule.onNodeWithText("保存档案").assertIsDisplayed()
     }
 
     @Test

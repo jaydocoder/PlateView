@@ -23,11 +23,13 @@ import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.feature.search.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -128,6 +130,37 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `编辑车辆仅显示局部读取状态并保留管理页面`() = runTest {
+        val detailGate = CompletableDeferred<ManagedVehicle>()
+        val repository = FakeAdminRepository(vehicleDetailGate = detailGate)
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.editVehicle(101)
+        runCurrent()
+
+        assertTrue(viewModel.uiState.value.isVehicleEditorLoading)
+        assertTrue(!viewModel.uiState.value.isLoading)
+        detailGate.complete(ManagedVehicle(
+            id = 101,
+            plateNumber = "新A12345",
+            normalizedPlate = "新A12345",
+            category = "RESIDENT",
+            categoryLabel = "村民车辆",
+            status = "ACTIVE",
+            version = 0,
+            vehicleType = null,
+            attributes = emptyMap(),
+            residentProfile = null,
+            longTermProfile = null,
+        ))
+        advanceUntilIdle()
+
+        assertTrue(!viewModel.uiState.value.isVehicleEditorLoading)
+        assertEquals("新A12345", viewModel.uiState.value.vehicleEditor?.plateNumber)
+    }
+
+    @Test
     fun `导入预览滚动加载下一页并在完整加载后停止请求`() = runTest {
         val firstRow = ManagedImportRow(201, "驻景区单位", 3, 0, "新A12345", "SCENIC_UNIT", "测试单位", "VALID", "CREATE", "PUBLISH", null, null)
         val secondRow = ManagedImportRow(202, "驻景区单位", 4, 0, "新A12346", "SCENIC_UNIT", "测试单位", "VALID", "CREATE", "PUBLISH", null, null)
@@ -188,6 +221,7 @@ private class FakeAdminRepository(
     private val importTotal: Int = 0,
     private val auditPages: List<List<ManagedAuditEntry>> = emptyList(),
     private val auditTotal: Int = 0,
+    private val vehicleDetailGate: CompletableDeferred<ManagedVehicle>? = null,
 ) : AdminRepository {
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
@@ -211,7 +245,8 @@ private class FakeAdminRepository(
         val page = vehiclePages.getOrElse(if (offset == 0) 0 else 1) { listOf(vehicle) }
         return ManagedVehiclePage(page, vehicleTotal)
     }
-    override suspend fun getVehicle(accessToken: String, vehicleId: Long): ManagedVehicle = error("本测试不编辑已有车辆")
+    override suspend fun getVehicle(accessToken: String, vehicleId: Long): ManagedVehicle = vehicleDetailGate?.await()
+        ?: error("本测试不编辑已有车辆")
     override suspend fun createVehicle(accessToken: String, command: VehicleWriteCommand): ManagedVehicle {
         createdVehicleCount += 1
         error("本测试不需要返回车辆")
