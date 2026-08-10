@@ -90,9 +90,9 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 `main` 分支每次推送会自动执行 Android 单元测试、静态检查并上传调试 APK 工件。
 
-推送形如 `v0.3.8` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。用户应从 [GitHub 发行版](https://github.com/jaydocoder/PlateView/releases) 下载正式 APK，而不是从 GitHub 软件包页面下载。
+推送形如 `v0.3.9` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。用户应从 [GitHub 发行版](https://github.com/jaydocoder/PlateView/releases) 下载正式 APK，而不是从 GitHub 软件包页面下载。
 
-当前版本：`0.3.8`（`versionCode 11`）。
+当前版本：`0.3.9`（`versionCode 12`）。
 
 ## 文档索引
 

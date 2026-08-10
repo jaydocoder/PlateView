@@ -53,6 +53,37 @@ class VehicleQueryScreenTest {
     }
 
     @Test
+    fun 候选列表展示五类车辆类别() {
+        val candidates = listOf(
+            VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆"),
+            VehicleCandidate(102, "新A12346", "SCENIC_UNIT", "驻景区单位车辆"),
+            VehicleCandidate(103, "新A12347", "SCENIC_ENTERPRISE", "驻景区企业车辆"),
+            VehicleCandidate(104, "新A12348", "CADRE", "干部车辆"),
+            VehicleCandidate(105, "新A12349", "KANAS_TOURISM_DEVELOPMENT", "喀纳斯旅游发展股份有限公司车辆"),
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(candidates = candidates),
+                    onQueryChanged = {},
+                    onCandidateSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    onOpenAdmin = null,
+                    onLogout = {},
+                )
+            }
+        }
+
+        candidates.forEach { candidate ->
+            composeRule.onNodeWithText(candidate.categoryLabel).assertIsDisplayed()
+        }
+    }
+
+    @Test
     fun 详情页显示村民核验字段() {
         val vehicle = VehicleDetail(
             id = 101,

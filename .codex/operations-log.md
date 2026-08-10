@@ -903,3 +903,29 @@
 - 已确认远端 `main` 与本地基线 `e1e94eb` 一致，远端最新发行版为 `v0.3.7`。
 - 本次客户端版本升级为 `0.3.8`、`versionCode 11`；服务端无代码、镜像、数据库或配置变更，不部署服务器。
 - 本地发布构建、发布单元测试和发布 Lint 均通过；APK 包版本与 V3 签名已由 `aapt`、`apksigner` 独立校验。
+
+## 候选类别配色 - 编码前检查
+
+时间：2026-08-10 23:45:00 CST
+
+- 已查阅 `.codex/context-summary-候选类别配色.md`，并分析候选卡片、主题颜色、五类服务端类别定义和候选 Compose 测试。
+- 将复用 `VehicleCandidateRow`、`PlateViewTheme` 的主次第三色、已有类别编码与 `VehicleQueryScreenTest` 测试夹具。
+- 将遵循展示层边界：类别到主题颜色的映射仅在 Compose 中完成，不修改 ViewModel、缓存、API 或数据库。
+- 确认不重复造轮子：项目已有完整 Material 3 调色板和稳定类别枚举，本次不新增颜色常量或类别模型。
+
+## 候选类别配色 - 编码后声明
+
+时间：2026-08-11 00:10:00 CST
+
+### 复用的既有组件
+
+- `VehicleCandidateRow`：保留既有候选卡片结构，仅为类别文本补充主题色。
+- `PlateViewTheme`：直接使用 Material 3 主色、次色、第三色和中性色，避免新增脱离主题的颜色常量。
+- `VehicleQueryScreenTest`：沿用 Compose 测试夹具，补齐五类车辆候选的渲染覆盖。
+
+### 验证与发布准备
+
+- 调试与正式 JVM 单元测试共 48 项均通过；调试、正式静态检查均无错误。
+- `assembleRelease` 已产出 `0.3.9`、`versionCode 12` 的正式 APK，V3 签名校验通过。
+- `assembleDebugAndroidTest` 已通过，未安装到真机，避免用调试签名覆盖用户当前的正式版。
+- 本次无服务端、数据库、镜像或部署配置改动；仅推送 Android 客户端版本与 GitHub 发行版。

@@ -483,6 +483,7 @@ private fun VehicleCandidateRow(
                     text = candidate.categoryLabel,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = candidateCategoryColor(candidate.category),
                 )
                 Surface(
                     modifier = Modifier.padding(top = 4.dp),
@@ -505,6 +506,16 @@ private fun VehicleCandidateRow(
             )
         }
     }
+}
+
+@Composable
+private fun candidateCategoryColor(category: String): Color = when (category) {
+    "RESIDENT" -> MaterialTheme.colorScheme.secondary
+    "SCENIC_UNIT" -> MaterialTheme.colorScheme.primary
+    "SCENIC_ENTERPRISE" -> MaterialTheme.colorScheme.tertiary
+    "CADRE" -> MaterialTheme.colorScheme.onSurfaceVariant
+    "KANAS_TOURISM_DEVELOPMENT" -> MaterialTheme.colorScheme.onPrimaryContainer
+    else -> MaterialTheme.colorScheme.onSurface
 }
 
 @Composable

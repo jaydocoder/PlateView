@@ -741,3 +741,35 @@
 - `./gradlew --no-daemon :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/`：发布单元测试通过，发布版 Lint 为 0 错误、10 条既有警告，正式 APK 构建成功。
 - `aapt dump badging`：确认包名为 `com.jaydocoder.plateview`，版本为 `0.3.8`、`versionCode 11`。
 - `apksigner verify --verbose --print-certs`：确认 APK 使用单一 RSA 签名，Android 12 所需 V3 签名有效。
+
+# 0.3.9 候选类别配色验证报告
+
+时间：2026-08-11 00:10:00 CST
+
+## 需求与交付物映射
+
+| 需求 | 交付物 | 验证结果 |
+| --- | --- | --- |
+| 村民车辆与其他类别使用协调的不同字体颜色 | `SearchScreen.kt` 的五类主题色映射 | 通过：仅候选类别文字着色，车牌、查询与详情数据路径未改动。 |
+| 五类车辆候选均可正常渲染 | `VehicleQueryScreenTest.kt` | 通过：五类候选均在 Compose 测试夹具中显示。 |
+| 发布新正式 APK | `build.gradle.kts`、README、GitHub 工作流 | 通过：本地正式 APK 为 `0.3.9`、`versionCode 12`，发布标签为 `v0.3.9`。 |
+
+## 本地自动验证
+
+- `./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease :app:assembleRelease :app:assembleDebugAndroidTest -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/`：通过。
+- 调试与正式 JVM 单元测试各 24 项，均为 0 失败、0 错误。
+- 调试与正式 Lint 均未发现 Error 或 Fatal 问题。
+- `aapt dump badging`：确认包名 `com.jaydocoder.plateview`、版本 `0.3.9`、`versionCode 12`。
+- `apksigner verify --verbose --print-certs`：V3 签名有效，符合本项目 Android 12 及以上的最低支持范围。
+
+## 审查结果
+
+- 代码质量：96/100。颜色映射仅依赖既有类别编码与主题令牌，没有扩散到领域或数据层。
+- 测试覆盖：91/100。覆盖五类候选渲染及调试、正式构建链路；仪器化测试 APK 已编译，未覆盖真机正式安装态。
+- 规范遵循：96/100。保持 Kotlin、Compose、Material 3 与既有主题体系，不引入新依赖。
+- 需求匹配：97/100。村民车辆与四类长期车辆均使用可区分且受主题约束的文本颜色。
+- 架构一致性与风险：95/100。服务端契约、缓存和查询排序未变化；不存在部署兼容性风险。
+
+综合评分：95/100。
+
+结论：通过。剩余风险仅为未在本轮将调试仪器化 APK 安装到真机，已避免影响用户当前正式安装版本。
