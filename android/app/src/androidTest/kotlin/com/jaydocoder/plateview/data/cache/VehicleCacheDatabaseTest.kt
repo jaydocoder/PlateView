@@ -32,20 +32,20 @@ class VehicleCacheDatabaseTest {
     }
 
     @Test
-    fun 完整快照支持模糊排序() = runBlocking {
+    fun 完整快照优先返回村民车辆再按车牌匹配排序() = runBlocking {
         val dao = database.vehicleCacheDao()
         dao.insertSnapshots(
             listOf(
-                snapshot(11, 1, "新A12345"),
-                snapshot(11, 2, "新A12399"),
-                snapshot(11, 3, "新B12345"),
+                snapshot(11, 1, "新A12345", "SCENIC_UNIT"),
+                snapshot(11, 2, "新A12399", "RESIDENT"),
+                snapshot(11, 3, "新B12345", "RESIDENT"),
             ),
         )
         dao.promoteGeneration(11, 7, 100, 100)
 
         val result = dao.searchCandidates("A123", 20)
 
-        assertEquals(listOf(1L, 2L), result.map { it.vehicleId })
+        assertEquals(listOf(2L, 1L), result.map { it.vehicleId })
     }
 
     @Test
@@ -74,14 +74,19 @@ class VehicleCacheDatabaseTest {
         assertEquals(null, dao.getDetail(1))
     }
 
-    private fun snapshot(generation: Long, vehicleId: Long, plateNumber: String): VehicleSnapshotCacheEntity =
+    private fun snapshot(
+        generation: Long,
+        vehicleId: Long,
+        plateNumber: String,
+        category: String = "RESIDENT",
+    ): VehicleSnapshotCacheEntity =
         VehicleSnapshotCacheEntity(
             generation = generation,
             vehicleId = vehicleId,
             plateNumber = plateNumber,
             normalizedPlate = plateNumber,
-            category = "RESIDENT",
-            categoryLabel = "村民车辆",
+            category = category,
+            categoryLabel = if (category == "RESIDENT") "村民车辆" else "驻景区单位车辆",
             detailJson = "{}",
         )
 }

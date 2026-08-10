@@ -41,11 +41,17 @@ android {
         applicationId = "com.jaydocoder.plateview"
         minSdk = 31
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.3.5"
+        versionCode = 9
+        versionName = "0.3.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiBaseUrl = providers.gradleProperty("plateviewApiBaseUrl")
-            .orElse("http://10.0.2.2:8080/")
+            .orElse(
+                if (releaseDistributionRequested) {
+                    "https://api.chenxiruyu.dpdns.org/"
+                } else {
+                    "http://10.0.2.2:8080/"
+                },
+            )
             .get()
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }

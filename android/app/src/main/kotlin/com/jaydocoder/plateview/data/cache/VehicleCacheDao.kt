@@ -14,6 +14,7 @@ interface VehicleCacheDao {
         WHERE generation = (SELECT activeGeneration FROM vehicle_catalog_state WHERE id = 1)
             AND normalizedPlate LIKE '%' || :normalizedKeyword || '%'
         ORDER BY
+            CASE WHEN category = 'RESIDENT' THEN 0 ELSE 1 END,
             CASE WHEN normalizedPlate = :normalizedKeyword THEN 0
                  WHEN normalizedPlate LIKE :normalizedKeyword || '%' THEN 1
                  ELSE 2 END,

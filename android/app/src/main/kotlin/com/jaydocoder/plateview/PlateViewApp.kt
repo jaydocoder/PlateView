@@ -9,11 +9,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.core.navigation.AuthenticatedNavigation
 import com.jaydocoder.plateview.feature.auth.AppSessionViewModel
 import com.jaydocoder.plateview.feature.auth.LoginScreen
+import com.jaydocoder.plateview.feature.update.AppUpdateDialog
+import com.jaydocoder.plateview.feature.update.AppUpdateViewModel
+import com.jaydocoder.plateview.feature.update.UpdateDownloadState
+import java.io.File
 
 @Composable
-fun PlateViewApp() {
+fun PlateViewApp(
+    updateViewModel: AppUpdateViewModel = hiltViewModel(),
+    onInstallUpdate: (File) -> Unit = {},
+) {
     val viewModel: AppSessionViewModel = hiltViewModel()
     val session = viewModel.session.collectAsStateWithLifecycle().value
+    val updateState = updateViewModel.uiState.collectAsStateWithLifecycle().value
     PlateViewTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             if (session == null) {
@@ -21,6 +29,15 @@ fun PlateViewApp() {
             } else {
                 AuthenticatedNavigation(role = session.role, onLogout = viewModel::logout)
             }
+        }
+        updateState.update?.let { update ->
+            AppUpdateDialog(
+                update = update,
+                downloadState = updateState.downloadState,
+                onDownload = updateViewModel::downloadUpdate,
+                onInstall = onInstallUpdate,
+                onDismiss = updateViewModel::dismissUpdate,
+            )
         }
     }
 }

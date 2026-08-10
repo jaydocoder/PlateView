@@ -789,3 +789,69 @@
 - `:app:assembleRelease` 已成功生成新的正式 APK；APK 中包含 `drawable/ic_plateview_launcher_foreground` 与 `mipmap/ic_plateview_launcher` 资源。
 - `:app:lintRelease` 通过，`apksigner verify` 确认 V3 签名有效。
 - 本轮不部署服务器、不推送远端；用户已有的 `server/gradle/wrapper/gradle-wrapper.properties` 修改保持未触碰。
+
+## Android 加密车辆缓存 - 编码前检查
+
+时间：2026-08-08
+
+- 已查阅 `.codex/context-summary-android-local-cache.md`，并分析搜索历史 Room、车辆网络仓库、认证退出、搜索与详情 ViewModel、Compose 副作用及现有测试夹具。
+- 将复用 `VehicleRepository`、`AuthSessionProvider`、现有 Hilt 模块和 StateFlow 界面状态；缓存数据库独立于搜索历史数据库。
+- 不重复实现网络栈或同步机制：目录版本、分页接口和服务端 Redis 已存在，Android 只负责加密持久化、本地检索和失效同步。
+
+## Android 加密车辆缓存 - 编码后声明
+
+时间：2026-08-08
+
+### 复用的既有组件
+
+- `SearchHistoryDatabase` 的 Room/Hilt 分层：新增独立的 SQLCipher 车辆缓存数据库，未改变历史记录数据库。
+- `VehicleRepository` 与 `NetworkVehicleRepository`：扩展既有 Retrofit 数据通道读取目录版本和分页目录。
+- `SearchViewModel`、`VehicleDetailViewModel` 与 `AuthRepository`：沿用 StateFlow、会话和退出边界接入本地优先、详情缓存与账号清理。
+- `SearchRoute`：使用 `DisposableEffect` 监听前台恢复，避免在可组合函数主体触发同步副作用。
+
+### 实施结果
+
+- 使用 Android Keystore AES-GCM 包装 SQLCipher 数据库密码；候选目录、目录版本和完整详情在独立数据库中按账号隔离。
+- 本地候选使用既有车牌归一化与 SQLite 模糊排序，返回上限为 20 条；首次目录同步时远程搜索仍作为即时兜底。
+- 目录版本变化时事务性替换候选并清除旧详情；详情缓存最长 7 天、每账号最多 500 条，退出登录时删除该账号缓存。
+- WorkManager 在联网约束下设置唯一的约 15 分钟目录同步任务；应用启动和查询页恢复前台触发版本核验。
+- 本地缓存异常会退化为既有远程查询，不阻断登录、详情展示或退出。
+
+### 验证结果
+
+- `:app:testDebugUnitTest`、`:app:lintRelease` 和 `server/gradlew test` 通过。
+- 调试仪器化测试 APK 成功编译，但 Android 12 真机安装测试专用 APK 时发生 ADB Shell 超时，未执行测试断言。
+- 正式 APK 使用生产 API 地址，包含 SQLCipher 四种架构原生库并通过 V3 签名校验；已在 Android 12 真机覆盖安装、启动，未发现 SQLCipher、Keystore、Hilt 或运行时崩溃。
+- 用户已有的 `server/gradle/wrapper/gradle-wrapper.properties` 修改保持未触碰。
+
+## 系统语音兜底与审计运维面板 - 编码前检查
+
+时间：2026-08-09
+
+- 已查阅 `.codex/context-summary-voice-audit-operations.md`，并分析 `VoiceRecognizer`、`SearchRoute`、`AdminManagementService`、`AdminWorkspaceViewModel`、管理员车辆懒加载界面和对应单元测试。
+- 将复用 `SearchEvent` 的一次性事件通道、`ActivityResultContracts.StartActivityForResult`、`AdminUiState` 的不可变状态、车辆分页的重置与追加模式、Ktor 参数化 SQL 和 Flyway 迁移目录。
+- 将遵循 MVVM 与单向数据流：系统语音界面仅由路由层启动；审计筛选、分页和汇总由 ViewModel 持有；服务端按全部筛选条件返回同一快照语义。
+- 确认不重复实现语音或分页框架：不接入第三方云语音服务，不新增客户端数据库或自定义分页协议。
+
+## 系统语音兜底与审计运维面板 - 编码后声明
+
+时间：2026-08-10
+
+### 复用的既有组件
+
+- `SearchEvent`、`SearchRoute` 与运行时录音权限流程：保留直接识别路径，仅在服务不可用时调起系统识别界面。
+- `AdminUiState`、`AdminWorkspaceViewModel` 和车辆档案分页模式：审计筛选切换从偏移量零重新加载，列表接近底部追加下一页。
+- `AdminManagementService` 的 JDBC 参数绑定、`AuditLogWriter` 和 Flyway：扩展读取接口而不新建存储路径。
+
+### 实施与验证结果
+
+- 新增系统语音识别 Activity 兜底，成功文本回填已有车牌归一化与模糊查询链路；取消、无结果和无处理 Activity 均保留手动输入。
+- 审计接口支持时间、用户、动作、结果、关键词、总数、汇总与可选筛选项；默认最近 30 天、每页 50 条，异常结果统一为 `FAILURE` 和 `DENIED`。
+- 本地服务端测试、Android JVM 测试、Lint、正式签名构建和隔离 Docker 接口验证均通过。
+- 已推送提交 `b65f1c7` 与标签 `v0.3.4`；七牛云运行同标签镜像，Flyway `V13` 和新接口验证通过；GitHub Release 已上传正式 APK。
+- 用户在真机 Compose 测试发现一个测试选择器同名断言问题后要求停止真机验证；已恢复手机上的原正式 APK，未继续执行仪器化断言。
+# 2026-08-10 自动更新发布前验证
+
+- 已确认真机安装的本地 `0.3.4` 构建使用模拟器地址，GitHub 发布资产使用正式 API 地址。
+- 已构建 `0.3.6` 并完成单元测试、静态检查、服务端测试、V3 签名和真机更新弹窗测试。
+- 真机无法直连 GitHub 更新接口；用户确认继续使用 GitHub Release 地址并接受该网络限制，按计划提交和发布。

@@ -18,9 +18,10 @@ internal class VehicleQueryService(
         return dataSource.connection.use { connection ->
             connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
                 statement.setString(1, "%$normalizedKeyword%")
-                statement.setString(2, normalizedKeyword)
-                statement.setString(3, "$normalizedKeyword%")
-                statement.setInt(4, MAXIMUM_SEARCH_RESULT_COUNT)
+                statement.setString(2, VehicleCategory.RESIDENT.name)
+                statement.setString(3, normalizedKeyword)
+                statement.setString(4, "$normalizedKeyword%")
+                statement.setInt(5, MAXIMUM_SEARCH_RESULT_COUNT)
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) add(result.toSearchCandidate())
@@ -143,6 +144,7 @@ internal class VehicleQueryService(
             FROM vehicles
             WHERE status = 'ACTIVE' AND normalized_plate LIKE ?
             ORDER BY
+                CASE WHEN category = ? THEN 0 ELSE 1 END,
                 CASE
                     WHEN normalized_plate = ? THEN 0
                     WHEN normalized_plate LIKE ? THEN 1
