@@ -53,10 +53,12 @@ import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleAttribute
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
+import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 
 @Composable
 fun VehicleDetailRoute(
     onNavigateUp: () -> Unit,
+    onOpenUpdate: (() -> Unit)? = null,
     viewModel: VehicleDetailViewModel = hiltViewModel(),
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
@@ -64,6 +66,7 @@ fun VehicleDetailRoute(
         uiState = uiState,
         onNavigateUp = onNavigateUp,
         onRetry = viewModel::refresh,
+        onOpenUpdate = onOpenUpdate,
     )
 }
 
@@ -74,6 +77,7 @@ fun VehicleDetailScreen(
     onNavigateUp: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenUpdate: (() -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -86,6 +90,11 @@ fun VehicleDetailScreen(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = stringResource(R.string.detail_back),
                         )
+                    }
+                },
+                actions = {
+                    onOpenUpdate?.let { openUpdate ->
+                        UpdateAvailableAction(onClick = openUpdate)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

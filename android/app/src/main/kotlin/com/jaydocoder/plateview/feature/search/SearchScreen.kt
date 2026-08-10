@@ -69,6 +69,7 @@ import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
+import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import java.text.DateFormat
 import java.util.Date
 
@@ -77,6 +78,7 @@ fun SearchRoute(
     onNavigateToVehicle: (Long) -> Unit,
     onNavigateToAdmin: (() -> Unit)?,
     onLogout: () -> Unit,
+    onOpenUpdate: (() -> Unit)? = null,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
@@ -107,6 +109,7 @@ fun SearchRoute(
         onRetry = viewModel::retrySearch,
         onOpenAdmin = onNavigateToAdmin,
         onLogout = onLogout,
+        onOpenUpdate = onOpenUpdate,
     )
 }
 
@@ -123,6 +126,7 @@ fun SearchScreen(
     onOpenAdmin: (() -> Unit)?,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenUpdate: (() -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -158,6 +162,9 @@ fun SearchScreen(
                     }
                 },
                 actions = {
+                    onOpenUpdate?.let { openUpdate ->
+                        UpdateAvailableAction(onClick = openUpdate)
+                    }
                     onOpenAdmin?.let { openAdmin ->
                         IconButton(onClick = openAdmin) {
                             Icon(

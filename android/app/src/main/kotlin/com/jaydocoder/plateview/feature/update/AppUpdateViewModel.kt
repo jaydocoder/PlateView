@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 data class AppUpdateUiState(
     val update: AppUpdate? = null,
     val isChecking: Boolean = false,
+    val isUpdateDialogVisible: Boolean = false,
     val downloadState: UpdateDownloadState = UpdateDownloadState.Idle,
 )
 
@@ -36,15 +37,36 @@ class AppUpdateViewModel @Inject constructor(
     private var lastCheckAtEpochMillis = 0L
 
     fun checkForUpdate() {
-        if (_uiState.value.isChecking || _uiState.value.update != null) return
+        if (_uiState.value.isChecking) return
         val now = System.currentTimeMillis()
         if (now - lastCheckAtEpochMillis < CHECK_INTERVAL_MILLIS) return
         lastCheckAtEpochMillis = now
         viewModelScope.launch {
             _uiState.update { it.copy(isChecking = true) }
-            val update = runCatching { repository.findAvailableUpdate() }.getOrNull()
-            _uiState.update { it.copy(update = update, isChecking = false) }
+            runCatching { repository.findAvailableUpdate() }
+                .onSuccess { update ->
+                    _uiState.update { current ->
+                        current.copy(
+                            update = update,
+                            isChecking = false,
+                            isUpdateDialogVisible = current.isUpdateDialogVisible && update != null,
+                            downloadState = if (current.update == update) {
+                                current.downloadState
+                            } else {
+                                UpdateDownloadState.Idle
+                            },
+                        )
+                    }
+                }
+                .onFailure {
+                    _uiState.update { it.copy(isChecking = false) }
+                }
         }
+    }
+
+    fun openUpdateDialog() {
+        if (_uiState.value.update == null) return
+        _uiState.update { it.copy(isUpdateDialogVisible = true) }
     }
 
     fun downloadUpdate() {
@@ -66,9 +88,9 @@ class AppUpdateViewModel @Inject constructor(
         }
     }
 
-    fun dismissUpdate() {
+    fun dismissUpdateDialog() {
         if (_uiState.value.downloadState is UpdateDownloadState.Downloading) return
-        _uiState.value = AppUpdateUiState()
+        _uiState.update { it.copy(isUpdateDialogVisible = false) }
     }
 
     fun reportInstallationFailure(message: String) {

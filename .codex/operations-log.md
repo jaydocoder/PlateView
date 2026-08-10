@@ -860,3 +860,46 @@
 - 已测得服务器内部车辆详情接口约 5–6ms，排除数据库详情查询为主要延迟来源。
 - 已测得真机到正式 API 健康接口约 675ms；编辑动作使用全局加载状态造成整页遮罩，是主要体验问题。
 - 计划拆分局部编辑加载状态，并统一车辆、账号与停用确认弹框的视觉层级和固定操作区。
+
+## 更新入口自主选择 - 编码前检查
+
+时间：2026-08-10 13:18:36 CST
+
+- 已查阅 `.codex/context-summary-更新入口自主选择.md`，并分析 `AppUpdateViewModel`、`AppUpdateDialog`、`AuthenticatedNavigation`、搜索页、车辆详情页、管理员工作台和对应更新测试。
+- 将复用 `AppUpdateDialog` 的下载与安装流程、`StateFlow` 状态管理、Material 3 顶栏动作区、`PlateViewTheme` 配色和 `PlateViewDimensions` 间距。
+- 将遵循命名约定：状态字段使用布尔语义命名，界面事件使用 `open` 与 `dismiss` 动词，可组合组件以 PascalCase 命名。
+- 确认不重复造轮子：项目已有 GitHub Release 检查、下载和安装能力，本次只分离“发现更新”和“用户打开详情”两个状态。
+
+## 更新入口自主选择 - 编码后声明
+
+时间：2026-08-10 13:25:00 CST
+
+### 复用的既有组件
+
+- `AppUpdateDialog`：继续处理下载、重试、安装与下载中禁止关闭的交互。
+- `AppUpdateViewModel`：保留 GitHub Release 静默检查和 15 分钟节流，仅新增弹框可见性状态。
+- `AuthenticatedNavigation` 与各页面 `TopAppBar`：以回调透传方式让搜索、详情、管理页均展示统一更新入口。
+- `PlateViewTheme`：更新入口使用主题的松林绿容器、暮紫状态点和圆形形状。
+
+### 遵循的项目约定
+
+- 命名：`isUpdateDialogVisible` 表达纯界面状态，`openUpdateDialog` 与 `dismissUpdateDialog` 表达用户事件。
+- 数据流：检查结果由 ViewModel 写入状态，Compose 仅观察状态并发送回调。
+- 可访问性：入口提供“发现新版本，查看更新”的内容描述，使用 Material `IconButton` 保证标准触控目标。
+
+### 验证结果
+
+- `./gradlew --no-daemon :app:testDebugUnitTest`：24 个 JVM 测试通过，其中更新 ViewModel 测试 4 个。
+- `./gradlew --no-daemon :app:lintDebug`：0 个错误、9 个既有警告；新增代码未引入警告。
+- `./gradlew --no-daemon :app:assembleDebug`：调试 APK 构建通过。
+- `./gradlew --no-daemon :app:assembleDebugAndroidTest`：仪器化测试 APK 构建通过。
+- 未执行真机仪器化运行，原因是本次需求未授权覆盖当前真机正式版；测试 APK 编译已覆盖新增 Compose 测试的编译链路。
+
+## 更新入口自主选择 - 发布准备
+
+时间：2026-08-10 13:26:00 CST
+
+- 已确认 GitHub CLI 登录账号 `jaydocoder` 对 `jaydocoder/PlateView` 具备仓库访问权限。
+- 已确认远端 `main` 与本地基线 `e1e94eb` 一致，远端最新发行版为 `v0.3.7`。
+- 本次客户端版本升级为 `0.3.8`、`versionCode 11`；服务端无代码、镜像、数据库或配置变更，不部署服务器。
+- 本地发布构建、发布单元测试和发布 Lint 均通过；APK 包版本与 V3 签名已由 `aapt`、`apksigner` 独立校验。

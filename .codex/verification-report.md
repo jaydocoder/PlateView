@@ -700,3 +700,44 @@
 综合评分：93/100。
 
 结论：通过。
+# 更新入口自主选择验证报告
+
+时间：2026-08-10 13:25:00 CST
+
+## 需求与交付映射
+
+| 需求 | 交付物 | 验证结果 |
+| --- | --- | --- |
+| 不再自动弹出更新对话框 | `AppUpdateUiState.isUpdateDialogVisible`、`PlateViewApp` 条件渲染 | JVM 测试通过 |
+| 右上角提供美观、低干扰的更新提示 | `UpdateAvailableAction`、搜索/详情/管理顶栏及登录页入口 | 仪器化测试 APK 编译通过 |
+| 用户主动决定更新或稍后处理 | `openUpdateDialog`、`dismissUpdateDialog` 与既有 `AppUpdateDialog` | JVM 测试通过 |
+| 稍后处理后保留更新入口 | ViewModel 状态分离 | JVM 测试通过 |
+| 不破坏下载和安装流程 | 保留 `AppUpdateDialog` 与下载状态机 | 调试构建通过 |
+
+## 审查结果
+
+- 代码质量：95/100。状态职责明确，导航只负责回调分发，新增组件独立且复用 Material 3 令牌。
+- 测试覆盖：91/100。覆盖静默发现、主动打开、稍后处理和入口点击；未在真机执行仪器化交互。
+- 规范遵循：94/100。符合 Kotlin、MVVM、单向数据流、Compose 生命周期状态采集和无障碍描述约定。
+- 需求匹配：96/100。更新从中断式弹窗改为用户主动进入；所有主要页面和登录页均可访问入口。
+- 架构一致性：95/100。未新增服务端接口、第三方依赖、网络权限或安装机制。
+- 风险评估：92/100。GitHub 网络不可用仍会导致静默检查失败，但不会影响应用使用；该限制与本次交互改造无关。
+
+## 本地验证
+
+- `./gradlew --no-daemon :app:testDebugUnitTest`：通过，24 个测试、0 失败。
+- `./gradlew --no-daemon :app:lintDebug`：通过，0 错误、9 个既有警告。
+- `./gradlew --no-daemon :app:assembleDebug`：通过。
+- `./gradlew --no-daemon :app:assembleDebugAndroidTest`：通过。
+
+## 结论
+
+综合评分：94/100。
+
+建议：通过。未执行真机仪器化测试是唯一剩余验证缺口；该步骤会安装调试 APK，需在准备测试设备时单独执行。
+
+## 0.3.8 正式发布构建复核
+
+- `./gradlew --no-daemon :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/`：发布单元测试通过，发布版 Lint 为 0 错误、10 条既有警告，正式 APK 构建成功。
+- `aapt dump badging`：确认包名为 `com.jaydocoder.plateview`，版本为 `0.3.8`、`versionCode 11`。
+- `apksigner verify --verbose --print-certs`：确认 APK 使用单一 RSA 签名，Android 12 所需 V3 签名有效。

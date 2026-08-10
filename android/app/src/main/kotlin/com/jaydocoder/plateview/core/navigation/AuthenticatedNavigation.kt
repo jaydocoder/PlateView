@@ -13,6 +13,7 @@ import com.jaydocoder.plateview.feature.vehicle.VehicleDetailRoute
 fun AuthenticatedNavigation(
     role: String,
     onLogout: () -> Unit,
+    onOpenUpdate: (() -> Unit)? = null,
 ) {
     val navController = rememberNavController()
     val isAdministrator = role == "ADMIN"
@@ -35,14 +36,21 @@ fun AuthenticatedNavigation(
                 onNavigateToVehicle = navigateToVehicle,
                 onNavigateToAdmin = navigateToAdmin,
                 onLogout = onLogout,
+                onOpenUpdate = onOpenUpdate,
             )
         }
         composable<VehicleDetailDestination> {
-            VehicleDetailRoute(onNavigateUp = navController::navigateUp)
+            VehicleDetailRoute(
+                onNavigateUp = navController::navigateUp,
+                onOpenUpdate = onOpenUpdate,
+            )
         }
         if (isAdministrator) {
             composable<AdminWorkspaceDestination> {
-                AdminWorkspaceRoute(onNavigateUp = navController::navigateUp)
+                AdminWorkspaceRoute(
+                    onNavigateUp = navController::navigateUp,
+                    onOpenUpdate = onOpenUpdate,
+                )
             }
         }
     }

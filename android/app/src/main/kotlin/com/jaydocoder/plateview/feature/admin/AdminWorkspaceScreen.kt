@@ -102,12 +102,14 @@ import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportRow
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
+import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun AdminWorkspaceRoute(
     onNavigateUp: () -> Unit,
+    onOpenUpdate: (() -> Unit)? = null,
     viewModel: AdminWorkspaceViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -148,6 +150,7 @@ fun AdminWorkspaceRoute(
         onAuditResultChanged = viewModel::updateAuditResult,
         onAuditKeywordChanged = viewModel::updateAuditKeyword,
         onLoadMoreAuditEntries = viewModel::loadMoreAuditEntries,
+        onOpenUpdate = onOpenUpdate,
     )
 }
 
@@ -187,6 +190,7 @@ fun AdminWorkspaceScreen(
     onAuditResultChanged: (AuditResult) -> Unit = {},
     onAuditKeywordChanged: (String) -> Unit = {},
     onLoadMoreAuditEntries: () -> Unit = {},
+    onOpenUpdate: (() -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -199,6 +203,9 @@ fun AdminWorkspaceScreen(
                     }
                 },
                 actions = {
+                    onOpenUpdate?.let { openUpdate ->
+                        UpdateAvailableAction(onClick = openUpdate)
+                    }
                     IconButton(onClick = onRefresh, enabled = !uiState.isLoading && !uiState.isSaving) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "刷新当前页面")
                     }

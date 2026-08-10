@@ -19,7 +19,7 @@ class AppUpdateViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun `检测到新发行版时显示更新状态`() = runTest {
+    fun `检测到新发行版时仅显示更新入口而不自动弹窗`() = runTest {
         val update = AppUpdate("0.3.3", "修复查询排序", "https://example.com/app-release.apk")
         val viewModel = AppUpdateViewModel(FakeAppUpdateRepository(update = update))
 
@@ -27,7 +27,24 @@ class AppUpdateViewModelTest {
         advanceUntilIdle()
 
         assertEquals(update, viewModel.uiState.value.update)
+        assertEquals(false, viewModel.uiState.value.isUpdateDialogVisible)
         assertEquals(UpdateDownloadState.Idle, viewModel.uiState.value.downloadState)
+    }
+
+    @Test
+    fun `用户打开更新详情后稍后处理仍保留更新入口`() = runTest {
+        val update = AppUpdate("0.3.3", "修复查询排序", "https://example.com/app-release.apk")
+        val viewModel = AppUpdateViewModel(FakeAppUpdateRepository(update = update))
+
+        viewModel.checkForUpdate()
+        advanceUntilIdle()
+        viewModel.openUpdateDialog()
+        assertEquals(true, viewModel.uiState.value.isUpdateDialogVisible)
+
+        viewModel.dismissUpdateDialog()
+
+        assertEquals(update, viewModel.uiState.value.update)
+        assertEquals(false, viewModel.uiState.value.isUpdateDialogVisible)
     }
 
     @Test

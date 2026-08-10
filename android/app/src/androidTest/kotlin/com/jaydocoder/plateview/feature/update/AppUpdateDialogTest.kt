@@ -1,6 +1,8 @@
 package com.jaydocoder.plateview.feature.update
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.jaydocoder.plateview.PlateViewTheme
@@ -33,5 +35,20 @@ class AppUpdateDialogTest {
         composeRule.onNodeWithText("立即更新").performClick()
 
         composeRule.runOnIdle { assertTrue(downloadRequested) }
+    }
+
+    @Test
+    fun 新版本入口显示并可由用户主动打开更新详情() {
+        var openRequested = false
+        composeRule.setContent {
+            PlateViewTheme {
+                UpdateAvailableAction(onClick = { openRequested = true })
+            }
+        }
+
+        composeRule.onNodeWithTag("update_available_action").performClick()
+        composeRule.onNodeWithContentDescription("发现新版本，查看更新").assertExists()
+
+        composeRule.runOnIdle { assertTrue(openRequested) }
     }
 }
