@@ -700,6 +700,40 @@
 综合评分：93/100。
 
 结论：通过。
+
+# 0.3.11 首页搜索清空验证报告
+
+时间：2026-08-12 01:10:00 CST
+
+## 需求与交付物映射
+
+| 需求 | 交付物 | 验证结果 |
+| --- | --- | --- |
+| 快速清空首页车牌输入 | `SearchScreen.kt` 的条件化末尾清空图标 | 通过：非空输入显示，点击通过既有 `onQueryChanged("")` 清空。 |
+| 维持查询状态一致性 | `SearchViewModel.updateQuery` 既有数据流 | 通过：未新增旁路状态，空输入继续由既有防抖查询逻辑恢复空闲状态。 |
+| 清空交互可访问且可回归 | `VehicleQueryScreenTest.kt` | 已编译：验证按钮显示、点击回调为空、重组后按钮隐藏。 |
+| 发布新版 APK | 版本号、README、GitHub 工作流 | 通过：本地正式 APK 为 `0.3.11`、`versionCode 14`。 |
+
+## 本地自动验证
+
+- `./gradlew --no-daemon --console=plain clean`：通过，清除旧 KAPT 桩和 Lint 模型。
+- `./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease :app:assembleRelease :app:assembleDebugAndroidTest -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/`：通过。
+- 调试与正式 JVM 单元测试共 58 项，均为 0 失败、0 错误；调试、正式 Lint 均无 Error 或 Fatal。
+- `assembleDebugAndroidTest` 已编译包含清空交互断言的仪器化测试 APK。真机处于锁屏状态，未覆盖用户正式安装包执行仪器化断言。
+- `aapt dump badging`：确认包名 `com.jaydocoder.plateview`、版本 `0.3.11`、`versionCode 14`。
+- `apksigner verify --verbose`：确认 Android 12 所需 V3 签名有效。
+
+## 审查结果
+
+- 代码质量：97/100。清空操作通过原有状态入口传递，组件职责未扩散。
+- 测试覆盖：92/100。覆盖可见性、点击和隐藏状态；真机仪器化运行因设备锁屏未执行。
+- 规范遵循：97/100。使用 Material 3 图标按钮、主题令牌、中文辅助功能描述和稳定测试标签。
+- 需求匹配：98/100。首页输入框可一键清空，且空输入时不显示无效控制。
+- 架构一致性与风险：96/100。无服务端、缓存或网络契约变更；仅保留真机 UI 运行验证缺口。
+
+综合评分：96/100。
+
+结论：通过。
 # 更新入口自主选择验证报告
 
 时间：2026-08-10 13:25:00 CST

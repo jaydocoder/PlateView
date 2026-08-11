@@ -74,6 +74,7 @@ android/app/
 - `SearchDestination` 和 `VehicleDetailDestination` 使用序列化类型安全目的地；详情路由只携带 `vehicleId`，由详情 ViewModel 从仓库重新读取当前数据。
 - 搜索历史通过 Room 的 `search_history` 表按 `username` 查询、删除和清空，最多保留 50 条。实体禁止新增身份证号、联系方式、完整详情、令牌或语音原文列。
 - 交互控件应提供可理解的文本或 `contentDescription`；候选、历史和详情字段使用稳定键，查询、失败和空结果必须以文本状态可被辅助功能读取。
+- 搜索输入框在有内容时提供末尾清空图标；点击时只能经既有 `onQueryChanged("")` 事件更新状态，空输入时不显示无效操作。
 
 ## 10. 管理工作台落地约定
 

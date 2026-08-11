@@ -961,3 +961,45 @@
 - 新增本地 `MockWebServer` 测试覆盖 `206` 续传、`200` 全量回退、`416` 重试、错误 `Content-Range` 回退和失败保留断点。
 - 调试与正式 JVM 单元测试共 58 项通过；调试、正式 Lint 无 Error 或 Fatal。
 - 正式 APK 为 `0.3.10`、`versionCode 13`，已通过 V3 签名校验；仪器化测试 APK 已编译，未安装到锁屏真机。
+
+## 编码前检查 - 首页搜索清空
+
+时间：2026-08-12 00:20:00 CST
+
+- 已查阅 `.codex/context-summary-首页搜索清空.md`，并分析 `SearchBar`、`SearchViewModel.updateQuery`、`UpdateAvailableAction` 与 `VehicleQueryScreenTest`。
+- 将复用 `TextField.trailingIcon`、Material 3 `IconButton`、`onQueryChanged` 单向回调、主题色和 Compose 测试标签。
+- 将遵循展示层边界：清空按钮仅发送空字符串，不直接修改 ViewModel、缓存、网络或候选列表。
+- 确认不重复造轮子：项目已有查询文本状态和 Material 3 图标按钮，不新增状态容器、依赖或自定义点击组件。
+
+## 验证异常 - 首页搜索清空
+
+时间：2026-08-12 00:30:00 CST
+
+- 首次完整 Gradle 验证在 `compileDebugAndroidTestKotlin` 失败，原因是项目当前 Compose 测试版本不提供 `assertDoesNotExist` 扩展。
+- 补救：替换为同一测试库已提供的 `onAllNodesWithTag(...).assertCountEquals(0)`，保持“清空后按钮不存在”的断言含义不变。
+- 后续将重新执行完整调试、正式、Lint、签名构建和仪器化测试 APK 编译验证。
+
+## 验证异常 - 首页搜索清空（第二次）
+
+时间：2026-08-12 00:35:00 CST
+
+- 兼容断言修复后，`compileDebugAndroidTestKotlin` 已继续执行，但 `lintAnalyzeDebugAndroidTest` 引用了不存在的 KAPT 生成桩文件 `VehicleQueryScreenTest.java` 并失败。
+- 判断：失败发生在 Android Lint 对生成目录的分析期，不是 Kotlin 源码、测试断言或应用构建失败。
+- 补救：执行 `./gradlew clean` 清除生成桩与 Lint 模型，再从干净状态执行完整构建验证；若第三次仍失败，停止发布并转入构建环境诊断。
+
+## 编码后声明 - 首页搜索清空
+
+时间：2026-08-12 01:10:00 CST
+
+### 复用的既有组件
+
+- `SearchBar`：在既有 `TextField` 末尾位置增加条件化图标操作，不改变输入框布局或搜索图标。
+- `SearchViewModel.updateQuery`：清空操作仅调用既有空字符串回调，复用防抖查询和空输入状态处理。
+- `UpdateAvailableAction`：沿用 Material 3 `IconButton`、中文内容描述和稳定测试标签模式。
+- `VehicleQueryScreenTest`：新增 Compose 状态驱动的点击回归测试。
+
+### 验证结果
+
+- 干净执行 `./gradlew clean` 后，调试与正式 JVM 单元测试共 58 项通过，调试和正式 Lint 无 Error 或 Fatal。
+- `assembleRelease` 与 `assembleDebugAndroidTest` 成功；正式 APK 为 `0.3.11`、`versionCode 14`，V3 签名校验通过。
+- 清空按钮的真实仪器化断言未在锁屏真机执行，但测试 APK 已编译；测试源码覆盖“显示、点击回调、重组后隐藏”三个状态。

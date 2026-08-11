@@ -1,8 +1,12 @@
 package com.jaydocoder.plateview
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -50,6 +54,33 @@ class VehicleQueryScreenTest {
         composeRule.onNodeWithTag("candidate_101").performClick()
 
         assertEquals(101L, selectedVehicleId)
+    }
+
+    @Test
+    fun 搜索输入不为空时可快速清空并隐藏清空按钮() {
+        val query = mutableStateOf("新A12345")
+
+        composeRule.setContent {
+            val currentQuery = remember { query }
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = currentQuery.value),
+                    onQueryChanged = { currentQuery.value = it },
+                    onCandidateSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    onOpenAdmin = null,
+                    onLogout = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("search_clear_action").assertIsDisplayed().performClick()
+
+        composeRule.runOnIdle { assertEquals("", query.value) }
+        composeRule.onAllNodesWithTag("search_clear_action").assertCountEquals(0)
     }
 
     @Test
