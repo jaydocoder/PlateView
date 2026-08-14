@@ -25,3 +25,8 @@ keystore.properties
 *.log
 /data/
 backups/
+
+# 本机 AI 与会话运行数据
+.codex/
+.agents/
+.ccpanes/

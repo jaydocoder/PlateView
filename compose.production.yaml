@@ -4,6 +4,8 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:15432:5432"
     privileged: true
     security_opt:
       - label=disable
