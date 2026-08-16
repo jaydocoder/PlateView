@@ -3,6 +3,7 @@ package com.jaydocoder.plateview.data.admin
 import com.jaydocoder.plateview.domain.admin.AdminRepository
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
+import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedAuditActor
 import com.jaydocoder.plateview.domain.admin.ManagedAuditPage
@@ -10,6 +11,10 @@ import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportRow
+import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
+import com.jaydocoder.plateview.domain.admin.ManagedImportDiffSection
+import com.jaydocoder.plateview.domain.admin.ManagedImportFieldDifference
+import com.jaydocoder.plateview.domain.admin.ManagedImportSourceValue
 import com.jaydocoder.plateview.domain.admin.ManagedLongTermProfile
 import com.jaydocoder.plateview.domain.admin.ManagedResidentProfile
 import com.jaydocoder.plateview.domain.admin.ManagedUser
@@ -88,8 +93,13 @@ class NetworkAdminRepository @Inject constructor(
         batchId: Long,
         limit: Int,
         offset: Int,
+        filter: ImportRowFilter,
     ): ManagedImportBatch = api
-        .getImportBatch(bearer(accessToken), batchId, limit, offset)
+        .getImportBatch(bearer(accessToken), batchId, limit, offset, filter.requestValue)
+        .toDomain()
+
+    override suspend fun getImportRowDetail(accessToken: String, batchId: Long, rowId: Long): ManagedImportRowDetail = api
+        .getImportRowDetail(bearer(accessToken), batchId, rowId)
         .toDomain()
 
     override suspend fun previewImport(accessToken: String, fileName: String, content: ByteArray): ManagedImportBatch {
@@ -207,6 +217,8 @@ private fun AdminImportBatchDto.toDomain(): ManagedImportBatch = ManagedImportBa
         stats.totalRows,
         stats.newRows,
         stats.updateRows,
+        stats.reactivateRows,
+        stats.deactivateRows,
         stats.duplicateRows,
         stats.errorRows,
         stats.warningRows,
@@ -216,6 +228,7 @@ private fun AdminImportBatchDto.toDomain(): ManagedImportBatch = ManagedImportBa
     createdAt = createdAt,
     publishedAt = publishedAt,
     rollbackAt = rollbackAt,
+    rowTotal = rowTotal,
     rows = rows.map { row ->
         ManagedImportRow(
             row.id,
@@ -232,6 +245,32 @@ private fun AdminImportBatchDto.toDomain(): ManagedImportBatch = ManagedImportBa
             row.warningMessage,
         )
     },
+)
+
+private fun AdminImportRowDetailDto.toDomain(): ManagedImportRowDetail = ManagedImportRowDetail(
+    row = row.toDomain(),
+    sections = sections.map { section ->
+        ManagedImportDiffSection(
+            title = section.title,
+            fields = section.fields.map { field -> ManagedImportFieldDifference(field.label, field.before, field.after) },
+        )
+    },
+    sourceValues = sourceValues.map { value -> ManagedImportSourceValue(value.label, value.value) },
+)
+
+private fun AdminImportRowDto.toDomain(): ManagedImportRow = ManagedImportRow(
+    id,
+    sourceSheetName,
+    sourceRowNumber,
+    sourceItemIndex,
+    plateNumber,
+    category,
+    primarySubject,
+    resultStatus,
+    plannedAction,
+    resolution,
+    errorMessage,
+    warningMessage,
 )
 
 private fun AdminAuditEntryDto.toDomain(): ManagedAuditEntry = ManagedAuditEntry(

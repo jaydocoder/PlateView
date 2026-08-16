@@ -6,10 +6,12 @@ import java.sql.ResultSet
 import javax.sql.DataSource
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 internal class ImportWorkflowService(
@@ -36,18 +38,27 @@ internal class ImportWorkflowService(
                 createdAt = null,
                 publishedAt = null,
                 rollbackAt = null,
-                rows = storedRows.take(INITIAL_PREVIEW_PAGE_SIZE),
+                rowTotal = storedRows.count(ImportRowView::isReviewable),
+                rows = storedRows.filter(ImportRowView::isReviewable).take(INITIAL_PREVIEW_PAGE_SIZE),
             )
         }
     }
 
-    fun getBatch(batchId: Long, limit: Int, offset: Int): ImportBatchView {
+    fun getBatch(batchId: Long, limit: Int, offset: Int, filter: ImportRowFilter = ImportRowFilter.REVIEW): ImportBatchView {
         require(limit in 1..MAX_PAGE_SIZE) { "每页记录数必须在1到500之间" }
         require(offset >= 0) { "分页偏移量不能为负数" }
         return dataSource.connection.use { connection ->
             val batch = findBatch(connection, batchId) ?: throw ImportBatchNotFoundException()
-            batch.toView(readStats(connection, batchId), readRows(connection, batchId, limit, offset))
+            batch.toView(
+                stats = readStats(connection, batchId),
+                rows = readRows(connection, batchId, limit, offset, filter),
+                rowTotal = countRows(connection, batchId, filter),
+            )
         }
+    }
+
+    fun getRowDetail(batchId: Long, rowId: Long): ImportRowDetailView = dataSource.connection.use { connection ->
+        readRowDetail(connection, batchId, rowId) ?: throw ImportWorkflowConflictException("IMPORT_ROW_NOT_FOUND", "导入行不存在")
     }
 
     fun updateResolutions(batchId: Long, changes: List<ImportRowResolutionChange>, actorId: Long): ImportBatchView {
@@ -71,6 +82,7 @@ internal class ImportWorkflowService(
     fun publish(batchId: Long, actorId: Long): ImportBatchView {
         dataSource.inTransaction { connection ->
             val publishMode = prepareImportPublish(lockBatch(connection, batchId).status)
+            ensureImportReadyToPublish(countPendingReviewRows(connection, batchId))
             val rows = publishableRows(connection, batchId)
             if (rows.isEmpty()) throw ImportWorkflowConflictException("IMPORT_NOTHING_TO_PUBLISH", "当前批次没有可发布的数据")
             if (publishMode == ImportPublishMode.REPUBLISH) {
@@ -81,6 +93,8 @@ internal class ImportWorkflowService(
                 val vehicleId = when (row.plannedAction) {
                     ImportPlannedAction.CREATE -> publishCreate(connection, batchId, row, actorId)
                     ImportPlannedAction.UPDATE -> publishUpdate(connection, batchId, row, actorId)
+                    ImportPlannedAction.DEACTIVATE -> publishDeactivate(connection, batchId, row, actorId)
+                    ImportPlannedAction.REACTIVATE -> publishReactivate(connection, batchId, row, actorId)
                     ImportPlannedAction.SKIP, ImportPlannedAction.NONE -> throw ImportWorkflowConflictException("IMPORT_ROW_NOT_PUBLISHABLE", "导入行不允许发布")
                 }
                 connection.prepareStatement(
@@ -125,9 +139,10 @@ internal class ImportWorkflowService(
     }
 
     private fun classifyRows(connection: Connection, parsedRows: List<ParsedImportRow>): List<ParsedImportRow> {
-        val existingVehicles = findExistingVehicles(connection, parsedRows.mapNotNull { it.vehicle.normalizedPlate }.distinct())
+        val normalizedPlates = parsedRows.mapNotNull { it.vehicle.normalizedPlate }.distinct()
+        val existingVehicles = findExistingVehicles(connection, normalizedPlates)
         val handledPlates = mutableSetOf<String>()
-        return parsedRows.map { row ->
+        val classifiedRows = parsedRows.map { row ->
             val normalizedPlate = row.vehicle.normalizedPlate
             if (row.resultStatus == ImportResultStatus.ERROR || normalizedPlate == null) return@map row
             if (!handledPlates.add(normalizedPlate)) {
@@ -138,25 +153,70 @@ internal class ImportWorkflowService(
                     warningMessage = appendMessage(row.warningMessage, "与同一批次的前序车牌重复，默认跳过"),
                 )
             }
-            val existing = existingVehicles[normalizedPlate] ?: return@map row
-            val sourceVehicle = row.vehicle.copy(sourceVehicleId = existing.id, sourceVehicleVersion = existing.version)
-            if (existing.hasSameContent(sourceVehicle)) {
-                row.copy(
-                    vehicle = sourceVehicle,
-                    resultStatus = ImportResultStatus.DUPLICATE,
-                    plannedAction = ImportPlannedAction.SKIP,
-                    resolution = ImportResolution.SKIP,
-                    warningMessage = appendMessage(row.warningMessage, "正式库已存在相同数据，默认跳过"),
-                )
-            } else {
-                row.copy(
-                    vehicle = sourceVehicle,
-                    resultStatus = ImportResultStatus.DUPLICATE,
-                    plannedAction = ImportPlannedAction.UPDATE,
-                    resolution = ImportResolution.PENDING,
-                    warningMessage = appendMessage(row.warningMessage, "正式库存在同车牌数据，请确认是否更新"),
+            val candidates = existingVehicles[normalizedPlate].orEmpty()
+            val activeVehicle = candidates.singleOrNull { it.status == "ACTIVE" }
+            if (activeVehicle != null) {
+                return@map classifyExistingVehicle(row, activeVehicle, ImportPlannedAction.UPDATE)
+            }
+            val inactiveVehicles = candidates.filter { it.status == "INACTIVE" }
+            when (inactiveVehicles.size) {
+                0 -> row
+                1 -> classifyExistingVehicle(row, inactiveVehicles.single(), ImportPlannedAction.REACTIVATE)
+                else -> row.copy(
+                    resultStatus = ImportResultStatus.ERROR,
+                    plannedAction = ImportPlannedAction.NONE,
+                    resolution = ImportResolution.ERROR,
+                    errorMessage = appendMessage(row.errorMessage, "存在多条同车牌失效历史档案，无法自动恢复"),
                 )
             }
+        }
+        val coveredCategories = parsedRows.mapNotNull { it.vehicle.category }.toSet()
+        val presentPlates = parsedRows.mapNotNull { it.vehicle.normalizedPlate }.toSet()
+        val missingRows = findActiveVehiclesMissingFromImport(connection, coveredCategories, presentPlates).map { existing ->
+            val vehicle = existing.toParsedVehicle()
+            ParsedImportRow(
+                sourceSheetName = SYSTEM_DIFF_SOURCE,
+                sourceRowNumber = 0,
+                sourceItemIndex = 0,
+                rawValues = JsonObject(emptyMap()),
+                vehicle = vehicle,
+                resultStatus = ImportResultStatus.VALID,
+                plannedAction = ImportPlannedAction.DEACTIVATE,
+                resolution = ImportResolution.PENDING,
+                warningMessage = "本次导入的${existing.category.displayName}数据中未出现该车牌，请确认是否失效",
+                beforeValues = existing.toComparisonValues(),
+            )
+        }
+        return classifiedRows + missingRows
+    }
+
+    private fun classifyExistingVehicle(
+        row: ParsedImportRow,
+        existing: ExistingVehicle,
+        action: ImportPlannedAction,
+    ): ParsedImportRow {
+        val sourceVehicle = row.vehicle.copy(sourceVehicleId = existing.id, sourceVehicleVersion = existing.version)
+        return if (existing.hasSameContent(sourceVehicle) && action == ImportPlannedAction.UPDATE) {
+            row.copy(
+                vehicle = sourceVehicle,
+                resultStatus = ImportResultStatus.DUPLICATE,
+                plannedAction = ImportPlannedAction.SKIP,
+                resolution = ImportResolution.SKIP,
+                warningMessage = appendMessage(row.warningMessage, "正式库已存在相同数据，默认跳过"),
+                beforeValues = existing.toComparisonValues(),
+            )
+        } else {
+            row.copy(
+                vehicle = sourceVehicle,
+                resultStatus = ImportResultStatus.DUPLICATE,
+                plannedAction = action,
+                resolution = ImportResolution.PENDING,
+                warningMessage = appendMessage(
+                    row.warningMessage,
+                    if (action == ImportPlannedAction.REACTIVATE) "正式库存在失效档案，请确认恢复有效" else "正式库存在同车牌数据，请确认是否更新",
+                ),
+                beforeValues = existing.toComparisonValues(),
+            )
         }
     }
 
@@ -190,8 +250,8 @@ internal class ImportWorkflowService(
         INSERT INTO import_rows (
             import_batch_id, source_sheet_name, source_row_number, source_item_index,
             raw_values, parsed_values, result_status, planned_action, resolution,
-            error_message, warning_message, created_by, updated_by
-        ) VALUES (?, ?, ?, ?, CAST(? AS JSONB), CAST(? AS JSONB), ?, ?, ?, ?, ?, ?, ?)
+            error_message, warning_message, before_values, created_by, updated_by
+        ) VALUES (?, ?, ?, ?, CAST(? AS JSONB), CAST(? AS JSONB), ?, ?, ?, ?, ?, CAST(? AS JSONB), ?, ?)
         RETURNING id
         """.trimIndent(),
     ).use { statement ->
@@ -206,17 +266,26 @@ internal class ImportWorkflowService(
         statement.setString(9, row.resolution.name)
         statement.setString(10, row.errorMessage)
         statement.setString(11, row.warningMessage)
-        statement.setLong(12, actorId)
+        statement.setString(12, row.beforeValues?.let { Json.encodeToString(it) })
         statement.setLong(13, actorId)
+        statement.setLong(14, actorId)
         statement.executeQuery().use { result -> result.next(); result.getLong(1) }
     }
 
-    private fun readRows(connection: Connection, batchId: Long, limit: Int, offset: Int): List<ImportRowView> = connection.prepareStatement(
+    private fun readRows(
+        connection: Connection,
+        batchId: Long,
+        limit: Int,
+        offset: Int,
+        filter: ImportRowFilter,
+    ): List<ImportRowView> = connection.prepareStatement(
         """
         SELECT id, source_sheet_name, source_row_number, source_item_index, parsed_values::text,
                result_status, planned_action, resolution, error_message, warning_message
-        FROM import_rows WHERE import_batch_id = ?
-        ORDER BY source_sheet_name, source_row_number, source_item_index
+        FROM import_rows
+        WHERE import_batch_id = ? AND ${filter.sqlCondition}
+        ORDER BY CASE WHEN source_sheet_name = '$SYSTEM_DIFF_SOURCE' THEN 1 ELSE 0 END,
+                 source_sheet_name, source_row_number, source_item_index, id
         LIMIT ? OFFSET ?
         """.trimIndent(),
     ).use { statement ->
@@ -226,11 +295,93 @@ internal class ImportWorkflowService(
         statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toRowView()) } }
     }
 
+    private fun countRows(connection: Connection, batchId: Long, filter: ImportRowFilter): Int = connection.prepareStatement(
+        "SELECT COUNT(*) FROM import_rows WHERE import_batch_id = ? AND ${filter.sqlCondition}",
+    ).use { statement ->
+        statement.setLong(1, batchId)
+        statement.executeQuery().use { result -> result.next(); result.getInt(1) }
+    }
+
+    private fun countPendingReviewRows(connection: Connection, batchId: Long): Int = connection.prepareStatement(
+        "SELECT COUNT(*) FROM import_rows WHERE import_batch_id = ? AND resolution = 'PENDING'",
+    ).use { statement ->
+        statement.setLong(1, batchId)
+        statement.executeQuery().use { result -> result.next(); result.getInt(1) }
+    }
+
+    private fun readRowDetail(connection: Connection, batchId: Long, rowId: Long): ImportRowDetailView? = connection.prepareStatement(
+        """
+        SELECT id, source_sheet_name, source_row_number, source_item_index, raw_values::text, parsed_values::text,
+               before_values::text, result_status, planned_action, resolution, error_message, warning_message
+        FROM import_rows WHERE import_batch_id = ? AND id = ?
+        """.trimIndent(),
+    ).use { statement ->
+        statement.setLong(1, batchId)
+        statement.setLong(2, rowId)
+        statement.executeQuery().use { result ->
+            if (!result.next()) return@use null
+            val vehicle = ParsedVehicle.fromJson(result.getString("parsed_values"))
+            val row = result.toRowView()
+            val action = ImportPlannedAction.valueOf(row.plannedAction)
+            val beforeValues = result.getString("before_values")
+                ?.let { Json.parseToJsonElement(it).jsonObject }
+                ?: JsonObject(emptyMap())
+            val afterValues = vehicle.toComparisonValues(
+                status = if (action == ImportPlannedAction.DEACTIVATE) "INACTIVE" else "ACTIVE",
+            )
+            ImportRowDetailView(
+                row = row,
+                sections = buildDiffSections(beforeValues, afterValues),
+                sourceValues = Json.parseToJsonElement(result.getString("raw_values")).jsonObject
+                    .entries
+                    .sortedBy { it.key }
+                    .mapNotNull { (label, value) -> value.jsonPrimitive.content.takeIf(String::isNotBlank)?.let { ImportSourceValue(label, it) } },
+            )
+        }
+    }
+
+    private fun buildDiffSections(before: JsonObject, after: JsonObject): List<ImportDiffSection> = buildList {
+        addSection("车辆信息", before, after, VEHICLE_FIELDS)
+        addSection("状态变化", before, after, STATUS_FIELDS)
+        addSection("身份或单位信息", before, after, PROFILE_FIELDS)
+        addAttributeSection(before, after)
+    }
+
+    private fun MutableList<ImportDiffSection>.addSection(
+        title: String,
+        before: JsonObject,
+        after: JsonObject,
+        fields: List<ImportComparisonField>,
+    ) {
+        val differences = fields.mapNotNull { field ->
+            val oldValue = before.stringOrNull(field.key)
+            val newValue = after.stringOrNull(field.key)
+            if (oldValue == newValue) null else ImportFieldDifference(field.label, oldValue, newValue)
+        }
+        if (differences.isNotEmpty()) add(ImportDiffSection(title, differences))
+    }
+
+    private fun MutableList<ImportDiffSection>.addAttributeSection(before: JsonObject, after: JsonObject) {
+        val beforeAttributes = before["attributes"]?.jsonObject ?: JsonObject(emptyMap())
+        val afterAttributes = after["attributes"]?.jsonObject ?: JsonObject(emptyMap())
+        val fields = (beforeAttributes.keys + afterAttributes.keys)
+            .sorted()
+            .map { key -> ImportComparisonField(key, ATTRIBUTE_LABELS[key] ?: key) }
+        val differences = fields.mapNotNull { field ->
+            val oldValue = beforeAttributes.stringOrNull(field.key)
+            val newValue = afterAttributes.stringOrNull(field.key)
+            if (oldValue == newValue) null else ImportFieldDifference(field.label, oldValue, newValue)
+        }
+        if (differences.isNotEmpty()) add(ImportDiffSection("扩展字段", differences))
+    }
+
     private fun readStats(connection: Connection, batchId: Long): ImportBatchStats = connection.prepareStatement(
         """
         SELECT COUNT(*) AS total_rows,
                COUNT(*) FILTER (WHERE planned_action = 'CREATE') AS new_rows,
                COUNT(*) FILTER (WHERE planned_action = 'UPDATE') AS update_rows,
+               COUNT(*) FILTER (WHERE planned_action = 'REACTIVATE') AS reactivate_rows,
+               COUNT(*) FILTER (WHERE planned_action = 'DEACTIVATE') AS deactivate_rows,
                COUNT(*) FILTER (WHERE planned_action = 'SKIP') AS duplicate_rows,
                COUNT(*) FILTER (WHERE result_status = 'ERROR') AS error_rows,
                COUNT(*) FILTER (WHERE warning_message IS NOT NULL) AS warning_rows,
@@ -306,6 +457,64 @@ internal class ImportWorkflowService(
         return previous.id
     }
 
+    private fun publishDeactivate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
+        val vehicle = row.vehicle
+        val normalizedPlate = vehicle.normalizedPlate
+            ?: throw ImportWorkflowConflictException("IMPORT_ROW_INVALID", "待失效记录缺少车牌号")
+        val previous = vehicle.sourceVehicleId?.let { findVehicleForUpdate(connection, normalizedPlate, it) }
+            ?: throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
+        if (previous.version != vehicle.sourceVehicleVersion) {
+            throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
+        }
+        connection.prepareStatement(
+            "UPDATE vehicles SET status = 'INACTIVE', version = version + 1, updated_by = ? WHERE id = ? AND version = ?",
+        ).use { statement ->
+            statement.setLong(1, actorId)
+            statement.setLong(2, previous.id)
+            statement.setInt(3, previous.version)
+            if (statement.executeUpdate() != 1) throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
+        }
+        insertEffect(
+            connection,
+            batchId,
+            row.id,
+            previous.id,
+            "DEACTIVATED",
+            previous.version + 1,
+            previous.toVehicleSnapshot(),
+            previous.residentProfile?.toJson(),
+            previous.longTermProfile?.toJson(),
+        )
+        return previous.id
+    }
+
+    private fun publishReactivate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
+        val vehicle = row.vehicle.requirePublishable()
+        val previous = vehicle.sourceVehicleId?.let {
+            findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it, expectedStatus = "INACTIVE")
+        } ?: throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
+        if (previous.version != vehicle.sourceVehicleVersion) {
+            throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
+        }
+        if (findVehicleForUpdate(connection, vehicle.normalizedPlate!!, expectedStatus = "ACTIVE") != null) {
+            throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "该车牌已有有效档案，请重新上传并预览")
+        }
+        updateVehicle(connection, previous.id, vehicle, actorId, status = "ACTIVE")
+        replaceProfile(connection, previous.id, vehicle, actorId)
+        insertEffect(
+            connection,
+            batchId,
+            row.id,
+            previous.id,
+            "REACTIVATED",
+            previous.version + 1,
+            previous.toVehicleSnapshot(),
+            previous.residentProfile?.toJson(),
+            previous.longTermProfile?.toJson(),
+        )
+        return previous.id
+    }
+
     private fun insertVehicle(connection: Connection, vehicle: ParsedVehicle, batchId: Long, actorId: Long): Long = connection.prepareStatement(
         """
         INSERT INTO vehicles (
@@ -325,12 +534,18 @@ internal class ImportWorkflowService(
         statement.executeQuery().use { result -> result.next(); result.getLong(1) }
     }
 
-    private fun updateVehicle(connection: Connection, vehicleId: Long, vehicle: ParsedVehicle, actorId: Long) {
+    private fun updateVehicle(
+        connection: Connection,
+        vehicleId: Long,
+        vehicle: ParsedVehicle,
+        actorId: Long,
+        status: String? = null,
+    ) {
         connection.prepareStatement(
             """
             UPDATE vehicles
             SET plate_number = ?, normalized_plate = ?, category = ?, vehicle_type = ?, attributes = CAST(? AS JSONB),
-                updated_by = ?, version = version + 1
+                status = COALESCE(?, status), updated_by = ?, version = version + 1
             WHERE id = ?
             """.trimIndent(),
         ).use { statement ->
@@ -339,8 +554,9 @@ internal class ImportWorkflowService(
             statement.setString(3, vehicle.category!!.name)
             statement.setString(4, vehicle.vehicleType)
             statement.setString(5, Json.encodeToString(vehicle.attributes))
-            statement.setLong(6, actorId)
-            statement.setLong(7, vehicleId)
+            statement.setString(6, status)
+            statement.setLong(7, actorId)
+            statement.setLong(8, vehicleId)
             statement.executeUpdate()
         }
     }
@@ -441,7 +657,7 @@ internal class ImportWorkflowService(
         }
     }
 
-    private fun findExistingVehicles(connection: Connection, plates: List<String>): Map<String, ExistingVehicle> {
+    private fun findExistingVehicles(connection: Connection, plates: List<String>): Map<String, List<ExistingVehicle>> {
         if (plates.isEmpty()) return emptyMap()
         val placeholders = plates.joinToString(",") { "?" }
         return connection.prepareStatement(
@@ -455,15 +671,58 @@ internal class ImportWorkflowService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status = 'ACTIVE' AND v.normalized_plate IN ($placeholders)
+            WHERE v.normalized_plate IN ($placeholders)
+            ORDER BY v.normalized_plate, CASE v.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, v.id
             """.trimIndent(),
         ).use { statement ->
             plates.forEachIndexed { index, plate -> statement.setString(index + 1, plate) }
-            statement.executeQuery().use { result -> buildMap { while (result.next()) result.toExistingVehicle().also { put(it.normalizedPlate, it) } } }
+            statement.executeQuery().use { result ->
+                val vehicles = linkedMapOf<String, MutableList<ExistingVehicle>>()
+                while (result.next()) {
+                    val vehicle = result.toExistingVehicle()
+                    vehicles.getOrPut(vehicle.normalizedPlate) { mutableListOf() } += vehicle
+                }
+                vehicles
+            }
         }
     }
 
-    private fun findVehicleForUpdate(connection: Connection, normalizedPlate: String, expectedId: Long? = null): ExistingVehicle? = connection.prepareStatement(
+    private fun findActiveVehiclesMissingFromImport(
+        connection: Connection,
+        categories: Set<ImportCategory>,
+        presentPlates: Set<String>,
+    ): List<ExistingVehicle> {
+        if (categories.isEmpty()) return emptyList()
+        val categoryPlaceholders = categories.joinToString(",") { "?" }
+        val plateClause = if (presentPlates.isEmpty()) "" else "AND v.normalized_plate NOT IN (${presentPlates.joinToString(",") { "?" }})"
+        return connection.prepareStatement(
+            """
+            SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.import_batch_id,
+                   v.attributes::text, v.version,
+                   rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
+                   rp.remarks AS resident_remarks, rp.version AS resident_version,
+                   lp.id AS long_term_profile_id, lp.organization_name, lp.pass_holder, lp.passage_details,
+                   lp.remarks AS long_term_remarks, lp.version AS long_term_version
+            FROM vehicles v
+            LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
+            LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
+            WHERE v.status = 'ACTIVE' AND v.category IN ($categoryPlaceholders) $plateClause
+            ORDER BY v.category, v.normalized_plate, v.id
+            """.trimIndent(),
+        ).use { statement ->
+            var index = 1
+            categories.sortedBy(ImportCategory::name).forEach { statement.setString(index++, it.name) }
+            presentPlates.sorted().forEach { statement.setString(index++, it) }
+            statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toExistingVehicle()) } }
+        }
+    }
+
+    private fun findVehicleForUpdate(
+        connection: Connection,
+        normalizedPlate: String,
+        expectedId: Long? = null,
+        expectedStatus: String = "ACTIVE",
+    ): ExistingVehicle? = connection.prepareStatement(
         """
         SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.import_batch_id,
                v.attributes::text, v.version,
@@ -474,11 +733,12 @@ internal class ImportWorkflowService(
         FROM vehicles v
         LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
         LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-        WHERE v.status = 'ACTIVE' AND v.normalized_plate = ?
+        WHERE v.status = ? AND v.normalized_plate = ?
         FOR UPDATE OF v
         """.trimIndent(),
     ).use { statement ->
-        statement.setString(1, normalizedPlate)
+        statement.setString(1, expectedStatus)
+        statement.setString(2, normalizedPlate)
         statement.executeQuery().use { result ->
             if (!result.next()) null else result.toExistingVehicle().also {
                 if (expectedId != null && it.id != expectedId) {
@@ -747,6 +1007,8 @@ internal class ImportWorkflowService(
         totalRows = getInt("total_rows"),
         newRows = getInt("new_rows"),
         updateRows = getInt("update_rows"),
+        reactivateRows = getInt("reactivate_rows"),
+        deactivateRows = getInt("deactivate_rows"),
         duplicateRows = getInt("duplicate_rows"),
         errorRows = getInt("error_rows"),
         warningRows = getInt("warning_rows"),
@@ -789,7 +1051,11 @@ internal class ImportWorkflowService(
         warningMessage = warningMessage,
     )
 
-    private fun BatchRecord.toView(stats: ImportBatchStats, rows: List<ImportRowView>): ImportBatchView = ImportBatchView(
+    private fun BatchRecord.toView(
+        stats: ImportBatchStats,
+        rows: List<ImportRowView>,
+        rowTotal: Int,
+    ): ImportBatchView = ImportBatchView(
         id = id,
         sourceFileName = sourceFileName,
         status = status,
@@ -797,6 +1063,7 @@ internal class ImportWorkflowService(
         createdAt = createdAt,
         publishedAt = publishedAt,
         rollbackAt = rollbackAt,
+        rowTotal = rowTotal,
         rows = rows,
     )
 
@@ -804,6 +1071,8 @@ internal class ImportWorkflowService(
         totalRows = size,
         newRows = count { it.plannedAction == ImportPlannedAction.CREATE },
         updateRows = count { it.plannedAction == ImportPlannedAction.UPDATE },
+        reactivateRows = count { it.plannedAction == ImportPlannedAction.REACTIVATE },
+        deactivateRows = count { it.plannedAction == ImportPlannedAction.DEACTIVATE },
         duplicateRows = count { it.plannedAction == ImportPlannedAction.SKIP },
         errorRows = count { it.resultStatus == ImportResultStatus.ERROR },
         warningRows = count { !it.warningMessage.isNullOrBlank() },
@@ -824,6 +1093,53 @@ internal class ImportWorkflowService(
                     it.passageDetails == vehicle.passageDetails && it.remarks == vehicle.remarks
             } ?: false
         }
+    }
+
+    private fun ExistingVehicle.toParsedVehicle(): ParsedVehicle = ParsedVehicle(
+        originalPlate = plateNumber,
+        normalizedPlate = normalizedPlate,
+        category = category,
+        vehicleType = vehicleType,
+        ownerName = residentProfile?.ownerName,
+        identityCardNumber = residentProfile?.identityCardNumber,
+        contactPhone = residentProfile?.contactPhone,
+        organizationName = longTermProfile?.organizationName,
+        passHolder = longTermProfile?.passHolder,
+        passageDetails = longTermProfile?.passageDetails,
+        remarks = residentProfile?.remarks ?: longTermProfile?.remarks,
+        attributes = attributes,
+        sourceVehicleId = id,
+        sourceVehicleVersion = version,
+    )
+
+    private fun ExistingVehicle.toComparisonValues(): JsonObject = buildJsonObject {
+        put("plateNumber", JsonPrimitive(plateNumber))
+        put("category", JsonPrimitive(category.name))
+        putNullable("vehicleType", vehicleType)
+        put("status", JsonPrimitive(status))
+        putNullable("ownerName", residentProfile?.ownerName)
+        putNullable("identityCardNumber", residentProfile?.identityCardNumber)
+        putNullable("contactPhone", residentProfile?.contactPhone)
+        putNullable("organizationName", longTermProfile?.organizationName)
+        putNullable("passHolder", longTermProfile?.passHolder)
+        putNullable("passageDetails", longTermProfile?.passageDetails)
+        putNullable("remarks", residentProfile?.remarks ?: longTermProfile?.remarks)
+        put("attributes", attributes)
+    }
+
+    private fun ParsedVehicle.toComparisonValues(status: String): JsonObject = buildJsonObject {
+        putNullable("plateNumber", originalPlate)
+        putNullable("category", category?.name)
+        putNullable("vehicleType", vehicleType)
+        put("status", JsonPrimitive(status))
+        putNullable("ownerName", ownerName)
+        putNullable("identityCardNumber", identityCardNumber)
+        putNullable("contactPhone", contactPhone)
+        putNullable("organizationName", organizationName)
+        putNullable("passHolder", passHolder)
+        putNullable("passageDetails", passageDetails)
+        putNullable("remarks", remarks)
+        put("attributes", attributes)
     }
 
     private fun ExistingVehicle.toVehicleSnapshot(): JsonObject = buildJsonObject {
@@ -881,8 +1197,35 @@ internal class ImportWorkflowService(
         const val MAX_IMPORT_ROWS = 10_000
         const val MAX_PAGE_SIZE = 500
         const val INITIAL_PREVIEW_PAGE_SIZE = 200
+        const val SYSTEM_DIFF_SOURCE = "系统差异检测"
+
+        val VEHICLE_FIELDS = listOf(
+            ImportComparisonField("plateNumber", "车牌号"),
+            ImportComparisonField("category", "车辆类别"),
+            ImportComparisonField("vehicleType", "车辆类型"),
+        )
+        val STATUS_FIELDS = listOf(ImportComparisonField("status", "档案状态"))
+        val PROFILE_FIELDS = listOf(
+            ImportComparisonField("ownerName", "所属人姓名"),
+            ImportComparisonField("identityCardNumber", "身份证号"),
+            ImportComparisonField("contactPhone", "联系方式"),
+            ImportComparisonField("organizationName", "单位名称"),
+            ImportComparisonField("passHolder", "通行人员"),
+            ImportComparisonField("passageDetails", "通行说明"),
+            ImportComparisonField("remarks", "备注"),
+        )
+        val ATTRIBUTE_LABELS = mapOf(
+            "vehicleUse" to "车辆用途",
+            "passageArea" to "通行区域",
+            "position" to "职务",
+            "brandModel" to "品牌型号",
+            "approvedCapacity" to "核载人数",
+            "plateColor" to "号牌颜色",
+        )
     }
 }
+
+private data class ImportComparisonField(val key: String, val label: String)
 
 internal data class ImportBatchView(
     val id: Long,
@@ -892,6 +1235,7 @@ internal data class ImportBatchView(
     val createdAt: String?,
     val publishedAt: String?,
     val rollbackAt: String?,
+    val rowTotal: Int,
     val rows: List<ImportRowView>,
 )
 
@@ -899,12 +1243,18 @@ internal data class ImportBatchStats(
     val totalRows: Int,
     val newRows: Int,
     val updateRows: Int,
+    val reactivateRows: Int,
+    val deactivateRows: Int,
     val duplicateRows: Int,
     val errorRows: Int,
     val warningRows: Int,
     val publishableRows: Int,
     val pendingReviewRows: Int,
-)
+) {
+    companion object {
+        fun empty(): ImportBatchStats = ImportBatchStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    }
+}
 
 internal data class ImportRowView(
     val id: Long,
@@ -920,7 +1270,35 @@ internal data class ImportRowView(
     val resolution: String,
     val errorMessage: String?,
     val warningMessage: String?,
+) {
+    fun isReviewable(): Boolean = plannedAction in setOf(
+        ImportPlannedAction.CREATE.name,
+        ImportPlannedAction.UPDATE.name,
+        ImportPlannedAction.DEACTIVATE.name,
+        ImportPlannedAction.REACTIVATE.name,
+    ) || resultStatus == ImportResultStatus.ERROR.name
+}
+
+internal data class ImportRowDetailView(
+    val row: ImportRowView,
+    val sections: List<ImportDiffSection>,
+    val sourceValues: List<ImportSourceValue>,
 )
+
+internal data class ImportDiffSection(val title: String, val fields: List<ImportFieldDifference>)
+
+internal data class ImportFieldDifference(val label: String, val before: String?, val after: String?)
+
+internal data class ImportSourceValue(val label: String, val value: String)
+
+internal enum class ImportRowFilter(val sqlCondition: String) {
+    REVIEW("(planned_action IN ('CREATE', 'UPDATE', 'DEACTIVATE', 'REACTIVATE') OR result_status = 'ERROR')"),
+    CREATE("planned_action = 'CREATE'"),
+    UPDATE("planned_action = 'UPDATE'"),
+    DEACTIVATE("planned_action = 'DEACTIVATE'"),
+    REACTIVATE("planned_action = 'REACTIVATE'"),
+    ERROR("result_status = 'ERROR'"),
+}
 
 internal data class ImportRowResolutionChange(val rowId: Long, val resolution: ImportResolution)
 

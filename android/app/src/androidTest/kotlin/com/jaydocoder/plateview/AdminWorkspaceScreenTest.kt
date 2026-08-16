@@ -13,6 +13,8 @@ import com.jaydocoder.plateview.domain.admin.ImportBatchStats
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
+import com.jaydocoder.plateview.domain.admin.ManagedImportRow
+import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.admin.AdminTab
@@ -198,7 +200,6 @@ class AdminWorkspaceScreenTest {
         }
 
         composeRule.onNodeWithText("车辆信息").assertIsDisplayed()
-        composeRule.onNodeWithText("身份核验").assertIsDisplayed()
         composeRule.onNodeWithText("保存档案").assertIsDisplayed()
     }
 
@@ -265,6 +266,47 @@ class AdminWorkspaceScreenTest {
     }
 
     @Test
+    fun 待失效记录详情展示确认失效操作() {
+        val row = ManagedImportRow(
+            id = 202,
+            sourceSheetName = "系统差异检测",
+            sourceRowNumber = 0,
+            sourceItemIndex = 0,
+            plateNumber = "新A12346",
+            category = "SCENIC_UNIT",
+            primarySubject = "测试单位",
+            resultStatus = "VALID",
+            plannedAction = "DEACTIVATE",
+            resolution = "PENDING",
+            errorMessage = null,
+            warningMessage = "本次导入中未出现该车牌",
+        )
+        var resolution: String? = null
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Imports,
+                        isLoading = false,
+                        selectedImportRowDetail = ManagedImportRowDetail(row, emptyList(), emptyList()),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, value -> resolution = value },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("确认失效").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_confirm_202").performClick()
+        composeRule.runOnIdle { assertEquals("PUBLISH", resolution) }
+    }
+
+    @Test
     fun 审计页显示筛选范围汇总和异常状态() {
         val entry = ManagedAuditEntry(
             id = 301,
@@ -314,6 +356,5 @@ class AdminWorkspaceScreenTest {
 
         composeRule.onNodeWithText("近30天").assertIsDisplayed()
         composeRule.onNodeWithText("FAILURE").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_audit_keyword").assertIsDisplayed()
     }
 }

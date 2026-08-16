@@ -55,9 +55,28 @@ internal fun Application.configureImportPreviewFeature() {
                     val batchId = call.batchId()
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: DEFAULT_PAGE_SIZE
                     val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-                    val batch = service.getBatch(batchId, limit, offset)
+                    val filter = call.request.queryParameters["filter"]
+                        ?.let { value ->
+                            try {
+                                ImportRowFilter.valueOf(value)
+                            } catch (_: IllegalArgumentException) {
+                                throw IllegalArgumentException("导入记录筛选条件无效")
+                            }
+                        }
+                        ?: ImportRowFilter.REVIEW
+                    val batch = service.getBatch(batchId, limit, offset, filter)
                     call.auditImport(actorId, "IMPORT_VIEW", batch.id, batch.stats)
                     call.respond(batch.toResponse())
+                }
+
+                get("/{batchId}/rows/{rowId}") {
+                    val actorId = call.requireAdministrator() ?: return@get
+                    val batchId = call.batchId()
+                    val rowId = call.parameters["rowId"]?.toLongOrNull()
+                        ?: throw IllegalArgumentException("导入行标识无效")
+                    val detail = service.getRowDetail(batchId, rowId)
+                    call.auditImport(actorId, "IMPORT_VIEW_DETAIL", batchId, ImportBatchStats.empty())
+                    call.respond(detail.toResponse())
                 }
 
                 post("/{batchId}/rows/resolutions") {
@@ -144,6 +163,8 @@ private fun ImportBatchView.toResponse(): ImportBatchResponse = ImportBatchRespo
         totalRows = stats.totalRows,
         newRows = stats.newRows,
         updateRows = stats.updateRows,
+        reactivateRows = stats.reactivateRows,
+        deactivateRows = stats.deactivateRows,
         duplicateRows = stats.duplicateRows,
         errorRows = stats.errorRows,
         warningRows = stats.warningRows,
@@ -153,23 +174,8 @@ private fun ImportBatchView.toResponse(): ImportBatchResponse = ImportBatchRespo
     createdAt = createdAt,
     publishedAt = publishedAt,
     rollbackAt = rollbackAt,
-    rows = rows.map { row ->
-        ImportRowResponse(
-            id = row.id,
-            sourceSheetName = row.sourceSheetName,
-            sourceRowNumber = row.sourceRowNumber,
-            sourceItemIndex = row.sourceItemIndex,
-            plateNumber = row.plateNumber,
-            normalizedPlate = row.normalizedPlate,
-            category = row.category,
-            primarySubject = row.primarySubject,
-            resultStatus = row.resultStatus,
-            plannedAction = row.plannedAction,
-            resolution = row.resolution,
-            errorMessage = row.errorMessage,
-            warningMessage = row.warningMessage,
-        )
-    },
+    rowTotal = rowTotal,
+    rows = rows.map(ImportRowView::toResponse),
 )
 
 private data class UploadedExcel(val name: String, val bytes: ByteArray)
@@ -189,6 +195,7 @@ private data class ImportBatchResponse(
     val createdAt: String?,
     val publishedAt: String?,
     val rollbackAt: String?,
+    val rowTotal: Int,
     val rows: List<ImportRowResponse>,
 )
 
@@ -197,6 +204,8 @@ private data class ImportBatchStatsResponse(
     val totalRows: Int,
     val newRows: Int,
     val updateRows: Int,
+    val reactivateRows: Int,
+    val deactivateRows: Int,
     val duplicateRows: Int,
     val errorRows: Int,
     val warningRows: Int,
@@ -220,6 +229,51 @@ private data class ImportRowResponse(
     val errorMessage: String?,
     val warningMessage: String?,
 )
+
+private fun ImportRowView.toResponse(): ImportRowResponse = ImportRowResponse(
+    id = id,
+    sourceSheetName = sourceSheetName,
+    sourceRowNumber = sourceRowNumber,
+    sourceItemIndex = sourceItemIndex,
+    plateNumber = plateNumber,
+    normalizedPlate = normalizedPlate,
+    category = category,
+    primarySubject = primarySubject,
+    resultStatus = resultStatus,
+    plannedAction = plannedAction,
+    resolution = resolution,
+    errorMessage = errorMessage,
+    warningMessage = warningMessage,
+)
+
+private fun ImportRowDetailView.toResponse(): ImportRowDetailResponse = ImportRowDetailResponse(
+    row = row.toResponse(),
+    sections = sections.map { section ->
+        ImportDiffSectionResponse(
+            title = section.title,
+            fields = section.fields.map { field ->
+                ImportFieldDifferenceResponse(field.label, field.before, field.after)
+            },
+        )
+    },
+    sourceValues = sourceValues.map { value -> ImportSourceValueResponse(value.label, value.value) },
+)
+
+@Serializable
+private data class ImportRowDetailResponse(
+    val row: ImportRowResponse,
+    val sections: List<ImportDiffSectionResponse>,
+    val sourceValues: List<ImportSourceValueResponse>,
+)
+
+@Serializable
+private data class ImportDiffSectionResponse(val title: String, val fields: List<ImportFieldDifferenceResponse>)
+
+@Serializable
+private data class ImportFieldDifferenceResponse(val label: String, val before: String?, val after: String?)
+
+@Serializable
+private data class ImportSourceValueResponse(val label: String, val value: String)
 
 private const val DEFAULT_PAGE_SIZE = 200
 private const val MAX_UPLOAD_BYTES = 10 * 1024 * 1024

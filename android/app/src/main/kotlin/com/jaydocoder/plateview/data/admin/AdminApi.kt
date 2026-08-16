@@ -74,7 +74,15 @@ interface AdminApi {
         @Path("batchId") batchId: Long,
         @Query("limit") limit: Int,
         @Query("offset") offset: Int,
+        @Query("filter") filter: String,
     ): AdminImportBatchDto
+
+    @GET("admin/imports/{batchId}/rows/{rowId}")
+    suspend fun getImportRowDetail(
+        @Header("Authorization") authorization: String,
+        @Path("batchId") batchId: Long,
+        @Path("rowId") rowId: Long,
+    ): AdminImportRowDetailDto
 
     @Multipart
     @POST("admin/imports/preview")

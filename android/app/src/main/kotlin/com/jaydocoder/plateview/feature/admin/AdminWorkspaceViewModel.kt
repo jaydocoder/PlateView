@@ -8,6 +8,7 @@ import com.jaydocoder.plateview.domain.admin.AdminRepository
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.AuditRange
 import com.jaydocoder.plateview.domain.admin.AuditResult
+import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
@@ -213,19 +214,54 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun openImportBatch(batchId: Long) = launchAdminAction { accessToken ->
+        _uiState.update { it.copy(importRowFilter = ImportRowFilter.REVIEW, selectedImportRowDetail = null) }
         loadImportBatch(accessToken, batchId, reset = true)
     }
 
     fun loadMoreImportRows() {
         val batch = _uiState.value.selectedImportBatch ?: return
-        if (_uiState.value.isImportPageLoading || batch.rows.size >= batch.stats.totalRows) return
+        if (_uiState.value.isImportPageLoading || batch.rows.size >= batch.rowTotal) return
         launchAdminAction { accessToken ->
             loadImportBatch(accessToken, batch.id, reset = false)
         }
     }
 
+    fun updateImportRowFilter(filter: ImportRowFilter) {
+        val batchId = _uiState.value.selectedImportBatch?.id ?: return
+        if (_uiState.value.importRowFilter == filter) return
+        _uiState.update {
+            it.copy(
+                importRowFilter = filter,
+                selectedImportRowDetail = null,
+                isImportPageLoading = false,
+                failure = null,
+            )
+        }
+        launchAdminAction { accessToken -> loadImportBatch(accessToken, batchId, reset = true) }
+    }
+
+    fun openImportRowDetail(rowId: Long) {
+        val batchId = _uiState.value.selectedImportBatch?.id ?: return
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isImportDetailLoading = true, failure = null) }
+            val detail = repository.getImportRowDetail(accessToken, batchId, rowId)
+            _uiState.update { it.copy(isImportDetailLoading = false, selectedImportRowDetail = detail) }
+        }
+    }
+
+    fun dismissImportRowDetail() {
+        _uiState.update { it.copy(selectedImportRowDetail = null, isImportDetailLoading = false) }
+    }
+
     fun dismissImportBatch() {
-        _uiState.update { it.copy(selectedImportBatch = null, isImportPageLoading = false) }
+        _uiState.update {
+            it.copy(
+                selectedImportBatch = null,
+                selectedImportRowDetail = null,
+                isImportPageLoading = false,
+                isImportDetailLoading = false,
+            )
+        }
     }
 
     fun updateImportResolution(rowId: Long, resolution: String) {
@@ -233,7 +269,8 @@ class AdminWorkspaceViewModel @Inject constructor(
         launchAdminAction { accessToken ->
             _uiState.update { it.copy(isSaving = true, failure = null) }
             val updated = repository.updateImportResolution(accessToken, batch.id, rowId, resolution)
-            _uiState.update { it.copy(isSaving = false, isImportPageLoading = false, selectedImportBatch = updated) }
+            _uiState.update { it.copy(isSaving = false, isImportPageLoading = false, selectedImportBatch = updated, selectedImportRowDetail = null) }
+            loadImportBatch(accessToken, batch.id, reset = true)
             loadImports(accessToken)
         }
     }
@@ -325,12 +362,13 @@ class AdminWorkspaceViewModel @Inject constructor(
                 previousBatch == null ||
                     previousBatch.id != batchId ||
                     _uiState.value.isImportPageLoading ||
-                    previousBatch.rows.size >= previousBatch.stats.totalRows
+                    previousBatch.rows.size >= previousBatch.rowTotal
                 )
         ) {
             return
         }
         val offset = if (reset) 0 else previousBatch?.rows?.size ?: 0
+        val filter = _uiState.value.importRowFilter
         _uiState.update {
             it.copy(
                 isLoading = reset,
@@ -343,8 +381,9 @@ class AdminWorkspaceViewModel @Inject constructor(
             batchId = batchId,
             limit = IMPORT_PAGE_SIZE,
             offset = offset,
+            filter = filter,
         )
-        if (!reset && _uiState.value.selectedImportBatch?.id != batchId) return
+        if (_uiState.value.importRowFilter != filter || (!reset && _uiState.value.selectedImportBatch?.id != batchId)) return
         _uiState.update { state ->
             val previousRows = if (reset || state.selectedImportBatch?.id != batchId) emptyList() else state.selectedImportBatch.rows
             state.copy(
@@ -422,6 +461,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         isVehicleEditorLoading = false,
                         isVehiclePageLoading = false,
                         isImportPageLoading = false,
+                        isImportDetailLoading = false,
                         isAuditPageLoading = false,
                         failure = throwable.toAdminFailure(),
                     )

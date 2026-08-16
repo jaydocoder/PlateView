@@ -96,19 +96,31 @@ data class ManagedImportBatch(
     val createdAt: String?,
     val publishedAt: String?,
     val rollbackAt: String?,
-    val rows: List<ManagedImportRow>,
+    val rowTotal: Int = 0,
+    val rows: List<ManagedImportRow> = emptyList(),
 )
 
 data class ImportBatchStats(
     val totalRows: Int,
     val newRows: Int,
     val updateRows: Int,
-    val duplicateRows: Int,
-    val errorRows: Int,
-    val warningRows: Int,
-    val publishableRows: Int,
-    val pendingReviewRows: Int,
+    val reactivateRows: Int = 0,
+    val deactivateRows: Int = 0,
+    val duplicateRows: Int = 0,
+    val errorRows: Int = 0,
+    val warningRows: Int = 0,
+    val publishableRows: Int = 0,
+    val pendingReviewRows: Int = 0,
 )
+
+enum class ImportRowFilter(val requestValue: String, val label: String) {
+    REVIEW("REVIEW", "全部待核对"),
+    CREATE("CREATE", "新增"),
+    UPDATE("UPDATE", "更新"),
+    REACTIVATE("REACTIVATE", "恢复"),
+    DEACTIVATE("DEACTIVATE", "待失效"),
+    ERROR("ERROR", "异常"),
+}
 
 data class ManagedImportRow(
     val id: Long,
@@ -124,6 +136,18 @@ data class ManagedImportRow(
     val errorMessage: String?,
     val warningMessage: String?,
 )
+
+data class ManagedImportRowDetail(
+    val row: ManagedImportRow,
+    val sections: List<ManagedImportDiffSection>,
+    val sourceValues: List<ManagedImportSourceValue>,
+)
+
+data class ManagedImportDiffSection(val title: String, val fields: List<ManagedImportFieldDifference>)
+
+data class ManagedImportFieldDifference(val label: String, val before: String?, val after: String?)
+
+data class ManagedImportSourceValue(val label: String, val value: String)
 
 data class ManagedAuditEntry(
     val id: Long,

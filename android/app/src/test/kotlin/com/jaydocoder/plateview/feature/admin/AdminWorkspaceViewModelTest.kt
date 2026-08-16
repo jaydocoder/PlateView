@@ -9,10 +9,12 @@ import com.jaydocoder.plateview.domain.admin.AuditRange
 import com.jaydocoder.plateview.domain.admin.ManagedAuditPage
 import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
+import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportRow
+import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
 import com.jaydocoder.plateview.domain.admin.ManagedVehiclePage
@@ -183,6 +185,50 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `导入差异筛选会重置分页并传递筛选条件`() = runTest {
+        val initialRow = ManagedImportRow(201, "驻景区单位", 3, 0, "新A12345", "SCENIC_UNIT", "测试单位", "DUPLICATE", "UPDATE", "PENDING", null, null)
+        val deactivateRow = ManagedImportRow(202, "系统差异检测", 0, 0, "新A12346", "SCENIC_UNIT", "测试单位", "VALID", "DEACTIVATE", "PENDING", null, null)
+        val repository = FakeAdminRepository(
+            importPagesByFilter = mapOf(
+                ImportRowFilter.REVIEW to listOf(listOf(initialRow)),
+                ImportRowFilter.DEACTIVATE to listOf(listOf(deactivateRow)),
+            ),
+            importTotal = 1,
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.openImportBatch(1)
+        advanceUntilIdle()
+        viewModel.updateImportRowFilter(ImportRowFilter.DEACTIVATE)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 0), repository.importOffsets)
+        assertEquals(listOf(ImportRowFilter.REVIEW, ImportRowFilter.DEACTIVATE), repository.importFilters)
+        assertEquals(listOf(deactivateRow), viewModel.uiState.value.selectedImportBatch?.rows)
+    }
+
+    @Test
+    fun `打开导入差异详情时展示仓库返回结果`() = runTest {
+        val detail = ManagedImportRowDetail(
+            row = ManagedImportRow(202, "系统差异检测", 0, 0, "新A12346", "SCENIC_UNIT", "测试单位", "VALID", "DEACTIVATE", "PENDING", null, null),
+            sections = emptyList(),
+            sourceValues = emptyList(),
+        )
+        val repository = FakeAdminRepository(importDetail = detail)
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.openImportBatch(1)
+        advanceUntilIdle()
+        viewModel.openImportRowDetail(202)
+        advanceUntilIdle()
+
+        assertEquals(detail, viewModel.uiState.value.selectedImportRowDetail)
+        assertTrue(!viewModel.uiState.value.isImportDetailLoading)
+    }
+
+    @Test
     fun `审计筛选重置分页并追加下一页`() = runTest {
         val first = ManagedAuditEntry(301, "admin", "LOGIN", "AUTH", null, "SUCCESS", "2026-08-09T10:00:00Z")
         val second = ManagedAuditEntry(302, "admin", "VEHICLE_UPDATE", "VEHICLE", 9, "FAILURE", "2026-08-09T09:00:00Z")
@@ -218,15 +264,18 @@ private class FakeAdminRepository(
     private val vehiclePages: List<List<ManagedVehicleSummary>> = emptyList(),
     private val vehicleTotal: Int = 1,
     private val importPages: List<List<ManagedImportRow>> = emptyList(),
+    private val importPagesByFilter: Map<ImportRowFilter, List<List<ManagedImportRow>>> = emptyMap(),
     private val importTotal: Int = 0,
     private val auditPages: List<List<ManagedAuditEntry>> = emptyList(),
     private val auditTotal: Int = 0,
     private val vehicleDetailGate: CompletableDeferred<ManagedVehicle>? = null,
+    private val importDetail: ManagedImportRowDetail? = null,
 ) : AdminRepository {
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
     val vehicleKeywords = mutableListOf<String?>()
     val importOffsets = mutableListOf<Int>()
+    val importFilters = mutableListOf<ImportRowFilter>()
     val auditOffsets = mutableListOf<Int>()
     val auditFilters = mutableListOf<AuditFilter>()
 
@@ -265,20 +314,31 @@ private class FakeAdminRepository(
         batchId: Long,
         limit: Int,
         offset: Int,
+        filter: ImportRowFilter,
     ): ManagedImportBatch {
         importOffsets += offset
-        val page = importPages.getOrElse(if (offset == 0) 0 else 1) { emptyList() }
+        importFilters += filter
+        val pages = importPagesByFilter[filter] ?: importPages
+        val page = pages.getOrElse(if (offset == 0) 0 else 1) { emptyList() }
         return ManagedImportBatch(
             id = batchId,
             sourceFileName = "测试导入.xlsx",
             status = "VALIDATED",
-            stats = ImportBatchStats(importTotal, importTotal, 0, 0, 0, 0, importTotal, 0),
+            stats = ImportBatchStats(
+                totalRows = importTotal,
+                newRows = importTotal,
+                updateRows = 0,
+                publishableRows = importTotal,
+            ),
             createdAt = null,
             publishedAt = null,
             rollbackAt = null,
+            rowTotal = importTotal,
             rows = page,
         )
     }
+    override suspend fun getImportRowDetail(accessToken: String, batchId: Long, rowId: Long): ManagedImportRowDetail =
+        importDetail ?: error("本测试不读取导入详情")
     override suspend fun previewImport(accessToken: String, fileName: String, content: ByteArray): ManagedImportBatch = error("本测试不上传文件")
     override suspend fun updateImportResolution(accessToken: String, batchId: Long, rowId: Long, resolution: String): ManagedImportBatch = error("本测试不处理导入行")
     override suspend fun publishImport(accessToken: String, batchId: Long): ManagedImportBatch = error("本测试不发布")

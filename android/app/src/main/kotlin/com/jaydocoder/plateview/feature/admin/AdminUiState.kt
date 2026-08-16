@@ -6,6 +6,8 @@ import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
+import com.jaydocoder.plateview.domain.admin.ImportRowFilter
+import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedLongTermProfile
 import com.jaydocoder.plateview.domain.admin.ManagedResidentProfile
 import com.jaydocoder.plateview.domain.admin.ManagedUser
@@ -35,6 +37,9 @@ data class AdminUiState(
     val vehicleEditor: VehicleEditorState? = null,
     val userEditor: UserEditorState? = null,
     val selectedImportBatch: ManagedImportBatch? = null,
+    val importRowFilter: ImportRowFilter = ImportRowFilter.REVIEW,
+    val selectedImportRowDetail: ManagedImportRowDetail? = null,
+    val isImportDetailLoading: Boolean = false,
     val pendingVehicleDeactivation: ManagedVehicleSummary? = null,
 )
 

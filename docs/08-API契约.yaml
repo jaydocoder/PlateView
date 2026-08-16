@@ -243,7 +243,7 @@ paths:
           $ref: '#/components/responses/AdminRequired'
   /admin/imports/{batchId}:
     get:
-      summary: 获取导入批次及行级摘要
+      summary: 获取导入批次及差异核对行摘要
       parameters:
         - $ref: '#/components/parameters/BatchId'
         - name: limit
@@ -261,6 +261,14 @@ paths:
             type: integer
             minimum: 0
             default: 0
+        - name: filter
+          in: query
+          required: false
+          description: 默认仅返回需核对记录；完全一致记录不在任何筛选结果中返回。
+          schema:
+            type: string
+            enum: [REVIEW, CREATE, UPDATE, REACTIVATE, DEACTIVATE, ERROR]
+            default: REVIEW
       responses:
         '200':
           description: 批次和分页行摘要。
@@ -272,10 +280,33 @@ paths:
           $ref: '#/components/responses/AdminRequired'
         '404':
           $ref: '#/components/responses/ImportBatchNotFound'
+  /admin/imports/{batchId}/rows/{rowId}:
+    get:
+      summary: 获取单条导入差异详情
+      description: 返回预览时正式库快照与 Excel 解析值的字段级差异，不返回未变化字段。
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - name: rowId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 导入差异详情。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportRowDetail'
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+        '404':
+          $ref: '#/components/responses/ImportBatchNotFound'
   /admin/imports/{batchId}/rows/resolutions:
     post:
       summary: 管理员确认或跳过待处置导入行
-      description: 异常行和重复跳过行不能改为发布；有格式告警或更新冲突的行需管理员显式确认。
+      description: 异常行和隐藏一致行不能改为发布；新增、更新、恢复和待失效行需管理员显式确认。
       parameters:
         - $ref: '#/components/parameters/BatchId'
       requestBody:
@@ -300,7 +331,7 @@ paths:
   /admin/imports/{batchId}/publish:
     post:
       summary: 管理员确认发布导入批次
-      description: 在单个事务内创建或更新车辆及资料；任一行失败时整体回滚。
+      description: 在单个事务内创建、更新、失效或恢复车辆及资料；存在待确认项或任一行失败时整体回滚。
       parameters:
         - $ref: '#/components/parameters/BatchId'
       responses:
@@ -320,7 +351,7 @@ paths:
     post:
       summary: 管理员回滚已发布导入批次
       description: >-
-        删除本批次创建的车辆，并通过发布前快照还原更新记录。导入后车辆若已被后续操作修改，接口返回冲突且不做部分回滚。
+        删除本批次创建的车辆，并通过发布前快照还原更新、失效和恢复记录。导入后车辆若已被后续操作修改，接口返回冲突且不做部分回滚。
       parameters:
         - $ref: '#/components/parameters/BatchId'
       responses:
@@ -680,7 +711,7 @@ components:
             type: string
     ImportBatch:
       type: object
-      required: [id, sourceFileName, status, stats, rows]
+      required: [id, sourceFileName, status, stats, rowTotal, rows]
       properties:
         id:
           type: integer
@@ -701,19 +732,26 @@ components:
         rollbackAt:
           type: [string, 'null']
           format: date-time
+        rowTotal:
+          type: integer
+          description: 当前筛选条件下的需核对记录总数。
         rows:
           type: array
           items:
             $ref: '#/components/schemas/ImportRow'
     ImportBatchStats:
       type: object
-      required: [totalRows, newRows, updateRows, duplicateRows, errorRows, warningRows, publishableRows, pendingReviewRows]
+      required: [totalRows, newRows, updateRows, reactivateRows, deactivateRows, duplicateRows, errorRows, warningRows, publishableRows, pendingReviewRows]
       properties:
         totalRows:
           type: integer
         newRows:
           type: integer
         updateRows:
+          type: integer
+        reactivateRows:
+          type: integer
+        deactivateRows:
           type: integer
         duplicateRows:
           type: integer
@@ -753,7 +791,7 @@ components:
           enum: [VALID, DUPLICATE, ERROR, PUBLISHED]
         plannedAction:
           type: string
-          enum: [CREATE, UPDATE, SKIP, NONE]
+          enum: [CREATE, UPDATE, DEACTIVATE, REACTIVATE, SKIP, NONE]
         resolution:
           type: string
           enum: [PENDING, PUBLISH, SKIP, ERROR]
@@ -761,6 +799,43 @@ components:
           type: [string, 'null']
         warningMessage:
           type: [string, 'null']
+    ImportRowDetail:
+      type: object
+      required: [row, sections, sourceValues]
+      properties:
+        row:
+          $ref: '#/components/schemas/ImportRow'
+        sections:
+          type: array
+          items:
+            type: object
+            required: [title, fields]
+            properties:
+              title:
+                type: string
+              fields:
+                type: array
+                items:
+                  type: object
+                  required: [label]
+                  properties:
+                    label:
+                      type: string
+                    before:
+                      type: [string, 'null']
+                    after:
+                      type: [string, 'null']
+        sourceValues:
+          type: array
+          description: Excel 原始字段的非空展示值。
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label:
+                type: string
+              value:
+                type: string
     ImportRowResolutionsRequest:
       type: object
       required: [rows]

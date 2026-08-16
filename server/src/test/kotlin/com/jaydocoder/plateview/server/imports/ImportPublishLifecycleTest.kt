@@ -23,4 +23,18 @@ class ImportPublishLifecycleTest {
 
         assertEquals("IMPORT_BATCH_NOT_PUBLISHABLE", exception.errorCode)
     }
+
+    @Test
+    fun `存在待确认差异时不能发布`() {
+        val exception = assertFailsWith<ImportWorkflowConflictException> {
+            ensureImportReadyToPublish(1)
+        }
+
+        assertEquals("IMPORT_PENDING_REVIEW", exception.errorCode)
+    }
+
+    @Test
+    fun `所有差异已处置后允许发布`() {
+        ensureImportReadyToPublish(0)
+    }
 }

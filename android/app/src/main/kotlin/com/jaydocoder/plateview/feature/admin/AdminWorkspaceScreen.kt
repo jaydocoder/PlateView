@@ -94,12 +94,15 @@ import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.AuditRange
 import com.jaydocoder.plateview.domain.admin.AuditResult
+import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.ManagedAuditActor
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatchSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportRow
+import com.jaydocoder.plateview.domain.admin.ManagedImportDiffSection
+import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
@@ -142,6 +145,9 @@ fun AdminWorkspaceRoute(
         onDismissImportBatch = viewModel::dismissImportBatch,
         onLoadMoreImportRows = viewModel::loadMoreImportRows,
         onImportResolution = viewModel::updateImportResolution,
+        onImportFilterChanged = viewModel::updateImportRowFilter,
+        onOpenImportRowDetail = viewModel::openImportRowDetail,
+        onDismissImportRowDetail = viewModel::dismissImportRowDetail,
         onPublishImport = viewModel::publishImport,
         onRollbackImport = viewModel::rollbackImport,
         onAuditRangeChanged = viewModel::updateAuditRange,
@@ -182,6 +188,9 @@ fun AdminWorkspaceScreen(
     onDismissImportBatch: () -> Unit,
     onLoadMoreImportRows: () -> Unit = {},
     onImportResolution: (Long, String) -> Unit,
+    onImportFilterChanged: (ImportRowFilter) -> Unit = {},
+    onOpenImportRowDetail: (Long) -> Unit = {},
+    onDismissImportRowDetail: () -> Unit = {},
     onPublishImport: () -> Unit,
     onRollbackImport: () -> Unit,
     onAuditRangeChanged: (AuditRange) -> Unit = {},
@@ -351,11 +360,22 @@ fun AdminWorkspaceScreen(
             batch = batch,
             isSaving = uiState.isSaving,
             isPageLoading = uiState.isImportPageLoading,
+            filter = uiState.importRowFilter,
+            onFilterChanged = onImportFilterChanged,
             onDismiss = onDismissImportBatch,
             onLoadMore = onLoadMoreImportRows,
             onResolution = onImportResolution,
+            onOpenDetail = onOpenImportRowDetail,
             onPublish = onPublishImport,
             onRollback = onRollbackImport,
+        )
+    }
+    uiState.selectedImportRowDetail?.let { detail ->
+        ImportRowDetailDialog(
+            detail = detail,
+            isSaving = uiState.isSaving,
+            onDismiss = onDismissImportRowDetail,
+            onResolution = onImportResolution,
         )
     }
 }
@@ -1314,15 +1334,18 @@ private fun ImportBatchDialog(
     batch: ManagedImportBatch,
     isSaving: Boolean,
     isPageLoading: Boolean,
+    filter: ImportRowFilter,
+    onFilterChanged: (ImportRowFilter) -> Unit,
     onDismiss: () -> Unit,
     onLoadMore: () -> Unit,
     onResolution: (Long, String) -> Unit,
+    onOpenDetail: (Long) -> Unit,
     onPublish: () -> Unit,
     onRollback: () -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val hasMoreRows = batch.rows.size < batch.stats.totalRows
-    val shouldLoadMore by remember(listState, batch.rows.size, batch.stats.totalRows, isPageLoading) {
+    val hasMoreRows = batch.rows.size < batch.rowTotal
+    val shouldLoadMore by remember(listState, batch.rows.size, batch.rowTotal, isPageLoading) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -1333,7 +1356,7 @@ private fun ImportBatchDialog(
         }
     }
 
-    LaunchedEffect(listState, batch.id, batch.rows.size, batch.stats.totalRows, isPageLoading) {
+    LaunchedEffect(listState, batch.id, batch.rows.size, batch.rowTotal, isPageLoading) {
         snapshotFlow { shouldLoadMore }
             .distinctUntilChanged()
             .collect { nearEnd -> if (nearEnd) onLoadMore() }
@@ -1341,11 +1364,11 @@ private fun ImportBatchDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("数据预览与核对", fontWeight = FontWeight.Bold) },
+        title = { Text("数据差异核对", fontWeight = FontWeight.Bold) },
         text = {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.heightIn(max = 440.dp),
+                modifier = Modifier.heightIn(max = 500.dp),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
                 item {
@@ -1355,16 +1378,37 @@ private fun ImportBatchDialog(
                         if (batch.status == "ROLLED_BACK") {
                             Text("该批次已经撤销，可重新发布", style = MaterialTheme.typography.bodySmall)
                         }
-                        Text("待处理: ${batch.stats.pendingReviewRows} 行 | 可发布: ${batch.stats.publishableRows} 行", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = "已加载 ${batch.rows.size} / ${batch.stats.totalRows} 行",
+                            "新增 ${batch.stats.newRows} | 更新 ${batch.stats.updateRows} | 恢复 ${batch.stats.reactivateRows} | 待失效 ${batch.stats.deactivateRows}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "异常 ${batch.stats.errorRows} | 已隐藏完全一致 ${batch.stats.duplicateRows} | 待确认 ${batch.stats.pendingReviewRows}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        Text(
+                            text = "已加载 ${batch.rows.size} / ${batch.rowTotal} 条需核对记录",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.outline,
                         )
+                        LazyRow(
+                            modifier = Modifier.padding(top = PlateViewDimensions.compactSpacing),
+                            horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+                        ) {
+                            items(ImportRowFilter.entries, key = ImportRowFilter::name) { option ->
+                                FilterChip(
+                                    selected = filter == option,
+                                    onClick = { onFilterChanged(option) },
+                                    label = { Text(option.label) },
+                                    enabled = !isSaving,
+                                )
+                            }
+                        }
                     }
                 }
                 items(batch.rows, key = ManagedImportRow::id) { row ->
-                    ImportRowItem(row, isSaving, onResolution)
+                    ImportRowItem(row, isSaving, onOpenDetail)
                 }
                 if (isPageLoading) {
                     item {
@@ -1425,39 +1469,134 @@ private fun ImportBatchDialog(
 private fun ImportRowItem(
     row: ManagedImportRow,
     isSaving: Boolean,
-    onResolution: (Long, String) -> Unit,
+    onOpenDetail: (Long) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(4.dp)) {
+            Surface(color = row.importActionColor(), shape = RoundedCornerShape(4.dp)) {
                 Text(row.plateNumber ?: "???", modifier = Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium)
             }
             Spacer(Modifier.width(8.dp))
-            Text("L${row.sourceRowNumber}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-        }
-        
-        if (!row.warningMessage.isNullOrBlank()) Text(row.warningMessage!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-        if (!row.errorMessage.isNullOrBlank()) Text(row.errorMessage!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        
-        if (row.resolution == "PENDING") {
-            Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { onResolution(row.id, "PUBLISH") }, 
-                    modifier = Modifier.weight(1f).height(36.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(0.dp)
-                ) { Text("通过", fontSize = 12.sp) }
-                OutlinedButton(
-                    onClick = { onResolution(row.id, "SKIP") }, 
-                    modifier = Modifier.weight(1f).height(36.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(0.dp)
-                ) { Text("跳过", fontSize = 12.sp) }
+            Text(row.importActionLabel(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            if (row.sourceRowNumber > 0) {
+                Spacer(Modifier.width(6.dp))
+                Text("第${row.sourceRowNumber}行", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
         }
+        row.primarySubject?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (!row.warningMessage.isNullOrBlank()) Text(row.warningMessage!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+        if (!row.errorMessage.isNullOrBlank()) Text(row.errorMessage!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        TextButton(
+            onClick = { onOpenDetail(row.id) },
+            enabled = !isSaving,
+            modifier = Modifier.padding(top = 4.dp).testTag("admin_import_row_detail_${row.id}"),
+        ) { Text(row.importDetailLabel()) }
         HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
 }
+
+@Composable
+private fun ImportRowDetailDialog(
+    detail: ManagedImportRowDetail,
+    isSaving: Boolean,
+    onDismiss: () -> Unit,
+    onResolution: (Long, String) -> Unit,
+) {
+    val row = detail.row
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(row.importDetailLabel(), fontWeight = FontWeight.Bold) },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
+                item {
+                    Text(row.plateNumber ?: "未识别车牌", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(row.importActionLabel(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    row.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    row.warningMessage?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall) }
+                }
+                items(detail.sections, key = ManagedImportDiffSection::title) { section ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(section.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        section.fields.forEach { field ->
+                            Column {
+                                Text(field.label, style = MaterialTheme.typography.labelMedium)
+                                Text("原值：${field.before.displayImportValue()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                Text("新值：${field.after.displayImportValue()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+                if (detail.sourceValues.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Excel 源字段", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            detail.sourceValues.forEach { value ->
+                                Text("${value.label}：${value.value}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (row.resolution == "PENDING") {
+                Button(
+                    onClick = { onResolution(row.id, "PUBLISH") },
+                    enabled = !isSaving,
+                    modifier = Modifier.testTag("admin_import_confirm_${row.id}"),
+                ) { Text(row.importConfirmLabel()) }
+            } else {
+                TextButton(onClick = onDismiss) { Text("关闭") }
+            }
+        },
+        dismissButton = {
+            if (row.resolution == "PENDING") {
+                OutlinedButton(onClick = { onResolution(row.id, "SKIP") }, enabled = !isSaving) {
+                    Text(row.importSkipLabel())
+                }
+            }
+        },
+        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
+    )
+}
+
+private fun ManagedImportRow.importActionLabel(): String = when (plannedAction) {
+    "CREATE" -> "新增档案"
+    "UPDATE" -> "字段更新"
+    "REACTIVATE" -> "恢复有效"
+    "DEACTIVATE" -> "待失效"
+    else -> if (resultStatus == "ERROR") "解析异常" else "待核对"
+}
+
+private fun ManagedImportRow.importDetailLabel(): String = when (plannedAction) {
+    "UPDATE", "REACTIVATE" -> "查看更新详情"
+    "DEACTIVATE" -> "查看失效详情"
+    "CREATE" -> "查看新增详情"
+    else -> "查看问题详情"
+}
+
+private fun ManagedImportRow.importConfirmLabel(): String = when (plannedAction) {
+    "UPDATE" -> "确认更新"
+    "REACTIVATE" -> "确认恢复"
+    "DEACTIVATE" -> "确认失效"
+    else -> "确认新增"
+}
+
+private fun ManagedImportRow.importSkipLabel(): String = when (plannedAction) {
+    "DEACTIVATE" -> "保留有效"
+    "REACTIVATE" -> "保持失效"
+    else -> "跳过"
+}
+
+@Composable
+private fun ManagedImportRow.importActionColor(): Color = when (plannedAction) {
+    "DEACTIVATE" -> MaterialTheme.colorScheme.errorContainer
+    "UPDATE", "REACTIVATE" -> MaterialTheme.colorScheme.tertiaryContainer
+    "CREATE" -> MaterialTheme.colorScheme.primaryContainer
+    else -> MaterialTheme.colorScheme.errorContainer
+}
+
+private fun String?.displayImportValue(): String = this?.takeIf(String::isNotBlank) ?: "未填写"
 
 @Composable
 private fun EditorTextField(

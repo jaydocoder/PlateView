@@ -22,7 +22,9 @@ interface AdminRepository {
         batchId: Long,
         limit: Int = 100,
         offset: Int = 0,
+        filter: ImportRowFilter = ImportRowFilter.REVIEW,
     ): ManagedImportBatch
+    suspend fun getImportRowDetail(accessToken: String, batchId: Long, rowId: Long): ManagedImportRowDetail
     suspend fun previewImport(accessToken: String, fileName: String, content: ByteArray): ManagedImportBatch
     suspend fun updateImportResolution(accessToken: String, batchId: Long, rowId: Long, resolution: String): ManagedImportBatch
     suspend fun publishImport(accessToken: String, batchId: Long): ManagedImportBatch

@@ -30,6 +30,8 @@ internal enum class ImportResolution {
 internal enum class ImportPlannedAction {
     CREATE,
     UPDATE,
+    DEACTIVATE,
+    REACTIVATE,
     SKIP,
     NONE,
 }
@@ -43,6 +45,13 @@ internal fun prepareImportPublish(status: String): ImportPublishMode = when (sta
     "VALIDATED" -> ImportPublishMode.INITIAL
     "ROLLED_BACK" -> ImportPublishMode.REPUBLISH
     else -> throw ImportWorkflowConflictException("IMPORT_BATCH_NOT_PUBLISHABLE", "当前批次状态不允许发布")
+}
+
+internal fun ensureImportReadyToPublish(pendingReviewRows: Int) {
+    require(pendingReviewRows >= 0) { "待确认记录数不能为负数" }
+    if (pendingReviewRows > 0) {
+        throw ImportWorkflowConflictException("IMPORT_PENDING_REVIEW", "仍有待确认的导入差异，完成处置后才能发布")
+    }
 }
 
 internal data class ParsedVehicle(
@@ -112,6 +121,7 @@ internal data class ParsedImportRow(
     val resolution: ImportResolution,
     val errorMessage: String? = null,
     val warningMessage: String? = null,
+    val beforeValues: JsonObject? = null,
 )
 
 internal data class ExistingVehicle(
