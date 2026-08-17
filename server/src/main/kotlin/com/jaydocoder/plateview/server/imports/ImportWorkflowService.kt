@@ -172,12 +172,13 @@ internal class ImportWorkflowService(
         }
         val coveredCategories = parsedRows.mapNotNull { it.vehicle.category }.toSet()
         val presentPlates = parsedRows.mapNotNull { it.vehicle.normalizedPlate }.toSet()
-        val missingRows = findActiveVehiclesMissingFromImport(connection, coveredCategories, presentPlates).map { existing ->
+        val missingRows = findActiveVehiclesMissingFromImport(connection, coveredCategories, presentPlates).mapIndexed { diffIndex, existing ->
+            val source = systemDiffSourceIdentity(diffIndex)
             val vehicle = existing.toParsedVehicle()
             ParsedImportRow(
-                sourceSheetName = SYSTEM_DIFF_SOURCE,
-                sourceRowNumber = 0,
-                sourceItemIndex = 0,
+                sourceSheetName = source.sheetName,
+                sourceRowNumber = source.rowNumber,
+                sourceItemIndex = source.itemIndex,
                 rawValues = JsonObject(emptyMap()),
                 vehicle = vehicle,
                 resultStatus = ImportResultStatus.VALID,
@@ -1197,8 +1198,6 @@ internal class ImportWorkflowService(
         const val MAX_IMPORT_ROWS = 10_000
         const val MAX_PAGE_SIZE = 500
         const val INITIAL_PREVIEW_PAGE_SIZE = 200
-        const val SYSTEM_DIFF_SOURCE = "系统差异检测"
-
         val VEHICLE_FIELDS = listOf(
             ImportComparisonField("plateNumber", "车牌号"),
             ImportComparisonField("category", "车辆类别"),

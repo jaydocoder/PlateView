@@ -13,6 +13,8 @@ import kotlinx.serialization.json.put
 
 internal typealias ImportCategory = VehicleCategory
 
+internal const val SYSTEM_DIFF_SOURCE = "系统差异检测"
+
 internal enum class ImportResultStatus {
     VALID,
     DUPLICATE,
@@ -123,6 +125,17 @@ internal data class ParsedImportRow(
     val warningMessage: String? = null,
     val beforeValues: JsonObject? = null,
 )
+
+internal data class ImportSourceIdentity(
+    val sheetName: String,
+    val rowNumber: Int,
+    val itemIndex: Int,
+)
+
+internal fun systemDiffSourceIdentity(diffIndex: Int): ImportSourceIdentity {
+    require(diffIndex >= 0) { "系统差异序号不能为负数" }
+    return ImportSourceIdentity(SYSTEM_DIFF_SOURCE, 0, diffIndex)
+}
 
 internal data class ExistingVehicle(
     val id: Long,

@@ -37,4 +37,14 @@ class ImportPublishLifecycleTest {
     fun `所有差异已处置后允许发布`() {
         ensureImportReadyToPublish(0)
     }
+
+    @Test
+    fun `多条系统失效差异使用不同的来源唯一键`() {
+        val identities = List(2, ::systemDiffSourceIdentity)
+
+        assertEquals(2, identities.distinct().size)
+        assertEquals("系统差异检测", identities[0].sheetName)
+        assertEquals(0, identities[0].rowNumber)
+        assertEquals(listOf(0, 1), identities.map(ImportSourceIdentity::itemIndex))
+    }
 }

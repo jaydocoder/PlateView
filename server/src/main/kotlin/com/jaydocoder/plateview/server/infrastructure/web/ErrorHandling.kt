@@ -118,8 +118,8 @@ internal fun Application.configureErrorHandling() {
             )
         }
 
-        exception<Throwable> { call, _ ->
-            call.application.environment.log.error("请求处理失败，请求标识=${call.callId}")
+        exception<Throwable> { call, cause ->
+            call.application.environment.log.error("请求处理失败，请求标识=${call.callId}", cause)
             call.respond(
                 status = HttpStatusCode.InternalServerError,
                 message = ApiErrorResponse(
