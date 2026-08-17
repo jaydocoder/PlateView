@@ -3,6 +3,7 @@ package com.jaydocoder.plateview.server.imports
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlinx.serialization.json.JsonObject
 
 class ImportPublishLifecycleTest {
     @Test
@@ -36,6 +37,26 @@ class ImportPublishLifecycleTest {
     @Test
     fun `所有差异已处置后允许发布`() {
         ensureImportReadyToPublish(0)
+    }
+
+    @Test
+    fun `村民车辆缺少身份证号但车牌有效时允许发布`() {
+        val vehicle = ParsedVehicle(
+            originalPlate = "新H44424",
+            normalizedPlate = "新H44424",
+            category = ImportCategory.RESIDENT,
+            vehicleType = null,
+            ownerName = "测试用户",
+            identityCardNumber = null,
+            contactPhone = null,
+            organizationName = null,
+            passHolder = null,
+            passageDetails = null,
+            remarks = null,
+            attributes = JsonObject(emptyMap()),
+        )
+
+        assertEquals(vehicle, ensureVehiclePublishable(vehicle))
     }
 
     @Test

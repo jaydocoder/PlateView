@@ -425,7 +425,7 @@ internal class ImportWorkflowService(
     }
 
     private fun publishCreate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
-        val vehicle = row.vehicle.requirePublishable()
+        val vehicle = ensureVehiclePublishable(row.vehicle)
         if (findVehicleForUpdate(connection, vehicle.normalizedPlate!!) != null) {
             throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
         }
@@ -436,7 +436,7 @@ internal class ImportWorkflowService(
     }
 
     private fun publishUpdate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
-        val vehicle = row.vehicle.requirePublishable()
+        val vehicle = ensureVehiclePublishable(row.vehicle)
         val previous = vehicle.sourceVehicleId?.let { findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it) }
             ?: throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
         if (previous.version != vehicle.sourceVehicleVersion) {
@@ -490,7 +490,7 @@ internal class ImportWorkflowService(
     }
 
     private fun publishReactivate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
-        val vehicle = row.vehicle.requirePublishable()
+        val vehicle = ensureVehiclePublishable(row.vehicle)
         val previous = vehicle.sourceVehicleId?.let {
             findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it, expectedStatus = "INACTIVE")
         } ?: throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
@@ -957,16 +957,6 @@ internal class ImportWorkflowService(
         if (batch.status != expected) {
             throw ImportWorkflowConflictException("IMPORT_BATCH_STATE_CONFLICT", "导入批次当前状态不允许该操作")
         }
-    }
-
-    private fun ParsedVehicle.requirePublishable(): ParsedVehicle {
-        if (originalPlate.isNullOrBlank() || normalizedPlate.isNullOrBlank() || category == null) {
-            throw ImportWorkflowConflictException("IMPORT_ROW_INVALID", "导入行缺少发布所需字段")
-        }
-        if (category == ImportCategory.RESIDENT && (ownerName.isNullOrBlank() || identityCardNumber.isNullOrBlank())) {
-            throw ImportWorkflowConflictException("IMPORT_ROW_INVALID", "村民车辆缺少身份核验字段")
-        }
-        return this
     }
 
     private fun ResultSet.toExistingVehicle(): ExistingVehicle = ExistingVehicle(

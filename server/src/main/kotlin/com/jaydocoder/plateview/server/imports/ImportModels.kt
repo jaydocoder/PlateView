@@ -112,6 +112,13 @@ internal data class ParsedVehicle(
     }
 }
 
+internal fun ensureVehiclePublishable(vehicle: ParsedVehicle): ParsedVehicle {
+    if (vehicle.originalPlate.isNullOrBlank() || vehicle.normalizedPlate.isNullOrBlank() || vehicle.category == null) {
+        throw ImportWorkflowConflictException("IMPORT_ROW_INVALID", "导入行缺少发布所需字段")
+    }
+    return vehicle
+}
+
 internal data class ParsedImportRow(
     val sourceSheetName: String,
     val sourceRowNumber: Int,
