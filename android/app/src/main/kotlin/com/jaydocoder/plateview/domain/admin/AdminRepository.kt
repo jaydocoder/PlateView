@@ -1,6 +1,8 @@
 package com.jaydocoder.plateview.domain.admin
 
 interface AdminRepository {
+    suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities
+
     suspend fun listVehicles(
         accessToken: String,
         keyword: String? = null,

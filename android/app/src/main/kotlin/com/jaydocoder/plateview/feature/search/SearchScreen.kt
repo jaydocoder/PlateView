@@ -500,6 +500,14 @@ private fun VehicleCandidateRow(
                     fontWeight = FontWeight.SemiBold,
                     color = candidateCategoryColor(candidate.category),
                 )
+                if (candidate.category == "OTHER_LONG_TERM") {
+                    Text(
+                        text = "单位名称：${candidate.organizationName.orEmpty().ifBlank { "未填写" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
                 Surface(
                     modifier = Modifier.padding(top = 4.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer,
@@ -530,6 +538,7 @@ private fun candidateCategoryColor(category: String): Color = when (category) {
     "SCENIC_ENTERPRISE" -> MaterialTheme.colorScheme.tertiary
     "CADRE" -> MaterialTheme.colorScheme.onSurfaceVariant
     "KANAS_TOURISM_DEVELOPMENT" -> MaterialTheme.colorScheme.onPrimaryContainer
+    "OTHER_LONG_TERM" -> MaterialTheme.colorScheme.primary
     else -> MaterialTheme.colorScheme.onSurface
 }
 

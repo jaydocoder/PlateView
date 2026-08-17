@@ -159,8 +159,8 @@ internal data class ExistingVehicle(
 )
 
 internal data class ResidentProfileSnapshot(
-    val ownerName: String,
-    val identityCardNumber: String,
+    val ownerName: String?,
+    val identityCardNumber: String?,
     val contactPhone: String?,
     val remarks: String?,
     val version: Int,

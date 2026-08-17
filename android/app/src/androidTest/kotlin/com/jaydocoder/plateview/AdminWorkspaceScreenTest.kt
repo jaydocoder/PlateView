@@ -204,6 +204,32 @@ class AdminWorkspaceScreenTest {
     }
 
     @Test
+    fun 受限管理员新增档案时只展示其他长期通行车辆() {
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Vehicles,
+                        isLoading = false,
+                        creatableVehicleCategories = listOf("OTHER_LONG_TERM"),
+                        canChangeVehicleCategory = false,
+                        vehicleEditor = VehicleEditorState(category = "OTHER_LONG_TERM"),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("其他长期通行车辆").assertIsDisplayed()
+        composeRule.onAllNodesWithText("村民车辆").assertCountEquals(0)
+    }
+
+    @Test
     fun 已撤销导入预览中点击重新发布会调用发布命令() {
         var publishCalled = 0
         val batch = ManagedImportBatch(

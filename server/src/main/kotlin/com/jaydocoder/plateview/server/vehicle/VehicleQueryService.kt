@@ -111,6 +111,7 @@ internal class VehicleQueryService(
             id = getLong("id"),
             plateNumber = getString("plate_number"),
             category = category,
+            organizationName = getString("organization_name"),
         )
     }
 
@@ -140,25 +141,28 @@ internal class VehicleQueryService(
 
     private companion object {
         const val SEARCH_VEHICLES = """
-            SELECT id, plate_number, category
-            FROM vehicles
-            WHERE status = 'ACTIVE' AND normalized_plate LIKE ?
+            SELECT v.id, v.plate_number, v.category, lp.organization_name
+            FROM vehicles v
+            LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
+            WHERE v.status = 'ACTIVE' AND v.normalized_plate LIKE ?
             ORDER BY
-                CASE WHEN category = ? THEN 0 ELSE 1 END,
+                CASE WHEN v.category = ? THEN 0 ELSE 1 END,
                 CASE
-                    WHEN normalized_plate = ? THEN 0
-                    WHEN normalized_plate LIKE ? THEN 1
+                    WHEN v.normalized_plate = ? THEN 0
+                    WHEN v.normalized_plate LIKE ? THEN 1
                     ELSE 2
                 END,
-                LENGTH(normalized_plate),
-                normalized_plate,
-                id
+                LENGTH(v.normalized_plate),
+                v.normalized_plate,
+                v.id
             LIMIT ?
         """
 
         const val CATALOG_VEHICLES = """
-            SELECT id, plate_number, category FROM vehicles
-            WHERE status = 'ACTIVE' ORDER BY normalized_plate, id LIMIT ? OFFSET ?
+            SELECT v.id, v.plate_number, v.category, lp.organization_name
+            FROM vehicles v
+            LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
+            WHERE v.status = 'ACTIVE' ORDER BY v.normalized_plate, v.id LIMIT ? OFFSET ?
         """
         const val SELECT_VEHICLE_DETAIL = """
             SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.attributes::text,
@@ -192,6 +196,7 @@ internal data class VehicleSearchCandidate(
     val id: Long,
     val plateNumber: String,
     val category: VehicleCategory,
+    val organizationName: String?,
 )
 
 @Serializable
@@ -208,8 +213,8 @@ internal data class VehicleDetail(
 
 @Serializable
 internal data class ResidentVehicleProfile(
-    val ownerName: String,
-    val identityCardNumber: String,
+    val ownerName: String?,
+    val identityCardNumber: String?,
     val contactPhone: String?,
     val remarks: String?,
 )

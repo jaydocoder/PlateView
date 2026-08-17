@@ -15,6 +15,11 @@ data class ManagedVehiclePage(
     val total: Int,
 )
 
+data class VehicleCreationCapabilities(
+    val creatableCategories: List<String>,
+    val canChangeVehicleCategory: Boolean,
+)
+
 data class ManagedVehicle(
     val id: Long,
     val plateNumber: String,

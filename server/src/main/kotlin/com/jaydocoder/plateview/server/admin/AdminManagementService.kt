@@ -50,10 +50,18 @@ internal class AdminManagementService(
         }
     }
 
+    fun vehicleCreationCapabilities(actorId: Long): AdminVehicleCreationCapabilities = dataSource.connection.use { connection ->
+        AdminVehicleCreationPolicy.capabilities(connection.isPrimaryAdministrator(actorId))
+    }
+
     fun createVehicle(command: AdminVehicleCommand, actorId: Long): AdminVehicleRecord {
         command.validate()
         val vehicleId = try {
             inTransaction { connection ->
+                AdminVehicleCreationPolicy.requireCreationAllowed(
+                    isPrimaryAdministrator = connection.isPrimaryAdministrator(actorId),
+                    category = command.category,
+                )
                 connection.prepareStatement(INSERT_VEHICLE, Statement.RETURN_GENERATED_KEYS).use { statement ->
                     statement.setString(1, command.plateNumber.trim())
                     statement.setString(2, normalizePlate(command.plateNumber))
@@ -82,6 +90,13 @@ internal class AdminManagementService(
         command.validate()
         try {
             inTransaction { connection ->
+                val existingCategory = connection.findVehicleCategoryForUpdate(vehicleId)
+                    ?: throw AdminResourceNotFoundException("车辆不存在")
+                AdminVehicleCreationPolicy.requireUpdateAllowed(
+                    isPrimaryAdministrator = connection.isPrimaryAdministrator(actorId),
+                    originalCategory = existingCategory,
+                    requestedCategory = command.category,
+                )
                 val changed = connection.prepareStatement(UPDATE_VEHICLE).use { statement ->
                     statement.setString(1, command.plateNumber.trim())
                     statement.setString(2, normalizePlate(command.plateNumber))
@@ -306,8 +321,8 @@ internal class AdminManagementService(
         attributes = Json.parseToJsonElement(getString("attributes")).let { it as? JsonObject ?: JsonObject(emptyMap()) },
         residentProfile = getObject("resident_profile_id")?.let {
             AdminResidentProfile(
-                ownerName = getString("owner_name"),
-                identityCardNumber = getString("identity_card_number"),
+                ownerName = getString("owner_name").orEmpty(),
+                identityCardNumber = getString("identity_card_number").orEmpty(),
                 contactPhone = getString("contact_phone"),
                 remarks = getString("resident_remarks"),
             )
@@ -337,6 +352,22 @@ internal class AdminManagementService(
     ).use { statement ->
         statement.setLong(1, userId)
         statement.executeQuery().use { result -> if (result.next()) result.toUserRecord() else null }
+    }
+
+    private fun Connection.findVehicleCategoryForUpdate(vehicleId: Long): VehicleCategory? = prepareStatement(
+        "SELECT category FROM vehicles WHERE id = ? FOR UPDATE",
+    ).use { statement ->
+        statement.setLong(1, vehicleId)
+        statement.executeQuery().use { result ->
+            if (result.next()) VehicleCategory.valueOf(result.getString("category")) else null
+        }
+    }
+
+    private fun Connection.isPrimaryAdministrator(actorId: Long): Boolean = prepareStatement(
+        "SELECT 1 FROM users WHERE id = ? AND username = 'admin' AND role = 'ADMIN' AND status = 'ACTIVE'",
+    ).use { statement ->
+        statement.setLong(1, actorId)
+        statement.executeQuery().use { it.next() }
     }
 
     private fun Connection.activeAdministratorCount(): Int = prepareStatement(
@@ -577,6 +608,35 @@ internal data class AdminVehicleCommand(
     val longTermProfile: AdminLongTermProfile?,
 )
 
+internal data class AdminVehicleCreationCapabilities(
+    val creatableCategories: List<VehicleCategory>,
+    val canChangeVehicleCategory: Boolean,
+)
+
+internal object AdminVehicleCreationPolicy {
+    fun capabilities(isPrimaryAdministrator: Boolean): AdminVehicleCreationCapabilities =
+        AdminVehicleCreationCapabilities(
+            creatableCategories = if (isPrimaryAdministrator) VehicleCategory.entries else listOf(VehicleCategory.OTHER_LONG_TERM),
+            canChangeVehicleCategory = isPrimaryAdministrator,
+        )
+
+    fun requireCreationAllowed(isPrimaryAdministrator: Boolean, category: VehicleCategory) {
+        if (category != VehicleCategory.OTHER_LONG_TERM && !isPrimaryAdministrator) {
+            throw AdminValidationException("仅管理员账号可以手工新增五类正式车辆")
+        }
+    }
+
+    fun requireUpdateAllowed(
+        isPrimaryAdministrator: Boolean,
+        originalCategory: VehicleCategory,
+        requestedCategory: VehicleCategory,
+    ) {
+        if (originalCategory != requestedCategory && !isPrimaryAdministrator) {
+            throw AdminValidationException("仅管理员账号可以修改车辆类别")
+        }
+    }
+}
+
 internal data class AdminVehicleListItem(
     val id: Long,
     val plateNumber: String,
@@ -755,6 +815,9 @@ internal fun AdminVehicleCommand.validate() {
         profile.validate()
     } else {
         if (residentProfile != null) throw AdminValidationException("长期车辆不能保存村民资料")
+        if (category == VehicleCategory.OTHER_LONG_TERM && longTermProfile?.organizationName.trimToNull() == null) {
+            throw AdminValidationException("其他长期通行车辆必须填写单位名称")
+        }
         longTermProfile?.validate()
     }
 }
@@ -773,7 +836,7 @@ private fun AdminResidentProfile.validate() {
 }
 
 private fun AdminLongTermProfile.validate() {
-    if (organizationName.trimToNull()?.length ?: 0 > 255 || passHolder.trimToNull()?.length ?: 0 > 255) {
+    if (organizationName.trimToNull()?.length ?: 0 > 255) {
         throw AdminValidationException("长期车辆资料字段长度无效")
     }
 }

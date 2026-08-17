@@ -8,6 +8,7 @@ data class VehicleCandidate(
     val plateNumber: String,
     val category: String,
     val categoryLabel: String,
+    val organizationName: String? = null,
 )
 
 data class VehicleDetail(
@@ -30,8 +31,8 @@ data class VehicleAttribute(
 
 @Immutable
 data class ResidentProfile(
-    val ownerName: String,
-    val identityCardNumber: String,
+    val ownerName: String?,
+    val identityCardNumber: String?,
     val contactPhone: String?,
     val remarks: String?,
 )

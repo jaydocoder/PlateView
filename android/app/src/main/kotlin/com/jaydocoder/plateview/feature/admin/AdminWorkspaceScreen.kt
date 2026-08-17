@@ -328,6 +328,8 @@ fun AdminWorkspaceScreen(
         VehicleEditorDialog(
             editor = editor,
             isSaving = uiState.isSaving,
+            creatableCategories = uiState.creatableVehicleCategories,
+            canChangeCategory = uiState.canChangeVehicleCategory,
             onChanged = onVehicleEditorChanged,
             onDismiss = onDismissVehicleEditor,
             onSave = onSaveVehicle,
@@ -1028,6 +1030,8 @@ private fun AdminStatusBadge(label: String, isPositive: Boolean) {
 private fun VehicleEditorDialog(
     editor: VehicleEditorState,
     isSaving: Boolean,
+    creatableCategories: List<String>,
+    canChangeCategory: Boolean,
     onChanged: ((VehicleEditorState) -> VehicleEditorState) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
@@ -1044,7 +1048,14 @@ private fun VehicleEditorDialog(
     ) {
         item { EditorSectionHeading("车辆信息", "车牌、分类和启用状态") }
         item { EditorTextField("车牌号码", editor.plateNumber) { value -> onChanged { it.copy(plateNumber = value, error = null) } } }
-        item { ChoiceField("所属类别", editor.category, VEHICLE_CATEGORIES) { value -> onChanged { it.copy(category = value, error = null) } } }
+        item {
+            if (editor.id != null && !canChangeCategory) {
+                ReadOnlyChoiceField("所属类别", editor.category.vehicleCategoryLabel())
+            } else {
+                val options = VEHICLE_CATEGORIES.filter { it.value in creatableCategories }
+                ChoiceField("所属类别", editor.category, options) { value -> onChanged { it.copy(category = value, error = null) } }
+            }
+        }
         item { ChoiceField("当前状态", editor.status, VEHICLE_STATUSES) { value -> onChanged { it.copy(status = value) } } }
         item { EditorTextField("车辆型号", editor.vehicleType) { value -> onChanged { it.copy(vehicleType = value) } } }
 
@@ -1629,6 +1640,19 @@ private fun ChoiceField(
     }
 }
 
+@Composable
+private fun ReadOnlyChoiceField(label: String, value: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = {},
+        label = { Text(label) },
+        readOnly = true,
+        enabled = false,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+    )
+}
+
 private fun AdminTab.label(): String = when (this) {
     AdminTab.Dashboard -> "概览"
     AdminTab.Vehicles -> "车辆档案"
@@ -1657,12 +1681,18 @@ private fun ManagedImportBatchSummary.importStatusLabel(): String = when (status
 
 private data class ChoiceOption(val value: String, val label: String)
 
+private fun String.vehicleCategoryLabel(): String = VEHICLE_CATEGORIES
+    .firstOrNull { it.value == this }
+    ?.label
+    ?: this
+
 private val VEHICLE_CATEGORIES = listOf(
     ChoiceOption("RESIDENT", "村民车辆"),
     ChoiceOption("SCENIC_UNIT", "驻景区单位"),
     ChoiceOption("SCENIC_ENTERPRISE", "驻景区企业"),
     ChoiceOption("CADRE", "干部车辆"),
-    ChoiceOption("KANAS_TOURISM_DEVELOPMENT", "旅游公司"),
+    ChoiceOption("KANAS_TOURISM_DEVELOPMENT", "喀旅公司车辆"),
+    ChoiceOption("OTHER_LONG_TERM", "其他长期通行车辆"),
 )
 private val VEHICLE_STATUSES = listOf(ChoiceOption("ACTIVE", "启用"), ChoiceOption("INACTIVE", "停用"))
 private val USER_ROLES = listOf(ChoiceOption("USER", "普通用户"), ChoiceOption("ADMIN", "管理员"))

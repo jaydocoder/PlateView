@@ -386,11 +386,13 @@ private data class DetailField(
 
 @Composable
 private fun ResidentProfile.toFields(): List<DetailField> = listOfNotNull(
-    DetailField(stringResource(R.string.detail_owner_name), ownerName),
-    DetailField(stringResource(R.string.detail_identity_card), identityCardNumber),
+    DetailField(stringResource(R.string.detail_owner_name), ownerName.displayDetailValue()),
+    DetailField(stringResource(R.string.detail_identity_card), identityCardNumber.displayDetailValue()),
     contactPhone?.let { DetailField(stringResource(R.string.detail_contact_phone), it) },
     remarks?.let { DetailField(stringResource(R.string.detail_remarks), it) },
 )
+
+private fun String?.displayDetailValue(): String = this?.takeIf(String::isNotBlank) ?: "未填写"
 
 @Composable
 private fun LongTermProfile.toFields(): List<DetailField> = listOfNotNull(

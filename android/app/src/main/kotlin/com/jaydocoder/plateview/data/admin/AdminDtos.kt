@@ -3,6 +3,10 @@ package com.jaydocoder.plateview.data.admin
 import com.google.gson.JsonObject
 
 data class AdminVehicleListResponseDto(val items: List<AdminVehicleListItemDto>, val total: Int)
+data class AdminVehicleCreationCapabilitiesDto(
+    val creatableCategories: List<String>,
+    val canChangeVehicleCategory: Boolean,
+)
 data class AdminVehicleListItemDto(val id: Long, val plateNumber: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?)
 data class AdminVehicleDto(val id: Long, val plateNumber: String, val normalizedPlate: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?, val attributes: JsonObject, val residentProfile: AdminResidentProfileDto?, val longTermProfile: AdminLongTermProfileDto?)
 data class AdminResidentProfileDto(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)

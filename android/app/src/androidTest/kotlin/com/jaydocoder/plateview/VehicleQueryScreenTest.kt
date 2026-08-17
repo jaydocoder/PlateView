@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -84,13 +85,14 @@ class VehicleQueryScreenTest {
     }
 
     @Test
-    fun 候选列表展示五类车辆类别() {
+    fun 候选列表展示六类车辆类别与其他长期车辆单位名称() {
         val candidates = listOf(
             VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆"),
             VehicleCandidate(102, "新A12346", "SCENIC_UNIT", "驻景区单位车辆"),
             VehicleCandidate(103, "新A12347", "SCENIC_ENTERPRISE", "驻景区企业车辆"),
             VehicleCandidate(104, "新A12348", "CADRE", "干部车辆"),
-            VehicleCandidate(105, "新A12349", "KANAS_TOURISM_DEVELOPMENT", "喀纳斯旅游发展股份有限公司车辆"),
+            VehicleCandidate(105, "新A12349", "KANAS_TOURISM_DEVELOPMENT", "喀旅公司车辆"),
+            VehicleCandidate(106, "新A12350", "OTHER_LONG_TERM", "其他长期通行车辆", "内部维护单位"),
         )
 
         composeRule.setContent {
@@ -112,6 +114,7 @@ class VehicleQueryScreenTest {
         candidates.forEach { candidate ->
             composeRule.onNodeWithText(candidate.categoryLabel).assertIsDisplayed()
         }
+        composeRule.onNodeWithText("单位名称：内部维护单位").assertIsDisplayed()
     }
 
     @Test
@@ -146,6 +149,38 @@ class VehicleQueryScreenTest {
         composeRule.onNodeWithText("村民核验信息").assertIsDisplayed()
         composeRule.onNodeWithText("测试姓名").assertIsDisplayed()
         composeRule.onNodeWithText("测试证件号").assertIsDisplayed()
+    }
+
+    @Test
+    fun 详情页对缺失村民核验字段显示未填写() {
+        val vehicle = VehicleDetail(
+            id = 102,
+            plateNumber = "新A12346",
+            normalizedPlate = "新A12346",
+            category = "RESIDENT",
+            categoryLabel = "村民车辆",
+            vehicleType = null,
+            attributes = emptyList(),
+            residentProfile = ResidentProfile(
+                ownerName = null,
+                identityCardNumber = null,
+                contactPhone = null,
+                remarks = null,
+            ),
+            longTermProfile = null,
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                VehicleDetailScreen(
+                    uiState = VehicleDetailUiState(VehicleDetailContent.Data(vehicle)),
+                    onNavigateUp = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("未填写").assertCountEquals(2)
     }
 
     @Test

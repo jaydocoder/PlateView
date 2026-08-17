@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VehicleSnapshotCacheEntity::class,
         VehicleCatalogStateEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class VehicleCacheDatabase : RoomDatabase() {
@@ -29,6 +29,12 @@ abstract class VehicleCacheDatabase : RoomDatabase() {
                 database.execSQL(
                     "CREATE TABLE IF NOT EXISTS vehicle_catalog_state (id INTEGER NOT NULL, activeGeneration INTEGER NOT NULL, catalogVersion INTEGER NOT NULL, checkedAtEpochMillis INTEGER NOT NULL, updatedAtEpochMillis INTEGER NOT NULL, PRIMARY KEY(id))",
                 )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE vehicle_snapshot_cache ADD COLUMN organizationName TEXT")
             }
         }
     }

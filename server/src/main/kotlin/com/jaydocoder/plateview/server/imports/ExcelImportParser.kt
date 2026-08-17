@@ -200,7 +200,6 @@ internal class ExcelImportParser {
         if (vehicle.identityCardNumber?.length ?: 0 > 32) errors += "身份证号长度超过32个字符"
         if (vehicle.contactPhone?.length ?: 0 > 32) errors += "联系方式长度超过32个字符"
         if (vehicle.organizationName?.length ?: 0 > 255) errors += "单位名称长度超过255个字符"
-        if (vehicle.passHolder?.length ?: 0 > 255) errors += "通行人员长度超过255个字符"
     }
 
     private fun extractPlateCandidates(value: String): List<PlateCandidate> {

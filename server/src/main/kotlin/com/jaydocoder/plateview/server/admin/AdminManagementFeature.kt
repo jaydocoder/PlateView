@@ -4,6 +4,7 @@ import com.jaydocoder.plateview.server.auth.requireAdministrator
 import com.jaydocoder.plateview.server.infrastructure.database.AuditEvent
 import com.jaydocoder.plateview.server.infrastructure.database.AuditLogWriterKey
 import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
+import com.jaydocoder.plateview.server.vehicle.VehicleCategory
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
@@ -30,6 +31,10 @@ internal fun Application.configureAdminManagementFeature() {
         authenticate("access-token") {
             route("/admin") {
                 route("/vehicles") {
+                    get("/creation-capabilities") {
+                        val actorId = call.requireAdministrator() ?: return@get
+                        call.respond(service.vehicleCreationCapabilities(actorId).toResponse())
+                    }
                     get {
                         val actorId = call.requireAdministrator() ?: return@get
                         val page = service.listVehicles(
@@ -42,7 +47,12 @@ internal fun Application.configureAdminManagementFeature() {
                     }
                     post {
                         val actorId = call.requireAdministrator() ?: return@post
-                        val vehicle = service.createVehicle(call.receive<AdminVehicleUpsertRequest>().toCommand(), actorId)
+                        val vehicle = try {
+                            service.createVehicle(call.receive<AdminVehicleUpsertRequest>().toCommand(), actorId)
+                        } catch (exception: AdminValidationException) {
+                            call.auditAdmin(actorId, "VEHICLE_CREATE", "VEHICLE", null, resultStatus = "FAILURE")
+                            throw exception
+                        }
                         call.auditAdmin(actorId, "VEHICLE_CREATE", "VEHICLE", vehicle.id)
                         call.respond(HttpStatusCode.Created, vehicle.toResponse())
                     }
@@ -147,14 +157,20 @@ private fun ApplicationCall.pageLimit(): Int = request.queryParameters["limit"]?
 private fun ApplicationCall.pageOffset(): Int = request.queryParameters["offset"]?.toIntOrNull() ?: 0
 private fun ApplicationCall.auditPageLimit(): Int = request.queryParameters["limit"]?.toIntOrNull() ?: DEFAULT_AUDIT_PAGE_LIMIT
 
-private fun ApplicationCall.auditAdmin(actorId: Long, action: String, targetType: String, targetId: Long?) {
+private fun ApplicationCall.auditAdmin(
+    actorId: Long,
+    action: String,
+    targetType: String,
+    targetId: Long?,
+    resultStatus: String = "SUCCESS",
+) {
     application.attributes.getOrNull(AuditLogWriterKey)?.write(
         AuditEvent(
             actorId = actorId,
             actionType = action,
             targetType = targetType,
             targetId = targetId,
-            resultStatus = "SUCCESS",
+            resultStatus = resultStatus,
             requestId = callId,
             metadata = buildJsonObject { },
         ),
@@ -303,6 +319,10 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 )
 
 @Serializable private data class AdminVehicleListResponse(val items: List<AdminVehicleListItemResponse>, val total: Int)
+@Serializable private data class AdminVehicleCreationCapabilitiesResponse(
+    val creatableCategories: List<String>,
+    val canChangeVehicleCategory: Boolean,
+)
 @Serializable private data class AdminVehicleListItemResponse(val id: Long, val plateNumber: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?)
 @Serializable private data class AdminVehicleResponse(val id: Long, val plateNumber: String, val normalizedPlate: String, val category: String, val categoryLabel: String, val status: String, val version: Int, val vehicleType: String?, val attributes: JsonObject, val residentProfile: AdminResidentProfileResponse?, val longTermProfile: AdminLongTermProfileResponse?)
 @Serializable private data class AdminResidentProfileResponse(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)
@@ -320,6 +340,11 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 )
 @Serializable private data class AdminAuditEntryResponse(val id: Long, val actorUsername: String?, val actionType: String, val targetType: String, val targetId: Long?, val resultStatus: String, val createdAt: String)
 @Serializable private data class AdminAuditSummaryResponse(val total: Int, val successCount: Int, val abnormalCount: Int, val activeActorCount: Int)
+
+private fun AdminVehicleCreationCapabilities.toResponse() = AdminVehicleCreationCapabilitiesResponse(
+    creatableCategories = creatableCategories.map(VehicleCategory::name),
+    canChangeVehicleCategory = canChangeVehicleCategory,
+)
 @Serializable private data class AdminAuditActorResponse(val id: Long, val username: String?)
 
 private const val DEFAULT_PAGE_LIMIT = 100

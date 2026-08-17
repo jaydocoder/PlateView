@@ -1,5 +1,6 @@
 # Android 与构建产物
 .gradle/
+.kotlin/
 .idea/
 build/
 **/build/

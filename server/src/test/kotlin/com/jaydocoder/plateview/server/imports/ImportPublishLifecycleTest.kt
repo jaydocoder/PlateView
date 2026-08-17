@@ -40,13 +40,13 @@ class ImportPublishLifecycleTest {
     }
 
     @Test
-    fun `村民车辆缺少身份证号但车牌有效时允许发布`() {
+    fun `村民车辆缺少姓名和身份证号但车牌有效时允许发布`() {
         val vehicle = ParsedVehicle(
             originalPlate = "新H44424",
             normalizedPlate = "新H44424",
             category = ImportCategory.RESIDENT,
             vehicleType = null,
-            ownerName = "测试用户",
+            ownerName = null,
             identityCardNumber = null,
             contactPhone = null,
             organizationName = null,
@@ -57,6 +57,20 @@ class ImportPublishLifecycleTest {
         )
 
         assertEquals(vehicle, ensureVehiclePublishable(vehicle))
+    }
+
+    @Test
+    fun `村民档案快照允许保留缺失的核验字段`() {
+        val snapshot = ResidentProfileSnapshot(
+            ownerName = null,
+            identityCardNumber = null,
+            contactPhone = null,
+            remarks = null,
+            version = 0,
+        )
+
+        assertEquals(null, snapshot.ownerName)
+        assertEquals(null, snapshot.identityCardNumber)
     }
 
     @Test

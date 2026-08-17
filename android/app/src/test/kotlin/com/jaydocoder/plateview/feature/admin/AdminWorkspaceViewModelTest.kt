@@ -22,6 +22,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
+import com.jaydocoder.plateview.domain.admin.VehicleCreationCapabilities
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.feature.search.MainDispatcherRule
@@ -79,6 +80,36 @@ class AdminWorkspaceViewModelTest {
 
         assertEquals(0, repository.createdVehicleCount)
         assertTrue(viewModel.uiState.value.vehicleEditor?.error?.contains("姓名") == true)
+    }
+
+    @Test
+    fun `其他长期通行车辆缺少单位名称时不会提交仓库`() = runTest {
+        val repository = FakeAdminRepository(
+            creationCapabilities = VehicleCreationCapabilities(listOf("OTHER_LONG_TERM"), false),
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.createVehicle()
+        viewModel.updateVehicleEditor { it.copy(plateNumber = "新A12345") }
+        viewModel.saveVehicle()
+
+        assertEquals(0, repository.createdVehicleCount)
+        assertTrue(viewModel.uiState.value.vehicleEditor?.error?.contains("单位名称") == true)
+    }
+
+    @Test
+    fun `其他管理员新增档案时默认选择其他长期通行车辆`() = runTest {
+        val repository = FakeAdminRepository(
+            creationCapabilities = VehicleCreationCapabilities(listOf("OTHER_LONG_TERM"), false),
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.createVehicle()
+
+        assertEquals("OTHER_LONG_TERM", viewModel.uiState.value.vehicleEditor?.category)
+        assertTrue(!viewModel.uiState.value.canChangeVehicleCategory)
     }
 
     @Test
@@ -270,6 +301,10 @@ private class FakeAdminRepository(
     private val auditTotal: Int = 0,
     private val vehicleDetailGate: CompletableDeferred<ManagedVehicle>? = null,
     private val importDetail: ManagedImportRowDetail? = null,
+    private val creationCapabilities: VehicleCreationCapabilities = VehicleCreationCapabilities(
+        creatableCategories = listOf("RESIDENT", "SCENIC_UNIT", "SCENIC_ENTERPRISE", "CADRE", "KANAS_TOURISM_DEVELOPMENT", "OTHER_LONG_TERM"),
+        canChangeVehicleCategory = true,
+    ),
 ) : AdminRepository {
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
@@ -282,6 +317,8 @@ private class FakeAdminRepository(
     private val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
     private val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
     private val batch = ManagedImportBatchSummary(1, "测试.xlsx", "VALIDATED", 1, 1, 0, 0, 0, null, null, null)
+
+    override suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities = creationCapabilities
 
     override suspend fun listVehicles(
         accessToken: String,

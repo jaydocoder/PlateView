@@ -107,7 +107,7 @@ class ExcelImportParserTest {
     }
 
     @Test
-    fun `超出数据库字段上限的长期记录标记异常`() {
+    fun `超长通行人员可正常解析并完整保留`() {
         val rows = parser.parse(
             workbookBytes { workbook ->
                 val sheet = workbook.createSheet("驻景区企业")
@@ -118,8 +118,8 @@ class ExcelImportParserTest {
         )
 
         val row = assertNotNull(rows.singleOrNull())
-        assertEquals(ImportResultStatus.ERROR, row.resultStatus)
-        assertTrue(row.errorMessage.orEmpty().contains("通行人员长度超过255个字符"))
+        assertEquals(ImportResultStatus.VALID, row.resultStatus)
+        assertEquals("甲".repeat(256), row.vehicle.passHolder)
     }
 
     @Test

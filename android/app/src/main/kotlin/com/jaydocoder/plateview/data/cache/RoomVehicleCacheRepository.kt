@@ -85,6 +85,7 @@ private fun VehicleSnapshotCacheEntity.toCandidate(): VehicleCandidate = Vehicle
     plateNumber = plateNumber,
     category = category,
     categoryLabel = categoryLabel,
+    organizationName = organizationName,
 )
 
 private fun VehicleDetail.toEntity(generation: Long, gson: Gson): VehicleSnapshotCacheEntity = VehicleSnapshotCacheEntity(
@@ -94,5 +95,6 @@ private fun VehicleDetail.toEntity(generation: Long, gson: Gson): VehicleSnapsho
     normalizedPlate = PlateQueryNormalizer.normalize(plateNumber),
     category = category,
     categoryLabel = categoryLabel,
+    organizationName = longTermProfile?.organizationName,
     detailJson = gson.toJson(this),
 )

@@ -15,6 +15,7 @@ data class VehicleSnapshotCacheEntity(
     val normalizedPlate: String,
     val category: String,
     val categoryLabel: String,
+    val organizationName: String?,
     val detailJson: String,
 )
 

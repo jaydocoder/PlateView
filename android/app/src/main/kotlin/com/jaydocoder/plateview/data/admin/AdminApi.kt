@@ -13,6 +13,11 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface AdminApi {
+    @GET("admin/vehicles/creation-capabilities")
+    suspend fun getVehicleCreationCapabilities(
+        @Header("Authorization") authorization: String,
+    ): AdminVehicleCreationCapabilitiesDto
+
     @GET("admin/vehicles")
     suspend fun listVehicles(
         @Header("Authorization") authorization: String,

@@ -590,8 +590,8 @@ internal class ImportWorkflowService(
             """.trimIndent(),
         ).use { statement ->
             statement.setLong(1, vehicleId)
-            statement.setString(2, requireNotNull(vehicle.ownerName))
-            statement.setString(3, requireNotNull(vehicle.identityCardNumber))
+            statement.setString(2, vehicle.ownerName)
+            statement.setString(3, vehicle.identityCardNumber)
             statement.setString(4, vehicle.contactPhone)
             statement.setString(5, vehicle.remarks)
             statement.setInt(6, version)
@@ -1145,8 +1145,8 @@ internal class ImportWorkflowService(
     }
 
     private fun ResidentProfileSnapshot.toJson(): JsonObject = buildJsonObject {
-        put("ownerName", JsonPrimitive(ownerName))
-        put("identityCardNumber", JsonPrimitive(identityCardNumber))
+        putNullable("ownerName", ownerName)
+        putNullable("identityCardNumber", identityCardNumber)
         putNullable("contactPhone", contactPhone)
         putNullable("remarks", remarks)
         put("version", JsonPrimitive(version))

@@ -26,6 +26,8 @@ data class AdminUiState(
     val vehicles: List<ManagedVehicleSummary> = emptyList(),
     val vehicleSearchQuery: String = "",
     val vehicleTotalCount: Int = 0,
+    val creatableVehicleCategories: List<String> = emptyList(),
+    val canChangeVehicleCategory: Boolean = false,
     val users: List<ManagedUser> = emptyList(),
     val importBatches: List<ManagedImportBatchSummary> = emptyList(),
     val auditEntries: List<ManagedAuditEntry> = emptyList(),
@@ -82,10 +84,12 @@ data class VehicleEditorState(
     val error: String? = null,
 ) {
     val isResident: Boolean get() = category == "RESIDENT"
+    val isOtherLongTerm: Boolean get() = category == "OTHER_LONG_TERM"
 
     fun validate(): String? = when {
         plateNumber.isBlank() -> "请输入车牌号"
         isResident && (ownerName.isBlank() || identityCardNumber.isBlank()) -> "村民车辆必须填写姓名和身份证号"
+        isOtherLongTerm && organizationName.isBlank() -> "其他长期通行车辆必须填写单位名称"
         else -> null
     }
 

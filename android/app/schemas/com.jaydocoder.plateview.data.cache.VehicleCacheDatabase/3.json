@@ -1,0 +1,127 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 3,
+    "identityHash": "c1c9f25db874f8301f2b83755983d937",
+    "entities": [
+      {
+        "tableName": "vehicle_snapshot_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`generation` INTEGER NOT NULL, `vehicleId` INTEGER NOT NULL, `plateNumber` TEXT NOT NULL, `normalizedPlate` TEXT NOT NULL, `category` TEXT NOT NULL, `categoryLabel` TEXT NOT NULL, `organizationName` TEXT, `detailJson` TEXT NOT NULL, PRIMARY KEY(`generation`, `vehicleId`))",
+        "fields": [
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleId",
+            "columnName": "vehicleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plateNumber",
+            "columnName": "plateNumber",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedPlate",
+            "columnName": "normalizedPlate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryLabel",
+            "columnName": "categoryLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "organizationName",
+            "columnName": "organizationName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "detailJson",
+            "columnName": "detailJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "generation",
+            "vehicleId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_vehicle_snapshot_cache_generation_normalizedPlate",
+            "unique": false,
+            "columnNames": [
+              "generation",
+              "normalizedPlate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vehicle_snapshot_cache_generation_normalizedPlate` ON `${TABLE_NAME}` (`generation`, `normalizedPlate`)"
+          }
+        ]
+      },
+      {
+        "tableName": "vehicle_catalog_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `activeGeneration` INTEGER NOT NULL, `catalogVersion` INTEGER NOT NULL, `checkedAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeGeneration",
+            "columnName": "activeGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "catalogVersion",
+            "columnName": "catalogVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "checkedAtEpochMillis",
+            "columnName": "checkedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c1c9f25db874f8301f2b83755983d937')"
+    ]
+  }
+}

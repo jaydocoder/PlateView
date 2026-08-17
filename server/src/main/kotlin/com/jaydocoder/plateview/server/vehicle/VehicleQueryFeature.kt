@@ -105,6 +105,7 @@ private fun VehicleSearchCandidate.toResponse(): VehicleSearchCandidateResponse 
     plateNumber = plateNumber,
     category = category.name,
     categoryLabel = category.displayName,
+    organizationName = organizationName,
 )
 
 private fun VehicleDetail.toResponse(catalogVersion: Long): VehicleDetailResponse = VehicleDetailResponse(
@@ -159,6 +160,7 @@ private data class VehicleSearchCandidateResponse(
     val plateNumber: String,
     val category: String,
     val categoryLabel: String,
+    val organizationName: String?,
 )
 
 @Serializable
@@ -177,8 +179,8 @@ private data class VehicleDetailResponse(
 
 @Serializable
 private data class ResidentVehicleProfileResponse(
-    val ownerName: String,
-    val identityCardNumber: String,
+    val ownerName: String?,
+    val identityCardNumber: String?,
     val contactPhone: String?,
     val remarks: String?,
 )

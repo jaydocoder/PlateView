@@ -27,6 +27,7 @@ data class VehicleCandidateDto(
     val plateNumber: String,
     val category: String,
     val categoryLabel: String,
+    val organizationName: String?,
 )
 
 data class VehicleDetailDto(
@@ -42,8 +43,8 @@ data class VehicleDetailDto(
 )
 
 data class ResidentProfileDto(
-    val ownerName: String,
-    val identityCardNumber: String,
+    val ownerName: String?,
+    val identityCardNumber: String?,
     val contactPhone: String?,
     val remarks: String?,
 )

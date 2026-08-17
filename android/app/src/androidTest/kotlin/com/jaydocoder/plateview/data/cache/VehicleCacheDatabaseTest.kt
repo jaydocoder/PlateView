@@ -87,6 +87,7 @@ class VehicleCacheDatabaseTest {
             normalizedPlate = plateNumber,
             category = category,
             categoryLabel = if (category == "RESIDENT") "村民车辆" else "驻景区单位车辆",
+            organizationName = null,
             detailJson = "{}",
         )
 }

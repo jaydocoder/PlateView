@@ -21,6 +21,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
 import com.jaydocoder.plateview.domain.admin.ManagedVehiclePage
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
+import com.jaydocoder.plateview.domain.admin.VehicleCreationCapabilities
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
@@ -35,6 +36,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class NetworkAdminRepository @Inject constructor(
     private val api: AdminApi,
 ) : AdminRepository {
+    override suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities = api
+        .getVehicleCreationCapabilities(bearer(accessToken))
+        .let { VehicleCreationCapabilities(it.creatableCategories, it.canChangeVehicleCategory) }
+
     override suspend fun listVehicles(
         accessToken: String,
         keyword: String?,

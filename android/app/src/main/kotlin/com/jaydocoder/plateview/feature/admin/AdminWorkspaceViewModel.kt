@@ -97,7 +97,18 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun createVehicle() {
-        _uiState.update { it.copy(vehicleEditor = VehicleEditorState(), isVehicleEditorLoading = false, failure = null) }
+        val category = _uiState.value.creatableVehicleCategories.firstOrNull()
+        if (category == null) {
+            _uiState.update { it.copy(failure = AdminFailure.ServiceUnavailable("正在获取车辆建档权限")) }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                vehicleEditor = VehicleEditorState(category = category),
+                isVehicleEditorLoading = false,
+                failure = null,
+            )
+        }
     }
 
     fun editVehicle(vehicleId: Long) = launchAdminAction { accessToken ->
@@ -277,6 +288,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun loadDashboard(accessToken: String) {
+        val capabilities = repository.getVehicleCreationCapabilities(accessToken)
         val vehiclePage = repository.listVehicles(accessToken)
         val users = repository.listUsers(accessToken)
         val batches = repository.listImportBatches(accessToken)
@@ -284,6 +296,8 @@ class AdminWorkspaceViewModel @Inject constructor(
             it.copy(
                 vehicles = vehiclePage.items,
                 vehicleTotalCount = vehiclePage.total,
+                creatableVehicleCategories = capabilities.creatableCategories,
+                canChangeVehicleCategory = capabilities.canChangeVehicleCategory,
                 users = users,
                 importBatches = batches,
             )
@@ -291,7 +305,18 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private fun refreshVehicles() = launchAdminAction { accessToken ->
+        loadVehicleCreationCapabilities(accessToken)
         loadVehicles(accessToken, reset = true)
+    }
+
+    private suspend fun loadVehicleCreationCapabilities(accessToken: String) {
+        val capabilities = repository.getVehicleCreationCapabilities(accessToken)
+        _uiState.update {
+            it.copy(
+                creatableVehicleCategories = capabilities.creatableCategories,
+                canChangeVehicleCategory = capabilities.canChangeVehicleCategory,
+            )
+        }
     }
 
     private suspend fun loadVehicles(accessToken: String, reset: Boolean) {
