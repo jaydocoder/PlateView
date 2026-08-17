@@ -93,7 +93,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 推送形如 `v0.3.12` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。用户应从 [GitHub 发行版](https://github.com/jaydocoder/PlateView/releases) 下载正式 APK，而不是从 GitHub 软件包页面下载。
 
-当前版本：`0.3.12`（`versionCode 15`）。
+当前版本：`0.3.13`（`versionCode 16`）。
 
 ## 文档索引
 

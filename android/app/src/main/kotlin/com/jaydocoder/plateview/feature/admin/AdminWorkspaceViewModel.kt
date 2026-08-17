@@ -31,7 +31,6 @@ class AdminWorkspaceViewModel @Inject constructor(
     private val importFileReader: AdminImportFileReader,
 ) : ViewModel() {
     private var vehicleSearchJob: Job? = null
-    private var auditKeywordJob: Job? = null
     private val _uiState = MutableStateFlow(AdminUiState())
     val uiState: StateFlow<AdminUiState> = _uiState.asStateFlow()
 
@@ -91,24 +90,6 @@ class AdminWorkspaceViewModel @Inject constructor(
     fun updateAuditActionType(actionType: String?) = updateAuditFilter { it.copy(actionType = actionType) }
 
     fun updateAuditResult(result: AuditResult) = updateAuditFilter { it.copy(result = result) }
-
-    fun updateAuditKeyword(keyword: String) {
-        if (_uiState.value.tab != AdminTab.Audit) return
-        auditKeywordJob?.cancel()
-        _uiState.update { state ->
-            state.copy(
-                auditFilter = state.auditFilter.copy(keyword = keyword),
-                auditEntries = emptyList(),
-                auditTotalCount = 0,
-                isAuditPageLoading = false,
-                failure = null,
-            )
-        }
-        auditKeywordJob = viewModelScope.launch {
-            delay(AUDIT_KEYWORD_DEBOUNCE_MILLIS)
-            launchAdminAction { accessToken -> loadAuditEntries(accessToken, reset = true) }
-        }
-    }
 
     fun loadMoreAuditEntries() {
         if (_uiState.value.tab != AdminTab.Audit) return
@@ -478,7 +459,6 @@ class AdminWorkspaceViewModel @Inject constructor(
         const val IMPORT_PAGE_SIZE = 100
         const val AUDIT_PAGE_SIZE = 50
         const val VEHICLE_SEARCH_DEBOUNCE_MILLIS = 250L
-        const val AUDIT_KEYWORD_DEBOUNCE_MILLIS = 300L
         const val HTTP_UNAUTHORIZED = 401
     }
 }

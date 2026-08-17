@@ -53,7 +53,6 @@ internal class ExcelImportParser {
             if (category in LONG_TERM_CATEGORIES && organization == null) {
                 rowErrors += "单位名称为空且无可继承的上一有效单位"
             }
-            validateRequiredFields(category, baseVehicle, rowErrors)
             validateStorageLengths(baseVehicle, rowErrors)
             validateWarnings(category, baseVehicle, rowWarnings)
 
@@ -176,17 +175,6 @@ internal class ExcelImportParser {
             remarks = raw["备注"],
             attributes = attributes,
         )
-    }
-
-    private fun validateRequiredFields(
-        category: ImportCategory,
-        vehicle: ParsedVehicle,
-        errors: MutableList<String>,
-    ) {
-        if (category == ImportCategory.RESIDENT) {
-            if (vehicle.ownerName.isNullOrBlank()) errors += "村民车辆姓名为空"
-            if (vehicle.identityCardNumber.isNullOrBlank()) errors += "村民车辆身份证号为空"
-        }
     }
 
     private fun validateWarnings(

@@ -154,7 +154,6 @@ fun AdminWorkspaceRoute(
         onAuditActorChanged = viewModel::updateAuditActor,
         onAuditActionTypeChanged = viewModel::updateAuditActionType,
         onAuditResultChanged = viewModel::updateAuditResult,
-        onAuditKeywordChanged = viewModel::updateAuditKeyword,
         onLoadMoreAuditEntries = viewModel::loadMoreAuditEntries,
         onOpenUpdate = onOpenUpdate,
     )
@@ -197,7 +196,6 @@ fun AdminWorkspaceScreen(
     onAuditActorChanged: (Long?) -> Unit = {},
     onAuditActionTypeChanged: (String?) -> Unit = {},
     onAuditResultChanged: (AuditResult) -> Unit = {},
-    onAuditKeywordChanged: (String) -> Unit = {},
     onLoadMoreAuditEntries: () -> Unit = {},
     onOpenUpdate: (() -> Unit)? = null,
 ) {
@@ -317,7 +315,6 @@ fun AdminWorkspaceScreen(
                             onActorChanged = onAuditActorChanged,
                             onActionTypeChanged = onAuditActionTypeChanged,
                             onResultChanged = onAuditResultChanged,
-                            onKeywordChanged = onAuditKeywordChanged,
                             onLoadMore = onLoadMoreAuditEntries,
                         )
                     }
@@ -773,7 +770,6 @@ private fun AuditPane(
     onActorChanged: (Long?) -> Unit,
     onActionTypeChanged: (String?) -> Unit,
     onResultChanged: (AuditResult) -> Unit,
-    onKeywordChanged: (String) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -807,17 +803,6 @@ private fun AuditPane(
         }
         item(key = "audit_summary") {
             AuditSummaryRow(summary)
-        }
-        item(key = "audit_keyword") {
-            OutlinedTextField(
-                value = filter.keyword,
-                onValueChange = onKeywordChanged,
-                modifier = Modifier.fillMaxWidth().testTag("admin_audit_keyword"),
-                label = { Text("筛选账号、操作或目标") },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-            )
         }
         item(key = "audit_ranges") {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {

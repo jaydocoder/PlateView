@@ -54,6 +54,22 @@ class ExcelImportParserTest {
     }
 
     @Test
+    fun `村民车辆缺少姓名和身份证号但车牌有效时正常解析`() {
+        val rows = parser.parse(
+            workbookBytes { workbook ->
+                val sheet = workbook.createSheet("村民车辆")
+                writeRow(sheet, 0, "姓名", "身份证号", "车牌号")
+                writeRow(sheet, 1, "", "", "新A12345")
+            },
+        )
+
+        val row = assertNotNull(rows.singleOrNull())
+        assertEquals(ImportResultStatus.VALID, row.resultStatus)
+        assertEquals(ImportResolution.PUBLISH, row.resolution)
+        assertEquals("新A12345", row.vehicle.normalizedPlate)
+    }
+
+    @Test
     fun `长期车辆工作表继承单位并拆分多车牌`() {
         val rows = parser.parse(
             workbookBytes { workbook ->
