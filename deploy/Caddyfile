@@ -1,4 +1,4 @@
 api.chenxiruyu.dpdns.org {
 	encode zstd gzip
-	reverse_proxy api:8080
+	import /etc/caddy/runtime/Caddyfile
 }

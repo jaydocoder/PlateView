@@ -24,29 +24,6 @@ services:
     networks:
       - backend
 
-  api:
-    image: plateview-api:${PLATEVIEW_IMAGE_TAG:?请设置已导入的应用镜像标签}
-    restart: unless-stopped
-    environment:
-      PORT: "8080"
-      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-plateview}
-      DATABASE_USERNAME: ${POSTGRES_USER:-plateview}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请在生产.env中设置数据库密码}
-      DATABASE_MIGRATE_ON_START: "true"
-      JWT_SECRET: ${JWT_SECRET:?请在生产.env中设置JWT签名密钥}
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?请在生产.env中设置初始管理员密码}
-      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-43200}
-      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
-      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=60
-    ports:
-      - "127.0.0.1:8080:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - backend
-      - edge
-
   caddy:
     image: caddy:2.8.4-alpine
     restart: unless-stopped
@@ -54,11 +31,10 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - ./source/deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - ./runtime/Caddyfile:/etc/caddy/runtime/Caddyfile:ro,Z
       - ./data/caddy:/data:Z
       - ./data/caddy-config:/config:Z
-    depends_on:
-      - api
     networks:
       - backend
       - edge

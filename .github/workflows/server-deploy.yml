@@ -1,0 +1,58 @@
+name: 服务端自动部署
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "server/**"
+      - "compose.production.yaml"
+      - "deploy/**"
+      - "infra/**"
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "要部署的提交，留空表示 main"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plateview-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 部署到七牛云生产服务器
+    runs-on: ubuntu-latest
+    steps:
+      - name: 配置 SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/plateview_deploy"
+          chmod 600 "$HOME/.ssh/plateview_deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+
+      - name: 执行服务器部署
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          TARGET_COMMIT: ${{ github.event.inputs.commit || github.sha }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PORT"
+          ssh -i "$HOME/.ssh/plateview_deploy" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "/opt/plateview/source/deploy/plateview-deploy.sh '$TARGET_COMMIT'"

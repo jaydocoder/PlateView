@@ -28,7 +28,7 @@ PlateView/
 ├── docs/                    需求、架构、操作与部署文档
 ├── compose.yaml             本地开发 Docker Compose 编排
 ├── compose.production.yaml  生产 Docker Compose 编排
-└── .github/workflows/       Android 自动验证、构建和发行工作流
+└── .github/workflows/       Android 构建与服务端自动部署工作流
 ```
 
 ## 角色权限
@@ -79,13 +79,15 @@ android/app/build/outputs/apk/debug/app-debug.apk
 
 ## 生产部署
 
-生产服务由 PostgreSQL、Ktor API 与 Caddy 组成。API 仅绑定服务器回环地址，由 Caddy 对外提供 HTTPS。
+生产服务由 PostgreSQL、Ktor API 与 Caddy 组成。API 由部署脚本管理蓝绿槽位，仅通过 Caddy 对外提供 HTTPS。
 
 ```bash
 docker compose --env-file .env -f compose.production.yaml up -d
 ```
 
-部署前需在服务器 `.env` 中设置数据库连接信息、令牌密钥、初始管理员密码和镜像标签。完整变量说明、备份恢复、HTTPS 配置和排障步骤见：[部署运行手册](docs/12-部署运行手册.md)。
+服务端代码推送到 `main` 后，GitHub Actions 仅在 `server/**`、`compose.production.yaml`、`deploy/**` 或 `infra/**` 发生变化时触发服务器部署。服务器会拉取提交、备份数据库、构建候选镜像、执行迁移和健康检查；通过后才由 Caddy 平滑切换流量，失败则保留旧容器。
+
+首次部署需要配置 `DEPLOY_SSH_KEY`、`DEPLOY_KNOWN_HOSTS`、`DEPLOY_HOST`、`DEPLOY_USER` 和 `DEPLOY_PORT` Secrets。完整初始化、蓝绿切换、备份恢复、回滚和排障步骤见：[部署运行手册](docs/12-部署运行手册.md)。
 
 ## APK 获取与发布
 
@@ -93,7 +95,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 推送形如 `v0.3.12` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。用户应从 [GitHub 发行版](https://github.com/jaydocoder/PlateView/releases) 下载正式 APK，而不是从 GitHub 软件包页面下载。
 
-当前版本：`0.3.13`（`versionCode 16`）。
+当前版本：`0.3.14`（`versionCode 17`）。
 
 ## 文档索引
 
