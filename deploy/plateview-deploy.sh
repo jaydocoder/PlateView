@@ -22,6 +22,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "失败：$*"; exit 1; }
 compose() { docker compose --project-directory "$APP_DIR" --project-name plateview --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
+git_source() { git --git-dir="$SOURCE_DIR/.git" --work-tree="$SOURCE_DIR" "$@"; }
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || die "已有部署正在运行，拒绝并发部署"
@@ -55,19 +56,19 @@ fi
 [[ -r "$ENV_FILE" ]] || die "生产环境文件不存在：$ENV_FILE"
 
 log "开始部署目标：$target_commit"
-git -C "$SOURCE_DIR" fetch --prune origin main
-git -C "$SOURCE_DIR" cat-file -e "$target_commit^{commit}" || die "目标提交不存在：$target_commit"
-git -C "$SOURCE_DIR" checkout --detach --force "$target_commit"
-resolved_commit=$(git -C "$SOURCE_DIR" rev-parse HEAD)
+git_source fetch --prune origin main
+git_source cat-file -e "$target_commit^{commit}" || die "目标提交不存在：$target_commit"
+git_source checkout --detach --force "$target_commit"
+resolved_commit=$(git_source rev-parse HEAD)
 short_commit=${resolved_commit:0:12}
 
-if git -C "$SOURCE_DIR" rev-parse "$resolved_commit^" >/dev/null 2>&1; then
+if git_source rev-parse "$resolved_commit^" >/dev/null 2>&1; then
     has_server_change=0
     while IFS= read -r changed_path; do
         case "$changed_path" in
             server/*|compose.production.yaml|deploy/*|infra/*) has_server_change=1 ;;
         esac
-    done < <(git -C "$SOURCE_DIR" diff-tree --no-commit-id --name-only -r "$resolved_commit")
+    done < <(git_source diff-tree --no-commit-id --name-only -r "$resolved_commit")
     [[ "$has_server_change" == 1 ]] || { log "提交没有服务端路径变化，跳过部署"; exit 0; }
 fi
 
