@@ -50,9 +50,29 @@ jobs:
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
           test -n "$DEPLOY_PORT"
-          ssh -i "$HOME/.ssh/plateview_deploy" \
+          ssh_args=(-i "$HOME/.ssh/plateview_deploy" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            -p "$DEPLOY_PORT" \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "/opt/plateview/source/deploy/plateview-deploy.sh '$TARGET_COMMIT'"
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=20 \
+            -o ConnectTimeout=15 \
+            -p "$DEPLOY_PORT")
+          remote="$DEPLOY_USER@$DEPLOY_HOST"
+          status_file="/opt/plateview/runtime/deploy-status-$TARGET_COMMIT"
+          ssh "${ssh_args[@]}" "$remote" \
+            "rm -f '$status_file'; nohup sh -c '/opt/plateview/source/deploy/plateview-deploy.sh $TARGET_COMMIT; rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"' </dev/null >/dev/null 2>&1 &"
+
+          for attempt in $(seq 1 120); do
+            state=$(ssh "${ssh_args[@]}" "$remote" "cat '$status_file' 2>/dev/null || true" || true)
+            if [[ "$state" == "0" ]]; then
+              echo "服务器部署成功"
+              exit 0
+            fi
+            if [[ "$state" =~ ^[1-9][0-9]*$ ]]; then
+              echo "服务器部署失败，状态码：$state"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "等待服务器部署结果超时"
+          exit 1
