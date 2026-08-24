@@ -64,7 +64,7 @@ jobs:
           remote="$DEPLOY_USER@$DEPLOY_HOST"
           status_file="/opt/plateview/runtime/deploy-status-$TARGET_COMMIT"
           ssh "${ssh_args[@]}" "$remote" \
-            "rm -f '$status_file'; nohup sh -c 'set -eu; cd /opt/plateview/source; git fetch --prune origin main; git checkout --detach --force $TARGET_COMMIT; ./deploy/plateview-deploy.sh $TARGET_COMMIT; rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"' </dev/null >/dev/null 2>&1 &"
+            "rm -f '$status_file'; nohup sh -c 'set -u; rc=0; (cd /opt/plateview/source && git fetch --prune origin main && git checkout --detach --force $TARGET_COMMIT && ./deploy/plateview-deploy.sh $TARGET_COMMIT) || rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"; exit \"\$rc\"' </dev/null >/dev/null 2>&1 &"
 
           for attempt in $(seq 1 120); do
             state=$(ssh "${ssh_args[@]}" "$remote" "cat '$status_file' 2>/dev/null || true" || true)
