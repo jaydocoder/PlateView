@@ -24,6 +24,8 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "失败：$*"; exit 1; }
 compose() { docker compose --project-directory "$APP_DIR" --project-name plateview --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 git_source() { git --git-dir="$SOURCE_DIR/.git" --work-tree="$SOURCE_DIR" "$@"; }
+write_caddy_upstream() { printf 'reverse_proxy %s:8080\n' "$1" > "$RUNTIME_DIR/Caddyfile"; }
+restore_caddy_config() { cat "$RUNTIME_DIR/Caddyfile.previous" > "$RUNTIME_DIR/Caddyfile"; }
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || die "已有部署正在运行，拒绝并发部署"
@@ -34,11 +36,10 @@ if [[ "${1:-}" == "rollback" ]]; then
     previous_upstream=$(<"$RUNTIME_DIR/previous-upstream")
     previous_container=$(<"$RUNTIME_DIR/previous-container")
     docker inspect "$previous_container" >/dev/null 2>&1 || die "上一版本容器不存在：$previous_container"
-    printf 'reverse_proxy %s:8080\n' "$previous_upstream" > "$RUNTIME_DIR/Caddyfile.next"
     cp "$RUNTIME_DIR/Caddyfile" "$RUNTIME_DIR/Caddyfile.previous"
-    mv "$RUNTIME_DIR/Caddyfile.next" "$RUNTIME_DIR/Caddyfile"
+    write_caddy_upstream "$previous_upstream"
     if ! docker exec "$CADDY_CONTAINER" caddy validate --config /etc/caddy/Caddyfile; then
-        mv "$RUNTIME_DIR/Caddyfile.previous" "$RUNTIME_DIR/Caddyfile"
+        restore_caddy_config
         die "回滚 Caddy 配置校验失败"
     fi
     docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile
@@ -136,7 +137,12 @@ cleanup_candidate() {
         docker rm -f "$candidate" >/dev/null 2>&1 || true
     fi
 }
-trap cleanup_candidate ERR
+if docker inspect "$candidate" >/dev/null 2>&1; then
+    [[ "$candidate" != "$active_container" ]] || die "目标提交已经是活动容器：$candidate"
+    log "清理上次失败遗留的候选容器：$candidate"
+    cleanup_candidate
+fi
+trap cleanup_candidate EXIT
 
 log "构建镜像：$image_tag"
 DOCKER_BUILDKIT=1 docker build -t "$image_tag" "$SOURCE_DIR/server"
@@ -167,17 +173,16 @@ done
 docker logs --tail 120 "$candidate"
 verify_database_migrations
 
-printf 'reverse_proxy %s:8080\n' "$next_upstream" > "$RUNTIME_DIR/Caddyfile.next"
 cp "$RUNTIME_DIR/Caddyfile" "$RUNTIME_DIR/Caddyfile.previous"
-mv "$RUNTIME_DIR/Caddyfile.next" "$RUNTIME_DIR/Caddyfile"
+write_caddy_upstream "$next_upstream"
 if ! docker exec "$CADDY_CONTAINER" caddy validate --config /etc/caddy/Caddyfile; then
-    mv "$RUNTIME_DIR/Caddyfile.previous" "$RUNTIME_DIR/Caddyfile"
+    restore_caddy_config
     die "Caddy 新配置校验失败"
 fi
 docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile
 sleep 2
 if ! curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL" >/dev/null; then
-    mv "$RUNTIME_DIR/Caddyfile.previous" "$RUNTIME_DIR/Caddyfile"
+    restore_caddy_config
     docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile || true
     die "切流后的公网健康检查失败，已恢复旧上游"
 fi
@@ -188,5 +193,5 @@ printf '%s\n' "$next_upstream" > "$RUNTIME_DIR/active-upstream"
 printf '%s\n' "$candidate" > "$RUNTIME_DIR/active-container"
 printf '%s\n' "$next_slot" > "$RUNTIME_DIR/active-slot"
 printf '%s\n' "$resolved_commit" > "$RUNTIME_DIR/active-commit"
-trap - ERR
+trap - EXIT
 log "部署成功：提交 $resolved_commit，活动槽位 $next_slot，上游 $next_upstream"
