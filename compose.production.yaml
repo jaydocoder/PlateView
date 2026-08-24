@@ -32,7 +32,7 @@ services:
       - "443:443"
     volumes:
       - ./source/deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
-      - ./runtime/Caddyfile:/etc/caddy/runtime/Caddyfile:ro,Z
+      - ./runtime:/etc/caddy/runtime:ro,Z
       - ./data/caddy:/data:Z
       - ./data/caddy-config:/config:Z
       - ./updates:/srv/updates:ro,Z
