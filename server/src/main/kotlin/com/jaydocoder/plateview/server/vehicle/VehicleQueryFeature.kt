@@ -61,6 +61,9 @@ internal fun Application.configureVehicleQueryFeature() {
                         call.auditVehicleDetail(actorId, vehicleId, null, "FAILURE")
                         throw VehicleNotFoundException()
                     }
+                    if (call.request.headers[LOCAL_QUERY_EVENT_MODE_HEADER] != LOCAL_QUERY_EVENT_MODE) {
+                        service.recordQueryEvent(actorId, detail)
+                    }
                     call.auditVehicleDetail(actorId, vehicleId, detail.normalizedPlate, "SUCCESS")
                     call.respond(detail.toResponse(service.catalogVersion()))
                 }
@@ -71,6 +74,9 @@ internal fun Application.configureVehicleQueryFeature() {
 
 private fun ApplicationCall.vehicleId(): Long = parameters["vehicleId"]?.toLongOrNull()
     ?: throw IllegalArgumentException("车辆标识无效")
+
+private const val LOCAL_QUERY_EVENT_MODE_HEADER = "X-PlateView-Query-Event-Mode"
+private const val LOCAL_QUERY_EVENT_MODE = "LOCAL_BATCH"
 
 private fun ApplicationCall.auditVehicleDetail(
     actorId: Long,
@@ -106,6 +112,7 @@ private fun VehicleSearchCandidate.toResponse(): VehicleSearchCandidateResponse 
     category = category.name,
     categoryLabel = category.displayName,
     organizationName = organizationName,
+    status = status,
 )
 
 private fun VehicleDetail.toResponse(catalogVersion: Long): VehicleDetailResponse = VehicleDetailResponse(
@@ -116,6 +123,7 @@ private fun VehicleDetail.toResponse(catalogVersion: Long): VehicleDetailRespons
     category = category.name,
     categoryLabel = category.displayName,
     vehicleType = vehicleType,
+    status = status,
     attributes = attributes,
     residentProfile = residentProfile?.let {
         ResidentVehicleProfileResponse(
@@ -161,6 +169,7 @@ private data class VehicleSearchCandidateResponse(
     val category: String,
     val categoryLabel: String,
     val organizationName: String?,
+    val status: String,
 )
 
 @Serializable
@@ -172,6 +181,7 @@ private data class VehicleDetailResponse(
     val category: String,
     val categoryLabel: String,
     val vehicleType: String?,
+    val status: String,
     val attributes: JsonObject,
     val residentProfile: ResidentVehicleProfileResponse?,
     val longTermProfile: LongTermVehicleProfileResponse?,

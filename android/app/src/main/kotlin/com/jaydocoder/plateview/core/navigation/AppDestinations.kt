@@ -6,6 +6,15 @@ import kotlinx.serialization.Serializable
 data object SearchDestination
 
 @Serializable
+data object ScheduleDestination
+
+@Serializable
+data object StatisticsDestination
+
+@Serializable
+data object ProfileDestination
+
+@Serializable
 data class VehicleDetailDestination(
     val vehicleId: Long,
 )

@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jaydocoder.plateview.data.admin.AdminImportFileReader
+import com.jaydocoder.plateview.data.admin.AdminUserAvatarRepository
 import com.jaydocoder.plateview.domain.admin.AdminRepository
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.AuditRange
@@ -29,6 +30,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     private val repository: AdminRepository,
     private val sessionProvider: AuthSessionProvider,
     private val importFileReader: AdminImportFileReader,
+    private val userAvatarRepository: AdminUserAvatarRepository? = null,
 ) : ViewModel() {
     private var vehicleSearchJob: Job? = null
     private val _uiState = MutableStateFlow(AdminUiState())
@@ -53,7 +55,7 @@ class AdminWorkspaceViewModel @Inject constructor(
             when (_uiState.value.tab) {
                 AdminTab.Dashboard -> loadDashboard(accessToken)
                 AdminTab.Vehicles -> Unit
-                AdminTab.Users -> _uiState.update { it.copy(users = repository.listUsers(accessToken)) }
+                AdminTab.Users -> loadUsers(accessToken)
                 AdminTab.Imports -> _uiState.update { it.copy(importBatches = repository.listImportBatches(accessToken)) }
                 AdminTab.Audit -> loadAuditEntries(accessToken, reset = true)
             }
@@ -168,7 +170,9 @@ class AdminWorkspaceViewModel @Inject constructor(
 
     fun editUser(userId: Long) {
         val user = _uiState.value.users.firstOrNull { it.id == userId } ?: return
-        _uiState.update { it.copy(userEditor = user.toEditor(), failure = null) }
+        _uiState.update { state ->
+            state.copy(userEditor = user.toEditor(state.canManageOtherUserProfiles), failure = null)
+        }
     }
 
     fun updateUserEditor(transform: (UserEditorState) -> UserEditorState) {
@@ -190,9 +194,47 @@ class AdminWorkspaceViewModel @Inject constructor(
             if (editor.id == null) {
                 repository.createUser(accessToken, UserCreateCommand(editor.username.trim(), editor.password, editor.role))
             } else {
-                repository.updateUser(accessToken, editor.id, editor.version, UserUpdateCommand(editor.role, editor.status))
+                repository.updateUser(
+                    accessToken,
+                    editor.id,
+                    editor.version,
+                    UserUpdateCommand(
+                        role = editor.role,
+                        status = editor.status,
+                        username = editor.username.trim().takeIf { editor.canEditProfile && it != editor.originalUsername },
+                        password = editor.password.takeIf { editor.canEditProfile && it.isNotBlank() },
+                    ),
+                )
             }
             _uiState.update { it.copy(isSaving = false, userEditor = null) }
+            loadUsers(accessToken)
+        }
+    }
+
+    fun uploadUserAvatar(uri: Uri) {
+        val editor = _uiState.value.userEditor ?: return
+        val avatarRepository = userAvatarRepository ?: return
+        if (editor.id == null || !editor.canEditProfile) return
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isSaving = true, failure = null) }
+            val version = avatarRepository.upload(accessToken, editor.id, editor.version, uri)
+            _uiState.update { state ->
+                state.copy(isSaving = false, userEditor = state.userEditor?.copy(version = version))
+            }
+            loadUsers(accessToken)
+        }
+    }
+
+    fun deleteUserAvatar() {
+        val editor = _uiState.value.userEditor ?: return
+        val avatarRepository = userAvatarRepository ?: return
+        if (editor.id == null || !editor.canEditProfile) return
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isSaving = true, failure = null) }
+            val version = avatarRepository.delete(accessToken, editor.id, editor.version)
+            _uiState.update { state ->
+                state.copy(isSaving = false, userEditor = state.userEditor?.copy(version = version))
+            }
             loadUsers(accessToken)
         }
     }
@@ -355,8 +397,26 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun loadUsers(accessToken: String) {
-        _uiState.update { it.copy(users = repository.listUsers(accessToken)) }
+        val users = repository.listUsers(accessToken)
+        val session = sessionProvider.session.first() ?: return
+        val avatars = users.associate { user ->
+            user.id to userAvatarRepository?.let { avatarRepository ->
+                runCatching {
+                    avatarRepository.load(accessToken, user.id, user.avatarVersion, user.hasAvatar)
+                }.getOrElse { com.jaydocoder.plateview.feature.auth.AvatarCacheEntry(null, null, user.avatarVersion) }
+            }.orEmptyAvatar(user.avatarVersion)
+        }
+        _uiState.update {
+            it.copy(
+                users = users,
+                userAvatars = avatars,
+                canManageOtherUserProfiles = session.role == "ADMIN" && session.username == "admin",
+            )
+        }
     }
+
+    private fun com.jaydocoder.plateview.feature.auth.AvatarCacheEntry?.orEmptyAvatar(version: Long) =
+        this ?: com.jaydocoder.plateview.feature.auth.AvatarCacheEntry(null, null, version)
 
     private suspend fun loadImports(accessToken: String) {
         _uiState.update { it.copy(importBatches = repository.listImportBatches(accessToken)) }

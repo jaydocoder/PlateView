@@ -13,6 +13,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedResidentProfile
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
+import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 
 data class AdminUiState(
     val tab: AdminTab = AdminTab.Dashboard,
@@ -29,6 +30,8 @@ data class AdminUiState(
     val creatableVehicleCategories: List<String> = emptyList(),
     val canChangeVehicleCategory: Boolean = false,
     val users: List<ManagedUser> = emptyList(),
+    val userAvatars: Map<Long, AvatarCacheEntry> = emptyMap(),
+    val canManageOtherUserProfiles: Boolean = false,
     val importBatches: List<ManagedImportBatchSummary> = emptyList(),
     val auditEntries: List<ManagedAuditEntry> = emptyList(),
     val auditFilter: AuditFilter = AuditFilter(),
@@ -128,7 +131,9 @@ data class UserEditorState(
     val id: Long? = null,
     val version: Int = 0,
     val username: String = "",
+    val originalUsername: String = "",
     val password: String = "",
+    val canEditProfile: Boolean = false,
     val role: String = "USER",
     val status: String = "ACTIVE",
     val error: String? = null,
@@ -164,10 +169,12 @@ fun ManagedVehicle.toEditor(): VehicleEditorState = VehicleEditorState(
     plateColor = attributes["plateColor"].orEmpty(),
 )
 
-fun ManagedUser.toEditor(): UserEditorState = UserEditorState(
+fun ManagedUser.toEditor(canEditProfile: Boolean): UserEditorState = UserEditorState(
     id = id,
     version = version,
     username = username,
+    originalUsername = username,
     role = role,
     status = status,
+    canEditProfile = canEditProfile,
 )

@@ -21,6 +21,7 @@ import com.jaydocoder.plateview.feature.admin.AdminTab
 import com.jaydocoder.plateview.feature.admin.AdminUiState
 import com.jaydocoder.plateview.feature.admin.VehicleEditorState
 import com.jaydocoder.plateview.feature.admin.AdminWorkspaceScreen
+import com.jaydocoder.plateview.feature.admin.toEditor
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -154,9 +155,65 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("operator").assertIsDisplayed()
-        composeRule.onNodeWithText("核验员").assertIsDisplayed()
-        composeRule.onNodeWithText("正常").assertIsDisplayed()
+        composeRule.onAllNodesWithText("operator").assertCountEquals(1)
+        composeRule.onAllNodesWithText("核验员").assertCountEquals(1)
+        composeRule.onAllNodesWithText("正常").assertCountEquals(1)
+    }
+
+    @Test
+    fun admin编辑账号时可显示资料与头像操作() {
+        val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Users,
+                        users = listOf(user),
+                        isLoading = false,
+                        userEditor = user.toEditor(canEditProfile = true),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("账号资料").assertIsDisplayed()
+        composeRule.onNodeWithText("新登录密码").assertIsDisplayed()
+        composeRule.onNodeWithText("更换头像").assertIsDisplayed()
+    }
+
+    @Test
+    fun 非admin管理员编辑账号时不显示资料与头像操作() {
+        val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Users,
+                        users = listOf(user),
+                        isLoading = false,
+                        userEditor = user.toEditor(canEditProfile = false),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("账号资料").assertCountEquals(0)
+        composeRule.onAllNodesWithText("新登录密码").assertCountEquals(0)
+        composeRule.onAllNodesWithText("更换头像").assertCountEquals(0)
     }
 
     @Test

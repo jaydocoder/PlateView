@@ -112,10 +112,33 @@ class ResumableApkDownloaderTest {
         assertTrue(!completedFile("0.4.4").exists())
     }
 
-    private fun update(versionName: String) = AppUpdate(
+    @Test
+    fun `首个下载源失败后从第二个下载源继续已有分片`() = runTest {
+        temporaryFile("0.4.5").writeText("hello")
+        server.enqueue(MockResponse().setResponseCode(500))
+        val mirror = MockWebServer().also { it.start() }
+        try {
+            mirror.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .addHeader("Content-Range", "bytes 5-10/11")
+                    .setBody(" world"),
+            )
+
+            val downloaded = downloader.download(update("0.4.5", mirror.url("/app-release.apk").toString())) {}
+
+            assertEquals("bytes=5-", server.takeRequest().getHeader("Range"))
+            assertEquals("bytes=5-", mirror.takeRequest().getHeader("Range"))
+            assertEquals("hello world", downloaded.readText())
+        } finally {
+            mirror.shutdown()
+        }
+    }
+
+    private fun update(versionName: String, mirrorUrl: String? = null) = AppUpdate(
         versionName = versionName,
         releaseNotes = "测试更新",
-        downloadUrl = server.url("/app-release.apk").toString(),
+        downloadUrls = listOfNotNull(server.url("/app-release.apk").toString(), mirrorUrl),
     )
 
     private fun temporaryFile(versionName: String) = File(downloadDirectory, "PlateView-$versionName.apk.part")

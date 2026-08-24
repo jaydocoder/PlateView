@@ -1,5 +1,6 @@
 package com.jaydocoder.plateview.server.admin
 
+import com.jaydocoder.plateview.server.auth.AvatarUpload
 import com.jaydocoder.plateview.server.vehicle.VehicleCategory
 import com.jaydocoder.plateview.server.vehicle.normalizePlate
 import java.sql.Connection
@@ -175,6 +176,20 @@ internal class AdminManagementService(
         command.validate()
         inTransaction { connection ->
             val existing = connection.findUserForUpdate(userId) ?: throw AdminResourceNotFoundException("账号不存在")
+            val profileChangeRequested = command.username != null || command.password != null
+            AdminUserProfilePolicy.requireModificationAllowed(
+                canManageOtherUserProfiles = connection.isPrimaryAdministrator(actorId),
+                profileChangeRequested = profileChangeRequested,
+            )
+            command.username?.trim()?.let { username ->
+                connection.prepareStatement("SELECT 1 FROM users WHERE username = ? AND id <> ?").use { statement ->
+                    statement.setString(1, username)
+                    statement.setLong(2, userId)
+                    statement.executeQuery().use { result ->
+                        if (result.next()) throw AdminValidationException("账号名称已存在")
+                    }
+                }
+            }
             if (userId == actorId && (command.role != AdminRole.ADMIN || command.status != AdminUserStatus.ACTIVE)) {
                 throw AdminValidationException("不能停用或降级当前登录管理员账号")
             }
@@ -185,8 +200,30 @@ internal class AdminManagementService(
                 throw AdminConflictException("至少保留一个启用的管理员账号")
             }
             val changed = connection.prepareStatement(UPDATE_USER).use { statement ->
-                statement.setString(1, command.role.name)
-                statement.setString(2, command.status.name)
+                statement.setNullableString(1, command.username?.trim())
+                statement.setNullableString(2, command.password?.let { BCrypt.hashpw(it, BCrypt.gensalt()) })
+                statement.setString(3, command.role.name)
+                statement.setString(4, command.status.name)
+                statement.setBoolean(5, profileChangeRequested)
+                statement.setLong(6, actorId)
+                statement.setLong(7, userId)
+                statement.setInt(8, expectedVersion)
+                statement.executeUpdate()
+            }
+            if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
+            if (profileChangeRequested) connection.revokeUserSessions(userId)
+        }
+        return getUser(userId)
+    }
+
+    fun updateUserAvatar(userId: Long, avatar: AvatarUpload, expectedVersion: Int, actorId: Long): AdminUserRecord {
+        userId.requirePositive("账号标识")
+        expectedVersion.requireNonNegative("账号版本")
+        inTransaction { connection ->
+            connection.requirePrimaryAdministrator(actorId)
+            val changed = connection.prepareStatement(UPDATE_USER_AVATAR).use { statement ->
+                statement.setBytes(1, avatar.content)
+                statement.setString(2, avatar.contentType)
                 statement.setLong(3, actorId)
                 statement.setLong(4, userId)
                 statement.setInt(5, expectedVersion)
@@ -195,6 +232,32 @@ internal class AdminManagementService(
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
         }
         return getUser(userId)
+    }
+
+    fun deleteUserAvatar(userId: Long, expectedVersion: Int, actorId: Long): AdminUserRecord {
+        userId.requirePositive("账号标识")
+        expectedVersion.requireNonNegative("账号版本")
+        inTransaction { connection ->
+            connection.requirePrimaryAdministrator(actorId)
+            val changed = connection.prepareStatement(DELETE_USER_AVATAR).use { statement ->
+                statement.setLong(1, actorId)
+                statement.setLong(2, userId)
+                statement.setInt(3, expectedVersion)
+                statement.executeUpdate()
+            }
+            if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
+        }
+        return getUser(userId)
+    }
+
+    fun userAvatar(userId: Long): AdminAvatarContent? = dataSource.connection.use { connection ->
+        connection.prepareStatement("SELECT avatar_content, avatar_content_type FROM users WHERE id = ?").use { statement ->
+            statement.setLong(1, userId.requirePositive("账号标识"))
+            statement.executeQuery().use { result ->
+                if (!result.next()) throw AdminResourceNotFoundException("账号不存在")
+                result.getBytes("avatar_content")?.let { AdminAvatarContent(it, result.getString("avatar_content_type")) }
+            }
+        }
     }
 
     fun listImportBatches(limit: Int, offset: Int): List<AdminImportBatchSummary> = dataSource.connection.use { connection ->
@@ -345,10 +408,12 @@ internal class AdminManagementService(
         version = getInt("version"),
         createdAt = getTimestamp("created_at").toIsoString(),
         updatedAt = getTimestamp("updated_at").toIsoString(),
+        avatarVersion = getLong("avatar_version"),
+        hasAvatar = getBytes("avatar_content") != null,
     )
 
     private fun Connection.findUserForUpdate(userId: Long): AdminUserRecord? = prepareStatement(
-        "SELECT id, username, role, status, version, created_at, updated_at FROM users WHERE id = ? FOR UPDATE",
+        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content FROM users WHERE id = ? FOR UPDATE",
     ).use { statement ->
         statement.setLong(1, userId)
         statement.executeQuery().use { result -> if (result.next()) result.toUserRecord() else null }
@@ -368,6 +433,17 @@ internal class AdminManagementService(
     ).use { statement ->
         statement.setLong(1, actorId)
         statement.executeQuery().use { it.next() }
+    }
+
+    private fun Connection.requirePrimaryAdministrator(actorId: Long) {
+        if (!isPrimaryAdministrator(actorId)) throw AdminPermissionException("仅admin账号可以修改其他账号的用户名、密码或头像")
+    }
+
+    private fun Connection.revokeUserSessions(userId: Long) {
+        prepareStatement("UPDATE refresh_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL").use { statement ->
+            statement.setLong(1, userId)
+            statement.executeUpdate()
+        }
     }
 
     private fun Connection.activeAdministratorCount(): Int = prepareStatement(
@@ -539,14 +615,14 @@ internal class AdminManagementService(
         const val DELETE_LONG_TERM_PROFILE = "DELETE FROM long_term_profiles WHERE vehicle_id = ?"
 
         const val SELECT_USERS = """
-            SELECT id, username, role, status, version, created_at, updated_at
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content
             FROM users
             ORDER BY username, id
             LIMIT ? OFFSET ?
         """
 
         const val SELECT_USER = """
-            SELECT id, username, role, status, version, created_at, updated_at
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content
             FROM users WHERE id = ?
         """
 
@@ -557,7 +633,21 @@ internal class AdminManagementService(
 
         const val UPDATE_USER = """
             UPDATE users
-            SET role = ?, status = ?, version = version + 1, updated_by = ?
+            SET username = COALESCE(?, username), password_hash = COALESCE(?, password_hash),
+                role = ?, status = ?, auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
+                version = version + 1, updated_by = ?
+            WHERE id = ? AND version = ?
+        """
+
+        const val UPDATE_USER_AVATAR = """
+            UPDATE users SET avatar_content = ?, avatar_content_type = ?, avatar_version = avatar_version + 1,
+                version = version + 1, updated_by = ?
+            WHERE id = ? AND version = ?
+        """
+
+        const val DELETE_USER_AVATAR = """
+            UPDATE users SET avatar_content = NULL, avatar_content_type = NULL, avatar_version = avatar_version + 1,
+                version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
 
@@ -637,6 +727,14 @@ internal object AdminVehicleCreationPolicy {
     }
 }
 
+internal object AdminUserProfilePolicy {
+    fun requireModificationAllowed(canManageOtherUserProfiles: Boolean, profileChangeRequested: Boolean) {
+        if (profileChangeRequested && !canManageOtherUserProfiles) {
+            throw AdminPermissionException("仅admin账号可以修改其他账号的用户名、密码或头像")
+        }
+    }
+}
+
 internal data class AdminVehicleListItem(
     val id: Long,
     val plateNumber: String,
@@ -691,6 +789,8 @@ internal data class AdminUserCreateCommand(
 internal data class AdminUserUpdateCommand(
     val role: AdminRole,
     val status: AdminUserStatus,
+    val username: String? = null,
+    val password: String? = null,
 )
 
 internal data class AdminUserRecord(
@@ -701,7 +801,11 @@ internal data class AdminUserRecord(
     val version: Int,
     val createdAt: String?,
     val updatedAt: String?,
+    val avatarVersion: Long,
+    val hasAvatar: Boolean,
 )
+
+internal data class AdminAvatarContent(val content: ByteArray, val contentType: String)
 
 internal data class AdminImportBatchSummary(
     val id: Long,
@@ -793,6 +897,7 @@ internal enum class AdminAuditResult {
 }
 
 internal class AdminResourceNotFoundException(message: String) : RuntimeException(message)
+internal class AdminPermissionException(message: String) : RuntimeException(message)
 internal class AdminValidationException(message: String) : RuntimeException(message)
 internal class AdminConflictException(message: String) : RuntimeException(message)
 internal class AdminPersistenceException(message: String, cause: Throwable) : RuntimeException(message, cause)
@@ -827,7 +932,10 @@ internal fun AdminUserCreateCommand.validate() {
     if (password.length < 6 || password.length > 128) throw AdminValidationException("密码长度应为6至128个字符")
 }
 
-internal fun AdminUserUpdateCommand.validate() = Unit
+internal fun AdminUserUpdateCommand.validate() {
+    username?.let { if (it.trim().length !in 3..64) throw AdminValidationException("账号名称长度应为3至64个字符") }
+    password?.let { if (it.length !in 6..128) throw AdminValidationException("密码长度应为6至128个字符") }
+}
 
 private fun AdminResidentProfile.validate() {
     if (ownerName.trim().length > 128 || identityCardNumber.trim().length > 32 || contactPhone.trimToNull()?.length ?: 0 > 32) {

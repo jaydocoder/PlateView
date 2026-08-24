@@ -35,6 +35,7 @@ services:
       - ./runtime/Caddyfile:/etc/caddy/runtime/Caddyfile:ro,Z
       - ./data/caddy:/data:Z
       - ./data/caddy-config:/config:Z
+      - ./updates:/srv/updates:ro,Z
     networks:
       - backend
       - edge

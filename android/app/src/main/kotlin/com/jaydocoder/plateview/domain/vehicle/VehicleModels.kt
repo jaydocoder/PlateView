@@ -9,6 +9,7 @@ data class VehicleCandidate(
     val category: String,
     val categoryLabel: String,
     val organizationName: String? = null,
+    val status: String = "ACTIVE",
 )
 
 data class VehicleDetail(
@@ -18,6 +19,7 @@ data class VehicleDetail(
     val category: String,
     val categoryLabel: String,
     val vehicleType: String?,
+    val status: String,
     val attributes: List<VehicleAttribute>,
     val residentProfile: ResidentProfile?,
     val longTermProfile: LongTermProfile?,

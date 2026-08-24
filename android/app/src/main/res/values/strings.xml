@@ -3,11 +3,11 @@
     <string name="search_title">喀纳斯车辆核验</string>
     <string name="search_subtitle">景区通行实时核验</string>
     <string name="search_logout">退出登录</string>
-    <string name="search_input_label">输入车牌号</string>
-    <string name="search_input_placeholder">输入车牌即可实时匹配</string>
-    <string name="search_awaiting_input">请输入有效车牌字符</string>
+    <string name="search_input_label">查询车辆档案</string>
+    <string name="search_input_placeholder">车牌、姓名、单位或备注</string>
+    <string name="search_awaiting_input">请输入有效查询字符</string>
     <string name="search_loading">正在查询车辆数据</string>
-    <string name="search_empty">未找到匹配车牌</string>
+    <string name="search_empty">未找到匹配车辆档案</string>
     <string name="search_service_unavailable">无法连接车辆数据服务</string>
     <string name="search_session_expired">登录状态已失效，请重新登录</string>
     <string name="search_retry">重新查询</string>

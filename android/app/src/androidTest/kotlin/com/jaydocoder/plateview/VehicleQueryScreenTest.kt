@@ -9,12 +9,14 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
+import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 import com.jaydocoder.plateview.feature.search.SearchScreen
 import com.jaydocoder.plateview.feature.search.SearchUiState
 import com.jaydocoder.plateview.feature.vehicle.VehicleDetailContent
@@ -27,6 +29,27 @@ import org.junit.Test
 class VehicleQueryScreenTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun 搜索框明确提示可按备注查询() {
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(),
+                    onQueryChanged = {},
+                    onCandidateSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("车牌、姓名、单位或备注").assertIsDisplayed()
+    }
 
     @Test
     fun 候选仅展示车牌和车辆所属类型并支持点击进入详情() {
@@ -43,15 +66,16 @@ class VehicleQueryScreenTest {
                     onDeleteHistory = {},
                     onClearHistory = {},
                     onRetry = {},
-                    onOpenAdmin = null,
-                    onLogout = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
                 )
             }
         }
 
-        composeRule.onNodeWithTag("search_input").assertIsDisplayed()
-        composeRule.onNodeWithText("新A12345").assertIsDisplayed()
-        composeRule.onNodeWithText("村民车辆").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("search_input").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("vehicle_plate_badge", useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithText("新A·12345").assertCountEquals(1)
+        composeRule.onAllNodesWithText("村民车辆").assertCountEquals(1)
         composeRule.onNodeWithTag("candidate_101").performClick()
 
         assertEquals(101L, selectedVehicleId)
@@ -72,8 +96,8 @@ class VehicleQueryScreenTest {
                     onDeleteHistory = {},
                     onClearHistory = {},
                     onRetry = {},
-                    onOpenAdmin = null,
-                    onLogout = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
                 )
             }
         }
@@ -105,8 +129,8 @@ class VehicleQueryScreenTest {
                     onDeleteHistory = {},
                     onClearHistory = {},
                     onRetry = {},
-                    onOpenAdmin = null,
-                    onLogout = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
                 )
             }
         }
@@ -118,6 +142,30 @@ class VehicleQueryScreenTest {
     }
 
     @Test
+    fun 停用车辆仍可展示并给出拉黑状态提示() {
+        val candidate = VehicleCandidate(107, "新A12351", "CADRE", "干部车辆", status = "INACTIVE")
+
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(candidates = listOf(candidate)),
+                    onQueryChanged = {},
+                    onCandidateSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("candidate_107").assertIsDisplayed()
+        composeRule.onNodeWithText("已拉黑 / 已停用").assertIsDisplayed()
+    }
+
+    @Test
     fun 详情页显示村民核验字段() {
         val vehicle = VehicleDetail(
             id = 101,
@@ -126,6 +174,7 @@ class VehicleQueryScreenTest {
             category = "RESIDENT",
             categoryLabel = "村民车辆",
             vehicleType = "小型汽车",
+            status = "ACTIVE",
             attributes = emptyList(),
             residentProfile = ResidentProfile(
                 ownerName = "测试姓名",
@@ -147,6 +196,8 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onNodeWithText("村民核验信息").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("景区道路插画").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("vehicle_plate_badge", useUnmergedTree = true).assertCountEquals(1)
         composeRule.onNodeWithText("测试姓名").assertIsDisplayed()
         composeRule.onNodeWithText("测试证件号").assertIsDisplayed()
     }
@@ -160,6 +211,7 @@ class VehicleQueryScreenTest {
             category = "RESIDENT",
             categoryLabel = "村民车辆",
             vehicleType = null,
+            status = "ACTIVE",
             attributes = emptyList(),
             residentProfile = ResidentProfile(
                 ownerName = null,
@@ -184,6 +236,34 @@ class VehicleQueryScreenTest {
     }
 
     @Test
+    fun 停用车辆详情显示通行资格限制() {
+        val vehicle = VehicleDetail(
+            id = 103,
+            plateNumber = "新A12347",
+            normalizedPlate = "新A12347",
+            category = "CADRE",
+            categoryLabel = "干部车辆",
+            vehicleType = null,
+            status = "INACTIVE",
+            attributes = emptyList(),
+            residentProfile = null,
+            longTermProfile = null,
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                VehicleDetailScreen(
+                    uiState = VehicleDetailUiState(VehicleDetailContent.Data(vehicle)),
+                    onNavigateUp = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("该车辆档案已停用，不具备有效通行核验资格").assertIsDisplayed()
+    }
+
+    @Test
     fun 历史记录显示后支持清空命令() {
         var clearCalled = false
         val history = SearchHistoryItem(
@@ -205,8 +285,8 @@ class VehicleQueryScreenTest {
                     onDeleteHistory = {},
                     onClearHistory = { clearCalled = true },
                     onRetry = {},
-                    onOpenAdmin = null,
-                    onLogout = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
                 )
             }
         }

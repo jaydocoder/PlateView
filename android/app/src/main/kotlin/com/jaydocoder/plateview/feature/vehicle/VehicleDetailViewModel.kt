@@ -5,8 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.jaydocoder.plateview.core.navigation.VehicleDetailDestination
+import com.jaydocoder.plateview.data.statistics.QueryEventSyncScheduler
+import com.jaydocoder.plateview.data.statistics.StatisticsRepository
 import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
+import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
+import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -23,10 +27,13 @@ class VehicleDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val vehicleRepository: VehicleRepository,
     private val vehicleCacheRepository: VehicleCacheRepository,
+    private val statisticsRepository: StatisticsRepository,
+    private val queryEventSyncScheduler: QueryEventSyncScheduler,
     private val sessionProvider: AuthSessionProvider,
 ) : ViewModel() {
     private val vehicleId = savedStateHandle.toRoute<VehicleDetailDestination>().vehicleId
     private val _uiState = MutableStateFlow(VehicleDetailUiState())
+    private var queryEventRecorded = false
 
     val uiState: StateFlow<VehicleDetailUiState> = _uiState.asStateFlow()
 
@@ -48,6 +55,7 @@ class VehicleDetailViewModel @Inject constructor(
                 vehicleCacheRepository.getDetail(vehicleId)
             }.getOrNull()
             if (cached != null) {
+                recordQueryOnce(session, cached.vehicle)
                 _uiState.update { it.copy(content = VehicleDetailContent.Data(cached.vehicle, isCached = true)) }
                 return@launch
             }
@@ -55,9 +63,9 @@ class VehicleDetailViewModel @Inject constructor(
             try {
                 _uiState.update { it.copy(content = VehicleDetailContent.Loading) }
                 val vehicle = vehicleRepository.getVehicle(session.accessToken, vehicleId)
+                recordQueryOnce(session, vehicle)
                 _uiState.update { it.copy(content = VehicleDetailContent.Data(vehicle)) }
             } catch (throwable: Throwable) {
-                if (cached != null) return@launch
                 val failure = when {
                     throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED -> {
                         sessionProvider.logout()
@@ -73,6 +81,13 @@ class VehicleDetailViewModel @Inject constructor(
                 _uiState.update { it.copy(content = VehicleDetailContent.Error(failure)) }
             }
         }
+    }
+
+    private suspend fun recordQueryOnce(session: AuthSession, vehicle: VehicleDetail) {
+        if (queryEventRecorded) return
+        statisticsRepository.recordQuery(session, vehicle)
+        queryEventRecorded = true
+        queryEventSyncScheduler.requestImmediateSync()
     }
 
     private companion object {

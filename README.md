@@ -85,7 +85,7 @@ android/app/build/outputs/apk/debug/app-debug.apk
 docker compose --env-file .env -f compose.production.yaml up -d
 ```
 
-服务端代码推送到 `main` 后，GitHub Actions 仅在 `server/**`、`compose.production.yaml`、`deploy/**` 或 `infra/**` 发生变化时触发服务器部署。服务器会拉取提交、备份数据库、构建候选镜像、执行迁移和健康检查；通过后才由 Caddy 平滑切换流量，失败则保留旧容器。
+服务端代码推送到 `main` 后，GitHub Actions 仅在 `server/**`、`compose.production.yaml`、`deploy/**` 或 `infra/**` 发生变化时触发服务器部署。服务器会拉取提交、备份数据库、构建候选镜像、执行迁移、核对 Flyway 无失败记录且已达到源码最高版本、再进行健康检查；通过后才由 Caddy 平滑切换流量，失败则保留旧容器。
 
 首次部署需要配置 `DEPLOY_SSH_KEY`、`DEPLOY_KNOWN_HOSTS`、`DEPLOY_HOST`、`DEPLOY_USER` 和 `DEPLOY_PORT` Secrets。完整初始化、蓝绿切换、备份恢复、回滚和排障步骤见：[部署运行手册](docs/12-部署运行手册.md)。
 
@@ -93,9 +93,9 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 `main` 分支每次推送会自动执行 Android 单元测试、静态检查并上传调试 APK 工件。
 
-推送形如 `v0.3.12` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。用户应从 [GitHub 发行版](https://github.com/jaydocoder/PlateView/releases) 下载正式 APK，而不是从 GitHub 软件包页面下载。
+推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`，同时同步同一签名 APK、SHA-256 校验值与更新清单到服务器。客户端优先从 GitHub 下载；GitHub 不可用或中途下载失败时，会复用未完成文件并从服务器镜像继续断点下载。
 
-当前版本：`0.3.14`（`versionCode 17`）。
+当前版本：`0.3.15`（`versionCode 18`）。
 
 ## 文档索引
 

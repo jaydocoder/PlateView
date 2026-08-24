@@ -6,6 +6,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.History
@@ -45,7 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -59,6 +58,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,21 +68,27 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
+import com.jaydocoder.plateview.component.InactiveVehicleContainerColor
+import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
+import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
+import com.jaydocoder.plateview.domain.vehicle.formatPlateForDisplay
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
+import com.jaydocoder.plateview.feature.auth.AvatarViewModel
+import com.jaydocoder.plateview.feature.profile.AvatarImage
 import java.text.DateFormat
 import java.util.Date
 
 @Composable
 fun SearchRoute(
     onNavigateToVehicle: (Long) -> Unit,
-    onNavigateToAdmin: (() -> Unit)?,
-    onLogout: () -> Unit,
-    onOpenUpdate: (() -> Unit)? = null,
+    onNavigateToProfile: () -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
+    avatarViewModel: AvatarViewModel = hiltViewModel(),
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
+    val avatarState = avatarViewModel.uiState.collectAsStateWithLifecycle().value
     val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(viewModel) {
@@ -108,9 +114,8 @@ fun SearchRoute(
         onDeleteHistory = viewModel::deleteHistory,
         onClearHistory = viewModel::clearHistory,
         onRetry = viewModel::retrySearch,
-        onOpenAdmin = onNavigateToAdmin,
-        onLogout = onLogout,
-        onOpenUpdate = onOpenUpdate,
+        avatar = avatarState.entry,
+        onOpenProfile = onNavigateToProfile,
     )
 }
 
@@ -124,66 +129,33 @@ fun SearchScreen(
     onDeleteHistory: (Long) -> Unit,
     onClearHistory: () -> Unit,
     onRetry: () -> Unit,
-    onOpenAdmin: (() -> Unit)?,
-    onLogout: () -> Unit,
+    avatar: com.jaydocoder.plateview.feature.auth.AvatarCacheEntry,
+    onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
-    onOpenUpdate: (() -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(42.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = CircleShape,
-                        ) {
-                            Image(
-                                painter = painterResource(R.drawable.ic_plateview_launcher_foreground),
-                                contentDescription = null,
-                                modifier = Modifier.padding(5.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = stringResource(R.string.search_title),
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                text = stringResource(R.string.search_subtitle),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.secondary,
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    onOpenUpdate?.let { openUpdate ->
-                        UpdateAvailableAction(onClick = openUpdate)
-                    }
-                    onOpenAdmin?.let { openAdmin ->
-                        IconButton(onClick = openAdmin) {
-                            Icon(
-                                imageVector = Icons.Outlined.AdminPanelSettings,
-                                contentDescription = "打开管理员工作台",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    IconButton(onClick = onLogout) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.Logout,
-                            contentDescription = stringResource(R.string.search_logout),
-                            tint = MaterialTheme.colorScheme.outline
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable(onClick = onOpenProfile),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        AvatarImage(avatar, Modifier.size(28.dp))
+                        Text(
+                            text = stringResource(R.string.search_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
             )
@@ -319,6 +291,8 @@ private fun SearchBar(
                 Text(
                     stringResource(R.string.search_input_placeholder),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
             leadingIcon = {
@@ -479,7 +453,7 @@ private fun VehicleCandidateRow(
             .testTag("candidate_${candidate.id}"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
+            containerColor = if (candidate.status == "INACTIVE") InactiveVehicleContainerColor else MaterialTheme.colorScheme.surface,
         ),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = PlateViewDimensions.cardElevation),
     ) {
@@ -489,7 +463,7 @@ private fun VehicleCandidateRow(
                 .padding(PlateViewDimensions.itemSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlateComponent(number = candidate.plateNumber)
+            VehiclePlateBadge(plateNumber = candidate.plateNumber)
             
             Spacer(modifier = Modifier.width(PlateViewDimensions.itemSpacing))
             
@@ -500,6 +474,9 @@ private fun VehicleCandidateRow(
                     fontWeight = FontWeight.SemiBold,
                     color = candidateCategoryColor(candidate.category),
                 )
+                if (candidate.status == "INACTIVE") {
+                    InactiveVehicleStatusBadge(modifier = Modifier.padding(top = 4.dp))
+                }
                 if (candidate.category == "OTHER_LONG_TERM") {
                     Text(
                         text = "单位名称：${candidate.organizationName.orEmpty().ifBlank { "未填写" }}",
@@ -580,7 +557,7 @@ private fun SearchHistoryRow(
                 modifier = Modifier.weight(1f),
             ) {
                 Text(
-                    text = item.plateNumber,
+                    text = formatPlateForDisplay(item.plateNumber),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium
                 )
@@ -601,32 +578,6 @@ private fun SearchHistoryRow(
                     tint = MaterialTheme.colorScheme.outline
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun PlateComponent(number: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-        modifier = Modifier
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.24f),
-                shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-            )
-            .shadow(1.dp, RoundedCornerShape(PlateViewDimensions.cornerSmall)),
-    ) {
-        Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
-            Text(
-                text = number,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
         }
     }
 }

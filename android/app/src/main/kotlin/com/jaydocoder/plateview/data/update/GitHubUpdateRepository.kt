@@ -24,10 +24,16 @@ import retrofit2.http.GET
 
 private const val RELEASE_ASSET_NAME = "app-release.apk"
 private const val GITHUB_API_BASE_URL = "https://api.github.com/"
+private const val SERVER_UPDATE_BASE_URL = "https://api.chenxiruyu.dpdns.org/updates/"
 
 interface GitHubReleaseApi {
     @GET("repos/jaydocoder/PlateView/releases/latest")
     suspend fun latestRelease(): GitHubReleaseDto
+}
+
+interface ServerUpdateApi {
+    @GET("latest.json")
+    suspend fun latestUpdate(): ServerUpdateDto
 }
 
 data class GitHubReleaseDto(
@@ -41,22 +47,42 @@ data class GitHubReleaseAssetDto(
     @SerializedName("browser_download_url") val browserDownloadUrl: String,
 )
 
+data class ServerUpdateDto(
+    val versionName: String,
+    val releaseNotes: String? = null,
+    val apkUrl: String,
+    val sha256: String,
+)
+
 @Singleton
 class GitHubUpdateRepository @Inject constructor(
     private val api: GitHubReleaseApi,
+    private val serverApi: ServerUpdateApi,
     @UpdateHttpClient private val client: OkHttpClient,
     @ApplicationContext private val context: Context,
 ) : AppUpdateRepository {
     override suspend fun findAvailableUpdate(): AppUpdate? {
-        val release = api.latestRelease()
-        val releaseVersion = AppVersion.parse(release.tagName) ?: return null
         val installedVersion = AppVersion.parse(BuildConfig.VERSION_NAME) ?: return null
-        if (releaseVersion <= installedVersion) return null
-        val asset = release.assets.firstOrNull { it.name == RELEASE_ASSET_NAME } ?: return null
+        val serverUpdate = runCatching { serverApi.latestUpdate() }.getOrNull()
+        val githubRelease = runCatching { api.latestRelease() }.getOrNull()
+        val githubUpdate = githubRelease?.let { release ->
+            val version = AppVersion.parse(release.tagName) ?: return@let null
+            val asset = release.assets.firstOrNull { it.name == RELEASE_ASSET_NAME } ?: return@let null
+            AvailableSource(version, release.tagName.removePrefix("v"), release.body.orEmpty().trim(), asset.browserDownloadUrl)
+        }
+        val serverSource = serverUpdate?.let { update ->
+            AppVersion.parse(update.versionName)?.let { version ->
+                AvailableSource(version, update.versionName.removePrefix("v"), update.releaseNotes.orEmpty().trim(), update.apkUrl)
+            }
+        }
+        val preferred = githubUpdate ?: serverSource ?: return null
+        if (preferred.version <= installedVersion) return null
+        val matchingServer = serverSource?.takeIf { it.version == preferred.version }
         return AppUpdate(
-            versionName = release.tagName.removePrefix("v"),
-            releaseNotes = release.body.orEmpty().trim(),
-            downloadUrl = asset.browserDownloadUrl,
+            versionName = preferred.versionName,
+            releaseNotes = preferred.releaseNotes.ifBlank { matchingServer?.releaseNotes.orEmpty() },
+            downloadUrls = listOfNotNull(preferred.downloadUrl, matchingServer?.downloadUrl).distinct(),
+            sha256 = serverUpdate?.takeIf { AppVersion.parse(it.versionName) == preferred.version }?.sha256,
         )
     }
 
@@ -68,6 +94,13 @@ class GitHubUpdateRepository @Inject constructor(
         downloadDirectory = java.io.File(context.cacheDir, "updates"),
     ).download(update, onProgress)
 }
+
+private data class AvailableSource(
+    val version: AppVersion,
+    val versionName: String,
+    val releaseNotes: String,
+    val downloadUrl: String,
+)
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
@@ -98,6 +131,15 @@ object AppUpdateNetworkModule {
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(GitHubReleaseApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideServerUpdateApi(@UpdateHttpClient client: OkHttpClient): ServerUpdateApi = Retrofit.Builder()
+        .baseUrl(SERVER_UPDATE_BASE_URL)
+        .client(client)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(ServerUpdateApi::class.java)
 }
 
 @Module

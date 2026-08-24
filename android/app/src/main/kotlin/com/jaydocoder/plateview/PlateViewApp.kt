@@ -16,6 +16,7 @@ import com.jaydocoder.plateview.feature.auth.AppSessionViewModel
 import com.jaydocoder.plateview.feature.auth.LoginScreen
 import com.jaydocoder.plateview.feature.update.AppUpdateDialog
 import com.jaydocoder.plateview.feature.update.AppUpdateViewModel
+import com.jaydocoder.plateview.feature.update.UpdateCheckDialog
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import java.io.File
 
@@ -46,6 +47,7 @@ fun PlateViewApp(
                         role = session.role,
                         onLogout = viewModel::logout,
                         onOpenUpdate = updateState.update?.let { updateViewModel::openUpdateDialog },
+                        onCheckForUpdate = updateViewModel::checkForUpdateFromUser,
                     )
                 }
             }
@@ -57,6 +59,13 @@ fun PlateViewApp(
                 onDownload = updateViewModel::downloadUpdate,
                 onInstall = onInstallUpdate,
                 onDismiss = updateViewModel::dismissUpdateDialog,
+            )
+        }
+        if (updateState.isManualCheckDialogVisible) {
+            UpdateCheckDialog(
+                state = updateState.manualCheckState,
+                onRetry = updateViewModel::checkForUpdateFromUser,
+                onDismiss = updateViewModel::dismissManualCheckDialog,
             )
         }
     }

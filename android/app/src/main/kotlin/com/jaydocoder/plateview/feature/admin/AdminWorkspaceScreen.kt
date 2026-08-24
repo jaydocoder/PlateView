@@ -44,7 +44,6 @@ import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.VerifiedUser
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -120,6 +119,10 @@ fun AdminWorkspaceRoute(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri -> uri?.let(viewModel::uploadImport) },
     )
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri -> uri?.let(viewModel::uploadUserAvatar) },
+    )
     AdminWorkspaceScreen(
         uiState = uiState,
         onNavigateUp = onNavigateUp,
@@ -140,6 +143,8 @@ fun AdminWorkspaceRoute(
         onUserEditorChanged = viewModel::updateUserEditor,
         onDismissUserEditor = viewModel::dismissUserEditor,
         onSaveUser = viewModel::saveUser,
+        onChooseUserAvatar = { avatarPicker.launch(SUPPORTED_AVATAR_MIME_TYPES) },
+        onDeleteUserAvatar = viewModel::deleteUserAvatar,
         onChooseImport = { documentPicker.launch(arrayOf(EXCEL_MIME_TYPE, LEGACY_EXCEL_MIME_TYPE)) },
         onOpenImportBatch = viewModel::openImportBatch,
         onDismissImportBatch = viewModel::dismissImportBatch,
@@ -182,6 +187,8 @@ fun AdminWorkspaceScreen(
     onUserEditorChanged: ((UserEditorState) -> UserEditorState) -> Unit,
     onDismissUserEditor: () -> Unit,
     onSaveUser: () -> Unit,
+    onChooseUserAvatar: () -> Unit = {},
+    onDeleteUserAvatar: () -> Unit = {},
     onChooseImport: () -> Unit,
     onOpenImportBatch: (Long) -> Unit,
     onDismissImportBatch: () -> Unit,
@@ -291,6 +298,7 @@ fun AdminWorkspaceScreen(
 
                         AdminTab.Users -> UsersPane(
                             items = uiState.users,
+                            avatars = uiState.userAvatars,
                             isSaving = uiState.isSaving,
                             onCreate = onCreateUser,
                             onEdit = onEditUser,
@@ -342,9 +350,12 @@ fun AdminWorkspaceScreen(
         UserEditorDialog(
             editor = editor,
             isSaving = uiState.isSaving,
+            avatar = editor.id?.let(uiState.userAvatars::get),
             onChanged = onUserEditorChanged,
             onDismiss = onDismissUserEditor,
             onSave = onSaveUser,
+            onChooseAvatar = onChooseUserAvatar,
+            onDeleteAvatar = onDeleteUserAvatar,
         )
     }
     uiState.pendingVehicleDeactivation?.let { vehicle ->
@@ -649,6 +660,7 @@ private fun AdminVehicleItem(
 @Composable
 private fun UsersPane(
     items: List<ManagedUser>,
+    avatars: Map<Long, com.jaydocoder.plateview.feature.auth.AvatarCacheEntry>,
     isSaving: Boolean,
     onCreate: () -> Unit,
     onEdit: (Long) -> Unit,
@@ -684,9 +696,10 @@ private fun UsersPane(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                        Text(item.username.take(1).uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
+                    com.jaydocoder.plateview.feature.profile.AvatarImage(
+                        entry = avatars[item.id] ?: com.jaydocoder.plateview.feature.auth.AvatarCacheEntry(null, null, item.avatarVersion),
+                        modifier = Modifier.size(40.dp),
+                    )
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(item.username, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1087,9 +1100,12 @@ private fun VehicleEditorDialog(
 private fun UserEditorDialog(
     editor: UserEditorState,
     isSaving: Boolean,
+    avatar: com.jaydocoder.plateview.feature.auth.AvatarCacheEntry?,
     onChanged: ((UserEditorState) -> UserEditorState) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
+    onChooseAvatar: () -> Unit,
+    onDeleteAvatar: () -> Unit,
 ) {
     AdminEditorDialog(
         title = if (editor.isCreate) "创建新账号" else "维护账号信息",
@@ -1115,6 +1131,33 @@ private fun UserEditorDialog(
                     shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                 )
             }
+        } else if (editor.canEditProfile) {
+            item { EditorSectionHeading("账号资料", "修改后目标账号需要重新登录") }
+            item { EditorTextField("用户名", editor.username) { value -> onChanged { it.copy(username = value, error = null) } } }
+            item {
+                OutlinedTextField(
+                    value = editor.password,
+                    onValueChange = { value -> onChanged { it.copy(password = value, error = null) } },
+                    label = { Text("新登录密码") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                )
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.jaydocoder.plateview.feature.profile.AvatarImage(
+                        entry = avatar ?: com.jaydocoder.plateview.feature.auth.AvatarCacheEntry(null, null, 0L),
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Button(onClick = onChooseAvatar, enabled = !isSaving) { Text("更换头像") }
+                    if (avatar?.file != null) {
+                        TextButton(onClick = onDeleteAvatar, enabled = !isSaving) { Text("删除") }
+                    }
+                }
+            }
         }
         item { EditorSectionHeading("访问权限", "决定可访问的管理范围") }
         item { ChoiceField("分配角色", editor.role, USER_ROLES) { value -> onChanged { it.copy(role = value) } } }
@@ -1135,93 +1178,69 @@ private fun AdminEditorDialog(
     saveLabel: String,
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
-    Dialog(
-        onDismissRequest = { if (!isSaving) onDismiss() },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(PlateViewDimensions.pageHorizontal)
-                .heightIn(max = 700.dp),
-            shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(PlateViewDimensions.itemSpacing),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                        shape = CircleShape,
-                    ) {
-                        Icon(
-                            icon,
-                            contentDescription = null,
-                            modifier = Modifier.padding(10.dp).size(22.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    Spacer(Modifier.width(PlateViewDimensions.itemSpacing))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                    TextButton(onClick = onDismiss, enabled = !isSaving) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
-                    }
+    AdminFullScreenWorkspace(
+        title = title,
+        subtitle = subtitle,
+        onDismiss = { if (!isSaving) onDismiss() },
+        bottomBar = {
+            TextButton(onClick = onDismiss, enabled = !isSaving) { Text("取消") }
+            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+            Button(onClick = onSave, enabled = !isSaving) {
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    Text("正在保存")
+                } else {
+                    Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                    Text(saveLabel)
                 }
+            }
+        },
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = PlateViewDimensions.pageHorizontal),
+            contentPadding = PaddingValues(vertical = PlateViewDimensions.itemSpacing),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
+        ) {
+            item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.56f),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                 ) {
-                    Text(
-                        identity,
-                        modifier = Modifier.padding(horizontal = PlateViewDimensions.itemSpacing, vertical = PlateViewDimensions.compactSpacing),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .padding(horizontal = PlateViewDimensions.itemSpacing, vertical = PlateViewDimensions.itemSpacing),
-                    verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
-                    content = content,
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(PlateViewDimensions.itemSpacing),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onDismiss, enabled = !isSaving) { Text("取消") }
-                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-                    Button(onClick = onSave, enabled = !isSaving) {
-                        if (isSaving) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
+                    Row(
+                        modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            shape = CircleShape,
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = null,
+                                modifier = Modifier.padding(10.dp).size(22.dp),
+                                tint = MaterialTheme.colorScheme.primary,
                             )
-                            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-                            Text("正在保存")
-                        } else {
-                            Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-                            Text(saveLabel)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("正在编辑", style = MaterialTheme.typography.labelMedium)
+                            Text(identity, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
+            content()
         }
     }
 }
@@ -1281,7 +1300,7 @@ private fun VehicleDeactivationDialog(
                 Text("停用车辆档案", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(PlateViewDimensions.tinySpacing))
                 Text(
-                    "${vehicle.plateNumber} 将不再出现在普通查询结果中。",
+                    "${vehicle.plateNumber} 仍可查询，但会以红色状态明确标注为已停用。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1358,13 +1377,37 @@ private fun ImportBatchDialog(
             .collect { nearEnd -> if (nearEnd) onLoadMore() }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("数据差异核对", fontWeight = FontWeight.Bold) },
-        text = {
+    AdminFullScreenWorkspace(
+        title = "数据差异核对",
+        subtitle = batch.sourceFileName,
+        onDismiss = onDismiss,
+        bottomBar = {
+            if (batch.status == "PUBLISHED") {
+                OutlinedButton(
+                    onClick = onRollback,
+                    enabled = !isSaving,
+                    modifier = Modifier.testTag("admin_rollback_import"),
+                ) { Text("撤销发布") }
+            } else {
+                Button(
+                    onClick = onPublish,
+                    enabled = !isSaving && batch.stats.pendingReviewRows == 0 && batch.stats.publishableRows > 0,
+                    modifier = Modifier.testTag("admin_publish_import"),
+                ) {
+                    Text(if (batch.status == "ROLLED_BACK") "重新发布数据" else "正式发布数据")
+                }
+            }
+        },
+    ) { contentPadding ->
             LazyColumn(
                 state = listState,
-                modifier = Modifier.heightIn(max = 500.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = PlateViewDimensions.pageHorizontal,
+                    end = PlateViewDimensions.pageHorizontal,
+                    top = contentPadding.calculateTopPadding() + PlateViewDimensions.itemSpacing,
+                    bottom = contentPadding.calculateBottomPadding() + PlateViewDimensions.itemSpacing,
+                ),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
                 item {
@@ -1435,29 +1478,7 @@ private fun ImportBatchDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            if (batch.status == "PUBLISHED") {
-                OutlinedButton(
-                    onClick = { onRollback() },
-                    enabled = !isSaving,
-                    modifier = Modifier.testTag("admin_rollback_import"),
-                ) {
-                    Text("撤销发布")
-                }
-            } else {
-                Button(
-                    onClick = { onPublish() },
-                    enabled = !isSaving && batch.stats.pendingReviewRows == 0 && batch.stats.publishableRows > 0,
-                    modifier = Modifier.testTag("admin_publish_import"),
-                ) {
-                    Text(if (batch.status == "ROLLED_BACK") "重新发布数据" else "正式发布数据")
-                }
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isSaving) { Text("关闭预览") } },
-        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge)
-    )
+    }
 }
 
 @Composable
@@ -1499,43 +1520,16 @@ private fun ImportRowDetailDialog(
     onResolution: (Long, String) -> Unit,
 ) {
     val row = detail.row
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(row.importDetailLabel(), fontWeight = FontWeight.Bold) },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
-                item {
-                    Text(row.plateNumber ?: "未识别车牌", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(row.importActionLabel(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    row.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                    row.warningMessage?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall) }
-                }
-                items(detail.sections, key = ManagedImportDiffSection::title) { section ->
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(section.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        section.fields.forEach { field ->
-                            Column {
-                                Text(field.label, style = MaterialTheme.typography.labelMedium)
-                                Text("原值：${field.before.displayImportValue()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                                Text("新值：${field.after.displayImportValue()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
-                if (detail.sourceValues.isNotEmpty()) {
-                    item {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Excel 源字段", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                            detail.sourceValues.forEach { value ->
-                                Text("${value.label}：${value.value}", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
+    AdminFullScreenWorkspace(
+        title = row.importDetailLabel(),
+        subtitle = row.plateNumber ?: "未识别车牌",
+        onDismiss = onDismiss,
+        bottomBar = {
             if (row.resolution == "PENDING") {
+                OutlinedButton(onClick = { onResolution(row.id, "SKIP") }, enabled = !isSaving) {
+                    Text(row.importSkipLabel())
+                }
+                Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
                 Button(
                     onClick = { onResolution(row.id, "PUBLISH") },
                     enabled = !isSaving,
@@ -1545,15 +1539,122 @@ private fun ImportRowDetailDialog(
                 TextButton(onClick = onDismiss) { Text("关闭") }
             }
         },
-        dismissButton = {
-            if (row.resolution == "PENDING") {
-                OutlinedButton(onClick = { onResolution(row.id, "SKIP") }, enabled = !isSaving) {
-                    Text(row.importSkipLabel())
+    ) { contentPadding ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = PlateViewDimensions.pageHorizontal,
+                    end = PlateViewDimensions.pageHorizontal,
+                    top = contentPadding.calculateTopPadding() + PlateViewDimensions.itemSpacing,
+                    bottom = contentPadding.calculateBottomPadding() + PlateViewDimensions.itemSpacing,
+                ),
+                verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+            ) {
+                item {
+                    Surface(
+                        color = row.importActionColor(),
+                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    ) {
+                        Column(modifier = Modifier.padding(PlateViewDimensions.itemSpacing)) {
+                            Text(row.importActionLabel(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            if (row.sourceRowNumber > 0) {
+                                Text("Excel 第${row.sourceRowNumber}行", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    row.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    row.warningMessage?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall) }
+                }
+                items(detail.sections, key = ManagedImportDiffSection::title) { section ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
+                            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+                        ) {
+                        Text(section.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        section.fields.forEach { field ->
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(field.label, style = MaterialTheme.typography.labelLarge)
+                                Text("原值  ${field.before.displayImportValue()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("新值  ${field.after.displayImportValue()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        }
+                    }
+                }
+                if (detail.sourceValues.isNotEmpty()) {
+                    item {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
+                                verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+                            ) {
+                            Text("Excel 源字段", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            detail.sourceValues.forEach { value ->
+                                Text("${value.label}：${value.value}", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            }
+                        }
+                    }
                 }
             }
-        },
-        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-    )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AdminFullScreenWorkspace(
+    title: String,
+    subtitle: String,
+    onDismiss: () -> Unit,
+    bottomBar: @Composable () -> Unit,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                            }
+                        },
+                    )
+                },
+                bottomBar = {
+                    Column {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(PlateViewDimensions.itemSpacing),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            bottomBar()
+                        }
+                    }
+                },
+                content = content,
+            )
+        }
+    }
 }
 
 private fun ManagedImportRow.importActionLabel(): String = when (plannedAction) {
@@ -1700,4 +1801,5 @@ private val USER_STATUSES = listOf(ChoiceOption("ACTIVE", "启用"), ChoiceOptio
 
 private const val EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 private const val LEGACY_EXCEL_MIME_TYPE = "application/vnd.ms-excel"
+private val SUPPORTED_AVATAR_MIME_TYPES = arrayOf("image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp")
 private const val LOAD_MORE_TRIGGER_DISTANCE = 4

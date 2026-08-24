@@ -66,6 +66,7 @@ private fun VehicleCandidateDto.toDomain(): VehicleCandidate = VehicleCandidate(
     category = category,
     categoryLabel = categoryLabel,
     organizationName = organizationName,
+    status = status,
 )
 
 private fun VehicleDetailDto.toDomain(): VehicleDetail = VehicleDetail(
@@ -75,6 +76,7 @@ private fun VehicleDetailDto.toDomain(): VehicleDetail = VehicleDetail(
     category = category,
     categoryLabel = categoryLabel,
     vehicleType = vehicleType,
+    status = status,
     attributes = attributes.entrySet()
         .mapNotNull { (key, value) ->
             value.takeIf { it.isJsonPrimitive && !it.isJsonNull }

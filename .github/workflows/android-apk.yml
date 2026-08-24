@@ -102,3 +102,31 @@ jobs:
         with:
           generate_release_notes: true
           files: android/app/build/outputs/apk/release/app-release.apk
+
+      - name: 同步 APK 镜像与更新清单到服务器
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PORT"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/plateview_deploy"
+          chmod 600 "$HOME/.ssh/plateview_deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          sha256=$(sha256sum "$apk" | awk '{print $1}')
+          remote="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh_args=(-i "$HOME/.ssh/plateview_deploy" -o BatchMode=yes -o StrictHostKeyChecking=yes -p "$DEPLOY_PORT")
+          remote_apk="/opt/plateview/updates/PlateView-${VERSION}.apk"
+          ssh "${ssh_args[@]}" "$remote" "mkdir -p /opt/plateview/updates"
+          scp "${ssh_args[@]}" "$apk" "$remote:${remote_apk}.upload"
+          ssh "${ssh_args[@]}" "$remote" \
+            "set -eu; test \"\$(sha256sum '${remote_apk}.upload' | awk '{print \$1}')\" = '$sha256'; mv '${remote_apk}.upload' '$remote_apk'; printf '{\\\"versionName\\\":\\\"%s\\\",\\\"releaseNotes\\\":\\\"\\\",\\\"apkUrl\\\":\\\"https://api.chenxiruyu.dpdns.org/updates/PlateView-%s.apk\\\",\\\"sha256\\\":\\\"%s\\\"}\\n' '$VERSION' '$VERSION' '$sha256' > /opt/plateview/updates/latest.json.next; mv /opt/plateview/updates/latest.json.next /opt/plateview/updates/latest.json; ls -1t /opt/plateview/updates/PlateView-v*.apk | tail -n +6 | xargs -r rm -f"

@@ -83,14 +83,59 @@ class AppUpdateViewModelTest {
         assertTrue(state is UpdateDownloadState.Failed)
         assertEquals("网络不可用", (state as UpdateDownloadState.Failed).message)
     }
+
+    @Test
+    fun `用户手动检查且没有新版本时显示已是最新版本`() = runTest {
+        val viewModel = AppUpdateViewModel(FakeAppUpdateRepository())
+
+        viewModel.checkForUpdateFromUser()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.update)
+        assertEquals(true, viewModel.uiState.value.isManualCheckDialogVisible)
+        assertEquals(ManualUpdateCheckState.Latest, viewModel.uiState.value.manualCheckState)
+    }
+
+    @Test
+    fun `用户手动检查发现新版本时自动打开更新详情`() = runTest {
+        val update = AppUpdate("0.3.15", "新增手动检查更新", "https://example.com/app-release.apk")
+        val viewModel = AppUpdateViewModel(FakeAppUpdateRepository(update = update))
+
+        viewModel.checkForUpdateFromUser()
+        advanceUntilIdle()
+
+        assertEquals(update, viewModel.uiState.value.update)
+        assertEquals(true, viewModel.uiState.value.isUpdateDialogVisible)
+        assertEquals(false, viewModel.uiState.value.isManualCheckDialogVisible)
+    }
+
+    @Test
+    fun `用户手动检查失败时显示重试状态`() = runTest {
+        val viewModel = AppUpdateViewModel(
+            FakeAppUpdateRepository(checkFailure = IllegalStateException("更新服务不可用")),
+        )
+
+        viewModel.checkForUpdateFromUser()
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.uiState.value.isManualCheckDialogVisible)
+        assertEquals(
+            ManualUpdateCheckState.Failed("更新服务不可用"),
+            viewModel.uiState.value.manualCheckState,
+        )
+    }
 }
 
 private class FakeAppUpdateRepository(
     private val update: AppUpdate? = null,
     private val downloadedFile: File = File("/tmp/PlateView.apk"),
     private val downloadFailure: Throwable? = null,
+    private val checkFailure: Throwable? = null,
 ) : AppUpdateRepository {
-    override suspend fun findAvailableUpdate(): AppUpdate? = update
+    override suspend fun findAvailableUpdate(): AppUpdate? {
+        checkFailure?.let { throw it }
+        return update
+    }
 
     override suspend fun download(
         update: AppUpdate,

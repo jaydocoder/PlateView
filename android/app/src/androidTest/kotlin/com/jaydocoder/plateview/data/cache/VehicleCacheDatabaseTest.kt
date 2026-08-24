@@ -74,11 +74,32 @@ class VehicleCacheDatabaseTest {
         assertEquals(null, dao.getDetail(1))
     }
 
+    @Test
+    fun 备注内容可在离线快照中模糊匹配() = runBlocking {
+        val dao = database.vehicleCacheDao()
+        dao.insertSnapshots(
+            listOf(
+                snapshot(
+                    generation = 11,
+                    vehicleId = 1,
+                    plateNumber = "新A12345",
+                    searchableText = "新A12345 专项通行保障车辆",
+                ),
+            ),
+        )
+        dao.promoteGeneration(11, 7, 100, 100)
+
+        val result = dao.searchCandidates("保障", 20)
+
+        assertEquals(listOf(1L), result.map { it.vehicleId })
+    }
+
     private fun snapshot(
         generation: Long,
         vehicleId: Long,
         plateNumber: String,
         category: String = "RESIDENT",
+        searchableText: String = plateNumber,
     ): VehicleSnapshotCacheEntity =
         VehicleSnapshotCacheEntity(
             generation = generation,
@@ -88,6 +109,8 @@ class VehicleCacheDatabaseTest {
             category = category,
             categoryLabel = if (category == "RESIDENT") "村民车辆" else "驻景区单位车辆",
             organizationName = null,
+            status = "ACTIVE",
+            searchableText = searchableText,
             detailJson = "{}",
         )
 }

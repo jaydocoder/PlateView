@@ -86,6 +86,7 @@ private fun VehicleSnapshotCacheEntity.toCandidate(): VehicleCandidate = Vehicle
     category = category,
     categoryLabel = categoryLabel,
     organizationName = organizationName,
+    status = status,
 )
 
 private fun VehicleDetail.toEntity(generation: Long, gson: Gson): VehicleSnapshotCacheEntity = VehicleSnapshotCacheEntity(
@@ -96,5 +97,14 @@ private fun VehicleDetail.toEntity(generation: Long, gson: Gson): VehicleSnapsho
     category = category,
     categoryLabel = categoryLabel,
     organizationName = longTermProfile?.organizationName,
+    status = status,
+    searchableText = listOfNotNull(
+        plateNumber,
+        longTermProfile?.organizationName,
+        longTermProfile?.passHolder,
+        longTermProfile?.remarks,
+        residentProfile?.ownerName,
+        residentProfile?.remarks,
+    ).joinToString(separator = " ", transform = PlateQueryNormalizer::normalize),
     detailJson = gson.toJson(this),
 )

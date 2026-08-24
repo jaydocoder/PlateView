@@ -18,10 +18,15 @@ internal class VehicleQueryService(
         return dataSource.connection.use { connection ->
             connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
                 statement.setString(1, "%$normalizedKeyword%")
-                statement.setString(2, VehicleCategory.RESIDENT.name)
-                statement.setString(3, normalizedKeyword)
-                statement.setString(4, "$normalizedKeyword%")
-                statement.setInt(5, MAXIMUM_SEARCH_RESULT_COUNT)
+                statement.setString(2, "%$normalizedKeyword%")
+                statement.setString(3, "%$normalizedKeyword%")
+                statement.setString(4, "%$normalizedKeyword%")
+                statement.setString(5, "%$normalizedKeyword%")
+                statement.setString(6, "%$normalizedKeyword%")
+                statement.setString(7, VehicleCategory.RESIDENT.name)
+                statement.setString(8, normalizedKeyword)
+                statement.setString(9, "$normalizedKeyword%")
+                statement.setInt(10, MAXIMUM_SEARCH_RESULT_COUNT)
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) add(result.toSearchCandidate())
@@ -43,6 +48,20 @@ internal class VehicleQueryService(
         }
     }
 
+    fun recordQueryEvent(actorId: Long, vehicle: VehicleDetail) {
+        dataSource.connection.use { connection ->
+            connection.prepareStatement(
+                "INSERT INTO vehicle_query_events (actor_id, vehicle_id, category, vehicle_type) VALUES (?, ?, ?, ?)",
+            ).use { statement ->
+                statement.setLong(1, actorId)
+                statement.setLong(2, vehicle.id)
+                statement.setString(3, vehicle.category.name)
+                statement.setString(4, vehicle.vehicleType)
+                statement.executeUpdate()
+            }
+        }
+    }
+
     fun catalogVersion(): Long = catalogRevision()
 
     fun catalog(limit: Int, offset: Int): VehicleCatalogPage {
@@ -54,7 +73,7 @@ internal class VehicleQueryService(
                 statement.setInt(2, offset.coerceAtLeast(0))
                 statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
             }
-            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status = 'ACTIVE'").use { statement ->
+            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles").use { statement ->
                 statement.executeQuery().use { result -> result.next(); result.getInt(1) }
             }
             VehicleCatalogPage(revision, total, items)
@@ -112,6 +131,7 @@ internal class VehicleQueryService(
             plateNumber = getString("plate_number"),
             category = category,
             organizationName = getString("organization_name"),
+            status = getString("status"),
         )
     }
 
@@ -123,6 +143,7 @@ internal class VehicleQueryService(
             normalizedPlate = getString("normalized_plate"),
             category = category,
             vehicleType = getString("vehicle_type"),
+            status = getString("status"),
             attributes = Json.parseToJsonElement(getString("attributes")).jsonObject,
             residentProfile = if (getObject("resident_profile_id") == null) null else ResidentVehicleProfile(
                 ownerName = getString("owner_name"),
@@ -141,11 +162,20 @@ internal class VehicleQueryService(
 
     private companion object {
         const val SEARCH_VEHICLES = """
-            SELECT v.id, v.plate_number, v.category, lp.organization_name
+            SELECT v.id, v.plate_number, v.category, v.status, lp.organization_name
             FROM vehicles v
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status = 'ACTIVE' AND v.normalized_plate LIKE ?
+            LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
+            WHERE (
+                v.normalized_plate LIKE ?
+                OR lp.organization_name ILIKE ?
+                OR lp.pass_holder ILIKE ?
+                OR rp.owner_name ILIKE ?
+                OR lp.remarks ILIKE ?
+                OR rp.remarks ILIKE ?
+            )
             ORDER BY
+                CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END,
                 CASE WHEN v.category = ? THEN 0 ELSE 1 END,
                 CASE
                     WHEN v.normalized_plate = ? THEN 0
@@ -159,13 +189,13 @@ internal class VehicleQueryService(
         """
 
         const val CATALOG_VEHICLES = """
-            SELECT v.id, v.plate_number, v.category, lp.organization_name
+            SELECT v.id, v.plate_number, v.category, v.status, lp.organization_name
             FROM vehicles v
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status = 'ACTIVE' ORDER BY v.normalized_plate, v.id LIMIT ? OFFSET ?
+            ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id LIMIT ? OFFSET ?
         """
         const val SELECT_VEHICLE_DETAIL = """
-            SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.attributes::text,
+            SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.attributes::text,
                    rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
                    rp.remarks AS resident_remarks,
                    lp.id AS long_term_profile_id, lp.organization_name, lp.pass_holder, lp.passage_details,
@@ -173,11 +203,11 @@ internal class VehicleQueryService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.id = ? AND v.status = 'ACTIVE'
+            WHERE v.id = ?
         """
 
         const val SELECT_FULL_CATALOG = """
-            SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.attributes::text,
+            SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.attributes::text,
                    rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
                    rp.remarks AS resident_remarks,
                    lp.id AS long_term_profile_id, lp.organization_name, lp.pass_holder, lp.passage_details,
@@ -185,8 +215,7 @@ internal class VehicleQueryService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status = 'ACTIVE'
-            ORDER BY v.normalized_plate, v.id
+            ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id
         """
     }
 }
@@ -197,6 +226,7 @@ internal data class VehicleSearchCandidate(
     val plateNumber: String,
     val category: VehicleCategory,
     val organizationName: String?,
+    val status: String,
 )
 
 @Serializable
@@ -206,6 +236,7 @@ internal data class VehicleDetail(
     val normalizedPlate: String,
     val category: VehicleCategory,
     val vehicleType: String?,
+    val status: String,
     val attributes: JsonObject,
     val residentProfile: ResidentVehicleProfile?,
     val longTermProfile: LongTermVehicleProfile?,
@@ -235,7 +266,7 @@ internal data class VehicleFullCatalogSnapshot(val revision: Long, val items: Li
 
 internal data class VehicleFullCatalogPage(val revision: Long, val total: Int, val items: List<VehicleDetail>)
 
-internal class VehicleSearchKeywordException : RuntimeException("请输入有效车牌字符")
+internal class VehicleSearchKeywordException : RuntimeException("请输入至少一个车牌、姓名或单位字符")
 
 internal class VehicleCatalogVersionConflictException : RuntimeException("车辆目录已更新，请重新同步")
 

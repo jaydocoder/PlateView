@@ -4,11 +4,13 @@ import com.jaydocoder.plateview.server.imports.ImportBatchNotFoundException
 import com.jaydocoder.plateview.server.imports.ImportFileInvalidException
 import com.jaydocoder.plateview.server.imports.ImportWorkflowConflictException
 import com.jaydocoder.plateview.server.admin.AdminConflictException
+import com.jaydocoder.plateview.server.admin.AdminPermissionException
 import com.jaydocoder.plateview.server.admin.AdminResourceNotFoundException
 import com.jaydocoder.plateview.server.admin.AdminValidationException
 import com.jaydocoder.plateview.server.vehicle.VehicleNotFoundException
 import com.jaydocoder.plateview.server.vehicle.VehicleSearchKeywordException
 import com.jaydocoder.plateview.server.vehicle.VehicleCatalogVersionConflictException
+import com.jaydocoder.plateview.server.auth.ProfileConflictException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.application
@@ -93,6 +95,13 @@ internal fun Application.configureErrorHandling() {
             )
         }
 
+        exception<AdminPermissionException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.Forbidden,
+                message = ApiErrorResponse("ADMIN_PERMISSION_DENIED", cause.message ?: "没有此管理权限", call.callId),
+            )
+        }
+
         exception<AdminValidationException> { call, cause ->
             call.respond(
                 status = HttpStatusCode.BadRequest,
@@ -104,6 +113,13 @@ internal fun Application.configureErrorHandling() {
             call.respond(
                 status = HttpStatusCode.Conflict,
                 message = ApiErrorResponse("ADMIN_CONFLICT", cause.message ?: "数据已被其他管理员修改", call.callId),
+            )
+        }
+
+        exception<ProfileConflictException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.Conflict,
+                message = ApiErrorResponse("PROFILE_CONFLICT", cause.message ?: "账号资料冲突", call.callId),
             )
         }
 

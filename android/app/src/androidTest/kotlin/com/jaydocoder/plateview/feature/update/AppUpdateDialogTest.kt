@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.jaydocoder.plateview.BuildConfig
 import com.jaydocoder.plateview.PlateViewTheme
 import com.jaydocoder.plateview.domain.update.AppUpdate
 import org.junit.Assert.assertTrue
@@ -31,6 +32,8 @@ class AppUpdateDialogTest {
         }
 
         composeRule.onNodeWithText("发现新版本").assertExists()
+        composeRule.onNodeWithText("当前版本 v${BuildConfig.VERSION_NAME}").assertExists()
+        composeRule.onNodeWithText("最新版本 v0.3.3").assertExists()
         composeRule.onNodeWithText("v0.3.3").assertExists()
         composeRule.onNodeWithText("立即更新").performClick()
 
@@ -50,5 +53,21 @@ class AppUpdateDialogTest {
         composeRule.onNodeWithContentDescription("发现新版本，查看更新").assertExists()
 
         composeRule.runOnIdle { assertTrue(openRequested) }
+    }
+
+    @Test
+    fun 手动检查无新版本时显示已是最新版本() {
+        composeRule.setContent {
+            PlateViewTheme {
+                UpdateCheckDialog(
+                    state = ManualUpdateCheckState.Latest,
+                    onRetry = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("已是最新版本").assertExists()
+        composeRule.onNodeWithText("当前版本 v${BuildConfig.VERSION_NAME} 已是最新版本。").assertExists()
     }
 }

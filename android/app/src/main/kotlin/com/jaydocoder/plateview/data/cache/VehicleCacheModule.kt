@@ -28,7 +28,12 @@ object VehicleCacheDatabaseModule {
             VehicleCacheDatabase::class.java,
             "vehicle-cache.db",
         ).openHelperFactory(SupportFactory(passphrase.getOrCreate()))
-            .addMigrations(VehicleCacheDatabase.MIGRATION_1_2, VehicleCacheDatabase.MIGRATION_2_3)
+            .addMigrations(
+                VehicleCacheDatabase.MIGRATION_1_2,
+                VehicleCacheDatabase.MIGRATION_2_3,
+                VehicleCacheDatabase.MIGRATION_3_4,
+                VehicleCacheDatabase.MIGRATION_4_5,
+            )
             .build()
     }
 

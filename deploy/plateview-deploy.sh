@@ -10,6 +10,7 @@ readonly LOG_DIR="$APP_DIR/logs/deploy"
 readonly LOCK_FILE="$RUNTIME_DIR/deploy.lock"
 readonly COMPOSE_FILE="$SOURCE_DIR/compose.production.yaml"
 readonly CADDY_CONTAINER="${PLATEVIEW_CADDY_CONTAINER:-plateview-caddy-1}"
+readonly POSTGRES_CONTAINER="${PLATEVIEW_POSTGRES_CONTAINER:-plateview-postgres-1}"
 readonly BACKEND_NETWORK="${PLATEVIEW_BACKEND_NETWORK:-plateview_backend}"
 readonly EDGE_NETWORK="${PLATEVIEW_EDGE_NETWORK:-plateview_edge}"
 readonly PUBLIC_HEALTH_URL="${PLATEVIEW_PUBLIC_HEALTH_URL:-https://api.chenxiruyu.dpdns.org/health}"
@@ -91,6 +92,26 @@ set +a
 compose up -d postgres caddy
 compose ps
 
+verify_database_migrations() {
+    local expected_version applied_version failed_migrations
+    expected_version=$(find "$SOURCE_DIR/server/src/main/resources/db/migration" -maxdepth 1 -type f -name 'V*__*.sql' -printf '%f\n' \
+        | sed -E 's/^V([0-9]+)__.*/\1/' \
+        | sort -n \
+        | tail -n 1)
+    [[ -n "$expected_version" ]] || die "未找到 Flyway 迁移脚本"
+
+    failed_migrations=$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" "$POSTGRES_CONTAINER" \
+        psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
+        "SELECT COUNT(*) FROM flyway_schema_history WHERE success = FALSE;")
+    [[ "$failed_migrations" == "0" ]] || die "Flyway 存在 $failed_migrations 条失败迁移记录"
+
+    applied_version=$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" "$POSTGRES_CONTAINER" \
+        psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
+        "SELECT version FROM flyway_schema_history WHERE success = TRUE AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1;")
+    [[ "$applied_version" == "$expected_version" ]] || die "Flyway 迁移版本不一致：期望 V$expected_version，实际 V${applied_version:-无}"
+    log "Flyway 迁移校验通过：V$applied_version，失败记录 $failed_migrations 条"
+}
+
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_file="$BACKUP_DIR/plateview-pre-${short_commit}-${timestamp}.dump"
 log "创建数据库备份：$backup_file"
@@ -144,6 +165,7 @@ for _ in $(seq 1 30); do
 done
 [[ "$healthy" == 1 ]] || die "候选容器健康检查失败"
 docker logs --tail 120 "$candidate"
+verify_database_migrations
 
 printf 'reverse_proxy %s:8080\n' "$next_upstream" > "$RUNTIME_DIR/Caddyfile.next"
 cp "$RUNTIME_DIR/Caddyfile" "$RUNTIME_DIR/Caddyfile.previous"

@@ -11,6 +11,7 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import okhttp3.ResponseBody
 
 interface AdminApi {
     @GET("admin/vehicles/creation-capabilities")
@@ -68,6 +69,28 @@ interface AdminApi {
         @Header("If-Match-Version") version: Int,
         @Path("userId") userId: Long,
         @Body request: AdminUserUpdateRequestDto,
+    ): AdminUserDto
+
+    @GET("admin/users/{userId}/avatar")
+    suspend fun downloadUserAvatar(
+        @Header("Authorization") authorization: String,
+        @Path("userId") userId: Long,
+    ): ResponseBody
+
+    @Multipart
+    @POST("admin/users/{userId}/avatar")
+    suspend fun uploadUserAvatar(
+        @Header("Authorization") authorization: String,
+        @Header("If-Match-Version") version: Int,
+        @Path("userId") userId: Long,
+        @Part avatar: MultipartBody.Part,
+    ): AdminUserDto
+
+    @POST("admin/users/{userId}/avatar/delete")
+    suspend fun deleteUserAvatar(
+        @Header("Authorization") authorization: String,
+        @Header("If-Match-Version") version: Int,
+        @Path("userId") userId: Long,
     ): AdminUserDto
 
     @GET("admin/imports")

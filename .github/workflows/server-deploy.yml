@@ -50,6 +50,10 @@ jobs:
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
           test -n "$DEPLOY_PORT"
+          if [[ "$TARGET_COMMIT" != "main" && ! "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "部署目标必须是 main 或完整提交哈希"
+            exit 1
+          fi
           ssh_args=(-i "$HOME/.ssh/plateview_deploy" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
@@ -60,7 +64,7 @@ jobs:
           remote="$DEPLOY_USER@$DEPLOY_HOST"
           status_file="/opt/plateview/runtime/deploy-status-$TARGET_COMMIT"
           ssh "${ssh_args[@]}" "$remote" \
-            "rm -f '$status_file'; nohup sh -c '/opt/plateview/source/deploy/plateview-deploy.sh $TARGET_COMMIT; rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"' </dev/null >/dev/null 2>&1 &"
+            "rm -f '$status_file'; nohup sh -c 'set -eu; cd /opt/plateview/source; git fetch --prune origin main; git checkout --detach --force $TARGET_COMMIT; ./deploy/plateview-deploy.sh $TARGET_COMMIT; rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"' </dev/null >/dev/null 2>&1 &"
 
           for attempt in $(seq 1 120); do
             state=$(ssh "${ssh_args[@]}" "$remote" "cat '$status_file' 2>/dev/null || true" || true)

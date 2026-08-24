@@ -1,5 +1,7 @@
 package com.jaydocoder.plateview.feature.vehicle
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,9 +25,7 @@ import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,16 +39,19 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
+import com.jaydocoder.plateview.component.InactiveVehicleContainerColor
+import com.jaydocoder.plateview.component.InactiveVehicleContentColor
+import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
+import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleAttribute
@@ -198,6 +201,21 @@ private fun VehicleDetailContent(
                 )
             }
         }
+        if (vehicle.status == "INACTIVE") {
+            item(key = "inactive_notice") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = InactiveVehicleContainerColor,
+                    contentColor = InactiveVehicleContentColor,
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InactiveVehicleStatusBadge()
+                        Text("该车辆档案已停用，不具备有效通行核验资格", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
         item(key = "identity") {
             VehicleIdentityBanner(vehicle = vehicle)
         }
@@ -243,57 +261,53 @@ private fun VehicleDetailContent(
 
 @Composable
 private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
-    ElevatedCard(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.primary
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                        )
-                    )
-                )
-        ) {
+        Column {
+            Image(
+                painter = painterResource(R.drawable.vehicle_detail_mountain_road),
+                contentDescription = "景区道路插画",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(118.dp),
+            )
             Row(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Surface(
-                        color = Color.White.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        VehiclePlateBadge(
+                            plateNumber = vehicle.plateNumber,
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = vehicle.plateNumber,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 2.sp
-                            )
+                            text = vehicle.categoryLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = vehicle.categoryLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = 0.9f)
+                        text = if (vehicle.status == "INACTIVE") "已拉黑 / 已停用" else "通行档案核验信息",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Icon(
                     imageVector = Icons.Outlined.CheckCircle,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = Color.White.copy(alpha = 0.3f)
+                    modifier = Modifier.size(36.dp),
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
         }
@@ -306,15 +320,14 @@ private fun DetailSection(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     fields: List<DetailField>,
 ) {
-    ElevatedCard(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f)),
     ) {
-        Column(modifier = Modifier.padding(PlateViewDimensions.itemSpacing)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = icon,
@@ -331,49 +344,53 @@ private fun DetailSection(
                 )
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            fields.forEachIndexed { index, field ->
-                DetailInfoRow(
-                    label = field.label,
-                    value = field.value,
-                    isLast = index == fields.size - 1
-                )
+            Spacer(modifier = Modifier.height(14.dp))
+
+            val rows = fields.toRows()
+            rows.forEachIndexed { index, row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    row.forEach { field ->
+                        DetailInfoCell(
+                            label = field.label,
+                            value = field.value,
+                            modifier = if (row.size == 1) Modifier.fillMaxWidth() else Modifier.weight(1f),
+                        )
+                    }
+                }
+                if (index != rows.lastIndex) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun DetailInfoRow(
+private fun DetailInfoCell(
     label: String,
     value: String,
-    isLast: Boolean
+    modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.outline,
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Medium
-        )
-        if (!isLast) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -383,6 +400,28 @@ private data class DetailField(
     val label: String,
     val value: String,
 )
+
+private fun List<DetailField>.toRows(): List<List<DetailField>> {
+    val rows = mutableListOf<List<DetailField>>()
+    var pendingCompactField: DetailField? = null
+
+    forEach { field ->
+        if (!field.isCompact()) {
+            pendingCompactField?.let { rows += listOf(it) }
+            pendingCompactField = null
+            rows += listOf(field)
+        } else if (pendingCompactField == null) {
+            pendingCompactField = field
+        } else {
+            rows += listOf(pendingCompactField!!, field)
+            pendingCompactField = null
+        }
+    }
+    pendingCompactField?.let { rows += listOf(it) }
+    return rows
+}
+
+private fun DetailField.isCompact(): Boolean = value.length <= 18 && !value.contains('\n')
 
 @Composable
 private fun ResidentProfile.toFields(): List<DetailField> = listOfNotNull(

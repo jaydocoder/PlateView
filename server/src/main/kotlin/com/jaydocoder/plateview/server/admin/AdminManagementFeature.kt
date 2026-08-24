@@ -1,6 +1,7 @@
 package com.jaydocoder.plateview.server.admin
 
 import com.jaydocoder.plateview.server.auth.requireAdministrator
+import com.jaydocoder.plateview.server.auth.receiveAvatarUpload
 import com.jaydocoder.plateview.server.infrastructure.database.AuditEvent
 import com.jaydocoder.plateview.server.infrastructure.database.AuditLogWriterKey
 import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
@@ -13,6 +14,7 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.plugins.callid.callId
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -104,6 +106,33 @@ internal fun Application.configureAdminManagementFeature() {
                         )
                         call.auditAdmin(actorId, "USER_UPDATE", "USER", user.id)
                         call.respond(user.toResponse())
+                    }
+                    post("/{userId}/avatar") {
+                        val actorId = call.requireAdministrator() ?: return@post
+                        val user = service.updateUserAvatar(
+                            userId = call.userId(),
+                            avatar = call.receiveAvatarUpload(),
+                            expectedVersion = call.expectedVersion(),
+                            actorId = actorId,
+                        )
+                        call.auditAdmin(actorId, "USER_AVATAR_UPDATE", "USER", user.id)
+                        call.respond(user.toResponse())
+                    }
+                    post("/{userId}/avatar/delete") {
+                        val actorId = call.requireAdministrator() ?: return@post
+                        val user = service.deleteUserAvatar(call.userId(), call.expectedVersion(), actorId)
+                        call.auditAdmin(actorId, "USER_AVATAR_DELETE", "USER", user.id)
+                        call.respond(user.toResponse())
+                    }
+                    get("/{userId}/avatar") {
+                        call.requireAdministrator() ?: return@get
+                        val avatar = service.userAvatar(call.userId())
+                        if (avatar == null) {
+                            call.respond(HttpStatusCode.NotFound)
+                        } else {
+                            call.response.headers.append(io.ktor.http.HttpHeaders.ContentType, avatar.contentType)
+                            call.respondBytes(avatar.content)
+                        }
                     }
                 }
 
@@ -235,10 +264,14 @@ private data class AdminUserCreateRequest(
 private data class AdminUserUpdateRequest(
     val role: String,
     val status: String,
+    val username: String? = null,
+    val password: String? = null,
 ) {
     fun toCommand(): AdminUserUpdateCommand = AdminUserUpdateCommand(
         role = parseEnum(role, "账号角色") { AdminValidationException("账号角色无效") },
         status = parseEnum(status, "账号状态") { AdminValidationException("账号状态无效") },
+        username = username,
+        password = password,
     )
 }
 
@@ -280,6 +313,8 @@ private fun AdminUserRecord.toResponse(): AdminUserResponse = AdminUserResponse(
     version = version,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    avatarVersion = avatarVersion,
+    hasAvatar = hasAvatar,
 )
 
 private fun AdminImportBatchSummary.toResponse(): AdminImportBatchSummaryResponse = AdminImportBatchSummaryResponse(
@@ -328,7 +363,7 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 @Serializable private data class AdminResidentProfileResponse(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)
 @Serializable private data class AdminLongTermProfileResponse(val organizationName: String?, val passHolder: String?, val passageDetails: String?, val remarks: String?)
 @Serializable private data class AdminUserListResponse(val items: List<AdminUserResponse>)
-@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?)
+@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean)
 @Serializable private data class AdminImportBatchListResponse(val items: List<AdminImportBatchSummaryResponse>)
 @Serializable private data class AdminImportBatchSummaryResponse(val id: Long, val sourceFileName: String, val status: String, val totalRows: Int, val validRows: Int, val duplicateRows: Int, val errorRows: Int, val version: Int, val createdAt: String?, val publishedAt: String?, val rollbackAt: String?)
 @Serializable private data class AdminAuditListResponse(

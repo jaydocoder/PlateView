@@ -16,6 +16,7 @@ interface VehicleApi {
     suspend fun getVehicle(
         @Header("Authorization") authorization: String,
         @Path("vehicleId") vehicleId: Long,
+        @Header("X-PlateView-Query-Event-Mode") queryEventMode: String = "LOCAL_BATCH",
     ): VehicleDetailDto
 
     @GET("vehicles/catalog/version")

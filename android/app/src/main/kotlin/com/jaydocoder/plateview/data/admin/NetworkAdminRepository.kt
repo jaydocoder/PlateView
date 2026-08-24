@@ -85,7 +85,12 @@ class NetworkAdminRepository @Inject constructor(
         version: Int,
         command: UserUpdateCommand,
     ): ManagedUser = api
-        .updateUser(bearer(accessToken), version, userId, AdminUserUpdateRequestDto(command.role, command.status))
+        .updateUser(
+            bearer(accessToken),
+            version,
+            userId,
+            AdminUserUpdateRequestDto(command.role, command.status, command.username, command.password),
+        )
         .toDomain()
 
     override suspend fun listImportBatches(accessToken: String): List<ManagedImportBatchSummary> = api
@@ -208,7 +213,17 @@ private fun AdminVehicleDto.toDomain(): ManagedVehicle = ManagedVehicle(
     longTermProfile = longTermProfile?.let { ManagedLongTermProfile(it.organizationName, it.passHolder, it.passageDetails, it.remarks) },
 )
 
-private fun AdminUserDto.toDomain(): ManagedUser = ManagedUser(id, username, role, status, version, createdAt, updatedAt)
+private fun AdminUserDto.toDomain(): ManagedUser = ManagedUser(
+    id = id,
+    username = username,
+    role = role,
+    status = status,
+    version = version,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    avatarVersion = avatarVersion,
+    hasAvatar = hasAvatar,
+)
 
 private fun AdminImportBatchSummaryDto.toDomain(): ManagedImportBatchSummary = ManagedImportBatchSummary(
     id, sourceFileName, status, totalRows, validRows, duplicateRows, errorRows, version, createdAt, publishedAt, rollbackAt,

@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -29,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jaydocoder.plateview.PlateViewDimensions
+import com.jaydocoder.plateview.BuildConfig
 import com.jaydocoder.plateview.domain.update.AppUpdate
 
 @Composable
@@ -74,6 +78,16 @@ fun AppUpdateDialog(
                         )
                     }
                 }
+                Text(
+                    text = "当前版本 v${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "最新版本 v${update.versionName}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (update.releaseNotes.isNotBlank()) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Text(
@@ -109,6 +123,67 @@ fun AppUpdateDialog(
         dismissButton = {
             if (!isDownloading) {
                 TextButton(onClick = onDismiss) { Text("稍后处理") }
+            }
+        },
+    )
+}
+
+@Composable
+fun UpdateCheckDialog(
+    state: ManualUpdateCheckState,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val isChecking = state is ManualUpdateCheckState.Checking
+    val (icon, title, message) = when (state) {
+        ManualUpdateCheckState.Idle -> Triple(Icons.Outlined.SystemUpdate, "系统更新", "请检查应用是否有新版本。")
+        ManualUpdateCheckState.Checking -> Triple(Icons.Outlined.SystemUpdate, "正在检查更新", "正在获取最新版本信息，请稍候。")
+        ManualUpdateCheckState.Latest -> Triple(Icons.Outlined.TaskAlt, "已是最新版本", "当前版本 v${BuildConfig.VERSION_NAME} 已是最新版本。")
+        is ManualUpdateCheckState.Failed -> Triple(Icons.Outlined.ErrorOutline, "检查更新失败", state.message)
+    }
+    AlertDialog(
+        onDismissRequest = { if (!isChecking) onDismiss() },
+        shape = MaterialTheme.shapes.large,
+        icon = {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = when (state) {
+                    is ManualUpdateCheckState.Failed -> MaterialTheme.colorScheme.errorContainer
+                    else -> MaterialTheme.colorScheme.primaryContainer
+                },
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.padding(12.dp),
+                    tint = when (state) {
+                        is ManualUpdateCheckState.Failed -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                )
+            }
+        },
+        title = { Text(title, style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
+                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (isChecking) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = {
+            if (state is ManualUpdateCheckState.Failed) {
+                Button(onClick = onRetry) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("重新检查")
+                }
+            }
+        },
+        dismissButton = {
+            if (!isChecking) {
+                TextButton(onClick = onDismiss) { Text("关闭") }
             }
         },
     )

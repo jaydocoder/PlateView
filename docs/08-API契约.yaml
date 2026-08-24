@@ -40,15 +40,15 @@ paths:
           description: 已退出。
   /vehicles/search:
     get:
-      summary: 按车牌片段模糊查询候选
+      summary: 按车辆档案字段模糊查询候选
       parameters:
         - name: keyword
           in: query
           required: true
-          description: 归一化后至少四个有效车牌字符的片段，字母大小写不敏感。
+          description: 至少一个有效字符，可匹配车牌、村民姓名、单位名称、通行人员或备注；字母大小写不敏感。
       responses:
         '200':
-          description: 最多二十条候选，仅返回车牌与车辆所属类型，按精确、前缀、包含匹配排序。
+          description: 最多二十条候选，仅返回车牌与车辆所属类型，按车牌精确、前缀和其他字段包含匹配排序。
           content:
             application/json:
               schema:
@@ -181,7 +181,7 @@ paths:
           $ref: '#/components/responses/AdminValidationFailed'
   /admin/users/{userId}:
     put:
-      summary: 管理员调整账号角色和启停状态
+      summary: 管理员调整账号资料、角色和启停状态
       parameters:
         - $ref: '#/components/parameters/UserId'
         - $ref: '#/components/parameters/IfMatchVersion'
@@ -196,6 +196,62 @@ paths:
           description: 账号状态已更新。
         '400':
           $ref: '#/components/responses/AdminValidationFailed'
+        '403':
+          $ref: '#/components/responses/AdminProfileModificationDenied'
+        '409':
+          $ref: '#/components/responses/AdminConflict'
+  /admin/users/{userId}/avatar:
+    get:
+      summary: 管理员读取账号头像
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 账号头像文件。
+          content:
+            image/jpeg: {}
+            image/png: {}
+            image/webp: {}
+            image/gif: {}
+            image/bmp: {}
+        '403':
+          $ref: '#/components/responses/AdminRequired'
+        '404':
+          $ref: '#/components/responses/AdminResourceNotFound'
+    post:
+      summary: admin账号更新其他账号头像
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 账号头像已更新。
+        '403':
+          $ref: '#/components/responses/AdminProfileModificationDenied'
+        '409':
+          $ref: '#/components/responses/AdminConflict'
+  /admin/users/{userId}/avatar/delete:
+    post:
+      summary: admin账号删除其他账号头像
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      responses:
+        '200':
+          description: 账号头像已删除。
+        '403':
+          $ref: '#/components/responses/AdminProfileModificationDenied'
         '409':
           $ref: '#/components/responses/AdminConflict'
   /admin/imports:
@@ -481,6 +537,8 @@ components:
       description: 账号或密码错误。
     AdminRequired:
       description: 当前账号不具备管理员权限。
+    AdminProfileModificationDenied:
+      description: 仅用户名为admin且角色为管理员的有效账号可修改其他账号的用户名、密码或头像。
     ImportFileInvalid:
       description: 未上传文件、格式不支持、文件超过 10MB 或无法识别表头。
     ImportBatchNotFound:
@@ -583,6 +641,17 @@ components:
         status:
           type: string
           enum: [ACTIVE, DISABLED]
+        username:
+          type: [string, 'null']
+          minLength: 3
+          maxLength: 64
+          description: 仅用户名为admin且为有效管理员的操作人可填写。
+        password:
+          type: [string, 'null']
+          format: password
+          minLength: 6
+          maxLength: 128
+          description: 仅用户名为admin且为有效管理员的操作人可填写。
     AdminUserCreateRequest:
       type: object
       required: [username, password, role]
@@ -618,6 +687,11 @@ components:
             updatedAt:
               type: [string, 'null']
               format: date-time
+            avatarVersion:
+              type: integer
+              format: int64
+            hasAvatar:
+              type: boolean
     AdminUserList:
       type: object
       required: [items]

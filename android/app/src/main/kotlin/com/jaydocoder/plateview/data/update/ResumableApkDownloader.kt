@@ -4,6 +4,7 @@ import com.jaydocoder.plateview.domain.update.AppUpdate
 import com.jaydocoder.plateview.domain.update.UpdateDownloadProgress
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -22,22 +23,44 @@ internal class ResumableApkDownloader(
 
         val apkFile = File(downloadDirectory, "PlateView-${update.versionName}.apk")
         val temporaryFile = File(downloadDirectory, "PlateView-${update.versionName}.apk.part")
-        downloadIntoTemporaryFile(update.downloadUrl, temporaryFile, onProgress)
+        downloadIntoTemporaryFile(update.downloadUrls, temporaryFile, onProgress)
 
         check(temporaryFile.length() > 0L) { "下载更新失败，安装包为空" }
+        update.sha256?.let { expected ->
+            check(temporaryFile.sha256().equals(expected, ignoreCase = true)) {
+                temporaryFile.delete()
+                "下载更新失败，安装包校验不匹配"
+            }
+        }
         check(!apkFile.exists() || apkFile.delete()) { "无法替换旧安装包" }
         check(temporaryFile.renameTo(apkFile)) { "下载更新失败，无法保存安装包" }
         apkFile
     }
 
     private fun downloadIntoTemporaryFile(
+        downloadUrls: List<String>,
+        temporaryFile: File,
+        onProgress: (UpdateDownloadProgress) -> Unit,
+    ) {
+        var lastFailure: Throwable? = null
+        for (downloadUrl in downloadUrls.distinct()) {
+            try {
+                downloadFromSource(downloadUrl, temporaryFile, onProgress)
+                return
+            } catch (failure: Throwable) {
+                lastFailure = failure
+            }
+        }
+        throw IllegalStateException("所有更新下载源均不可用", lastFailure)
+    }
+
+    private fun downloadFromSource(
         downloadUrl: String,
         temporaryFile: File,
         onProgress: (UpdateDownloadProgress) -> Unit,
     ) {
         var downloadedBytes = temporaryFile.length().coerceAtLeast(0L)
         var retriedAfterInvalidRange = false
-
         while (true) {
             val request = Request.Builder()
                 .url(downloadUrl)
@@ -109,6 +132,17 @@ internal class ResumableApkDownloader(
         ?.takeUnless { it == "*" }
         ?.toLongOrNull()
         ?: body?.contentLength()?.takeIf { it >= 0L }?.let(downloadedBytes::plus)
+
+    private fun File.sha256(): String = inputStream().buffered().use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(BUFFER_SIZE_BYTES)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
 
     private companion object {
         const val BUFFER_SIZE_BYTES = 8 * 1024

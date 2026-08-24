@@ -5,8 +5,21 @@ import java.io.File
 data class AppUpdate(
     val versionName: String,
     val releaseNotes: String,
-    val downloadUrl: String,
-)
+    val downloadUrls: List<String>,
+    val sha256: String? = null,
+) {
+    constructor(versionName: String, releaseNotes: String, downloadUrl: String) : this(
+        versionName = versionName,
+        releaseNotes = releaseNotes,
+        downloadUrls = listOf(downloadUrl),
+    )
+
+    init {
+        require(downloadUrls.isNotEmpty()) { "更新下载地址不能为空" }
+    }
+
+    val downloadUrl: String get() = downloadUrls.first()
+}
 
 data class UpdateDownloadProgress(
     val downloadedBytes: Long,

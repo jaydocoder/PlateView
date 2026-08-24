@@ -12,8 +12,9 @@ interface VehicleCacheDao {
         """
         SELECT * FROM vehicle_snapshot_cache
         WHERE generation = (SELECT activeGeneration FROM vehicle_catalog_state WHERE id = 1)
-            AND normalizedPlate LIKE '%' || :normalizedKeyword || '%'
+            AND searchableText LIKE '%' || :normalizedKeyword || '%'
         ORDER BY
+            CASE WHEN status = 'ACTIVE' THEN 0 ELSE 1 END,
             CASE WHEN category = 'RESIDENT' THEN 0 ELSE 1 END,
             CASE WHEN normalizedPlate = :normalizedKeyword THEN 0
                  WHEN normalizedPlate LIKE :normalizedKeyword || '%' THEN 1

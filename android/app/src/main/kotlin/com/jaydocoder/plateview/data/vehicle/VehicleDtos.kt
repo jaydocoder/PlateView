@@ -28,6 +28,7 @@ data class VehicleCandidateDto(
     val category: String,
     val categoryLabel: String,
     val organizationName: String?,
+    val status: String,
 )
 
 data class VehicleDetailDto(
@@ -37,6 +38,7 @@ data class VehicleDetailDto(
     val category: String,
     val categoryLabel: String,
     val vehicleType: String?,
+    val status: String,
     val attributes: JsonObject,
     val residentProfile: ResidentProfileDto?,
     val longTermProfile: LongTermProfileDto?,

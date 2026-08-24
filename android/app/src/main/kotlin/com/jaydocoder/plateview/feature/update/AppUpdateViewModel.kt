@@ -18,8 +18,17 @@ data class AppUpdateUiState(
     val update: AppUpdate? = null,
     val isChecking: Boolean = false,
     val isUpdateDialogVisible: Boolean = false,
+    val isManualCheckDialogVisible: Boolean = false,
+    val manualCheckState: ManualUpdateCheckState = ManualUpdateCheckState.Idle,
     val downloadState: UpdateDownloadState = UpdateDownloadState.Idle,
 )
+
+sealed interface ManualUpdateCheckState {
+    data object Idle : ManualUpdateCheckState
+    data object Checking : ManualUpdateCheckState
+    data object Latest : ManualUpdateCheckState
+    data class Failed(val message: String) : ManualUpdateCheckState
+}
 
 sealed interface UpdateDownloadState {
     data object Idle : UpdateDownloadState
@@ -46,10 +55,17 @@ class AppUpdateViewModel @Inject constructor(
             runCatching { repository.findAvailableUpdate() }
                 .onSuccess { update ->
                     _uiState.update { current ->
+                        val shouldShowManualResult = current.isManualCheckDialogVisible
                         current.copy(
                             update = update,
                             isChecking = false,
-                            isUpdateDialogVisible = current.isUpdateDialogVisible && update != null,
+                            isUpdateDialogVisible = (current.isUpdateDialogVisible || shouldShowManualResult) && update != null,
+                            isManualCheckDialogVisible = shouldShowManualResult && update == null,
+                            manualCheckState = if (shouldShowManualResult && update == null) {
+                                ManualUpdateCheckState.Latest
+                            } else {
+                                ManualUpdateCheckState.Idle
+                            },
                             downloadState = if (current.update == update) {
                                 current.downloadState
                             } else {
@@ -58,9 +74,33 @@ class AppUpdateViewModel @Inject constructor(
                         )
                     }
                 }
-                .onFailure {
-                    _uiState.update { it.copy(isChecking = false) }
+                .onFailure { throwable ->
+                    _uiState.update { current ->
+                        val shouldShowManualResult = current.isManualCheckDialogVisible
+                        current.copy(
+                            isChecking = false,
+                            isManualCheckDialogVisible = shouldShowManualResult,
+                            manualCheckState = if (shouldShowManualResult) {
+                                ManualUpdateCheckState.Failed(throwable.message ?: "检查更新失败，请稍后重试")
+                            } else {
+                                ManualUpdateCheckState.Idle
+                            },
+                        )
+                    }
                 }
+        }
+    }
+
+    fun checkForUpdateFromUser() {
+        _uiState.update {
+            it.copy(
+                isManualCheckDialogVisible = true,
+                manualCheckState = ManualUpdateCheckState.Checking,
+            )
+        }
+        if (!_uiState.value.isChecking) {
+            lastCheckAtEpochMillis = 0L
+            checkForUpdate()
         }
     }
 
@@ -91,6 +131,16 @@ class AppUpdateViewModel @Inject constructor(
     fun dismissUpdateDialog() {
         if (_uiState.value.downloadState is UpdateDownloadState.Downloading) return
         _uiState.update { it.copy(isUpdateDialogVisible = false) }
+    }
+
+    fun dismissManualCheckDialog() {
+        if (_uiState.value.manualCheckState is ManualUpdateCheckState.Checking) return
+        _uiState.update {
+            it.copy(
+                isManualCheckDialogVisible = false,
+                manualCheckState = ManualUpdateCheckState.Idle,
+            )
+        }
     }
 
     fun reportInstallationFailure(message: String) {
