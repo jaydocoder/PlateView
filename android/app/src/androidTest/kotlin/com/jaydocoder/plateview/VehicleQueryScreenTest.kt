@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
+import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
@@ -31,7 +32,7 @@ class VehicleQueryScreenTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun 搜索框明确提示可按备注查询() {
+    fun 搜索框不显示占位说明文字() {
         composeRule.setContent {
             PlateViewTheme {
                 SearchScreen(
@@ -48,7 +49,7 @@ class VehicleQueryScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("车牌、姓名、单位或备注").assertIsDisplayed()
+        composeRule.onAllNodesWithText("车牌、姓名、单位或备注").assertCountEquals(0)
     }
 
     @Test
@@ -233,6 +234,42 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onAllNodesWithText("未填写").assertCountEquals(2)
+    }
+
+    @Test
+    fun 详情页完整显示长期车辆长字段() {
+        val longRemarks = "黄色皮卡，车身喷燃气设备标识，需保持长期通行资格"
+        val passageDetails = "车辆用途：应急抢险车辆为燃气用户检查、维护燃气设备；通行区域：喀纳斯、禾木、白哈巴"
+        val vehicle = VehicleDetail(
+            id = 108,
+            plateNumber = "新HC0C21",
+            normalizedPlate = "新HC0C21",
+            category = "SCENIC_ENTERPRISE",
+            categoryLabel = "驻景区企业车辆",
+            vehicleType = "皮卡",
+            status = "ACTIVE",
+            attributes = emptyList(),
+            residentProfile = null,
+            longTermProfile = LongTermProfile(
+                organizationName = "测试单位",
+                passHolder = "测试通行人员",
+                passageDetails = passageDetails,
+                remarks = longRemarks,
+            ),
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                VehicleDetailScreen(
+                    uiState = VehicleDetailUiState(VehicleDetailContent.Data(vehicle)),
+                    onNavigateUp = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(passageDetails).assertIsDisplayed()
+        composeRule.onNodeWithText(longRemarks).assertIsDisplayed()
     }
 
     @Test

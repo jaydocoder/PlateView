@@ -24,6 +24,7 @@ data class StatisticsUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val isAdministrator: Boolean = false,
+    val canViewAllStatistics: Boolean = false,
 )
 
 enum class StatisticsRange(val label: String) { TODAY("今天"), SEVEN_DAYS("近 7 天"), THIRTY_DAYS("近 30 天") }
@@ -41,25 +42,38 @@ class StatisticsViewModel @Inject constructor(
 
     fun selectRange(value: StatisticsRange) { _uiState.value = _uiState.value.copy(range = value); refresh() }
     fun selectCategory(value: String?) { _uiState.value = _uiState.value.copy(category = value); refresh() }
-    fun selectScope(value: StatisticsScope) { _uiState.value = _uiState.value.copy(scope = value); refresh() }
+    fun selectScope(value: StatisticsScope) {
+        if (value == StatisticsScope.ALL && !_uiState.value.canViewAllStatistics) return
+        _uiState.value = _uiState.value.copy(scope = value)
+        refresh()
+    }
 
     fun refresh() = viewModelScope.launch {
         val session = sessionProvider.session.first() ?: return@launch
         val filters = _uiState.value
-        _uiState.value = filters.copy(loading = true, error = null, isAdministrator = session.role == "ADMIN")
+        val canViewAllStatistics = session.username == "admin" && session.role == "ADMIN"
+        val scope = filters.scope.takeIf { it != StatisticsScope.ALL || canViewAllStatistics } ?: StatisticsScope.ME
+        val effectiveFilters = filters.copy(
+            scope = scope,
+            loading = true,
+            error = null,
+            isAdministrator = session.role == "ADMIN",
+            canViewAllStatistics = canViewAllStatistics,
+        )
+        _uiState.value = effectiveFilters
         runCatching {
-            val usesServer = filters.scope == StatisticsScope.ALL && session.role == "ADMIN"
+            val usesServer = effectiveFilters.scope == StatisticsScope.ALL && canViewAllStatistics
             val statistics = if (usesServer) {
-                repository.serverStatistics(session, filters.range.name, filters.category, filters.scope.name)
+                repository.serverStatistics(session, effectiveFilters.range.name, effectiveFilters.category, effectiveFilters.scope.name)
             } else {
-                repository.localStatistics(session, filters.range.name, filters.category)
+                repository.localStatistics(session, effectiveFilters.range.name, effectiveFilters.category)
             }
-            val history = if (filters.category == null) {
+            val history = if (effectiveFilters.category == null) {
                 emptyList()
             } else if (usesServer) {
-                repository.serverHistory(session, filters.range.name, filters.category, filters.scope.name)
+                repository.serverHistory(session, effectiveFilters.range.name, effectiveFilters.category, effectiveFilters.scope.name)
             } else {
-                repository.localHistory(session, filters.range.name, filters.category)
+                repository.localHistory(session, effectiveFilters.range.name, effectiveFilters.category)
             }
             Triple(statistics, history, repository.pendingSyncCount(session))
         }.onSuccess { (statistics, history, pendingSyncCount) ->

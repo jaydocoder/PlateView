@@ -29,6 +29,7 @@ fun VehiclePlateBadge(
     plateNumber: String,
     modifier: Modifier = Modifier,
     emphasized: Boolean = false,
+    compact: Boolean = false,
 ) {
     val shape = RoundedCornerShape(if (emphasized) 10.dp else 8.dp)
     val isNewEnergy = plateNumber.isNewEnergyPlate()
@@ -37,13 +38,30 @@ fun VehiclePlateBadge(
     } else {
         Brush.verticalGradient(listOf(Color(0xFF155EAE), Color(0xFF073A7A)))
     }
-    val horizontalPadding = if (emphasized) 12.dp else 10.dp
-    val verticalPadding = if (emphasized) 6.dp else 5.dp
-    val fontSize = if (emphasized) 22.sp else 16.sp
+    val horizontalPadding = when {
+        emphasized -> 14.dp
+        compact -> 10.dp
+        else -> 10.dp
+    }
+    val verticalPadding = when {
+        emphasized -> 7.dp
+        compact -> 6.dp
+        else -> 5.dp
+    }
+    val fontSize = when {
+        emphasized -> 27.sp
+        compact -> 18.sp
+        else -> 16.sp
+    }
+    val minimumWidth = when {
+        emphasized -> 164.dp
+        compact -> 132.dp
+        else -> 112.dp
+    }
 
     Box(
         modifier = modifier
-            .defaultMinSize(minWidth = if (emphasized) 132.dp else 112.dp)
+            .defaultMinSize(minWidth = minimumWidth)
             .shadow(if (emphasized) 3.dp else 1.dp, shape, clip = false)
             .background(background, shape)
             .border(1.dp, Color(0xFFB8DEFF).copy(alpha = 0.66f), shape)

@@ -45,30 +45,6 @@ class ProfileScreenTest {
     }
 
     @Test
-    fun 切换账号显示独立确认文案() {
-        var logoutCalls = 0
-        composeRule.setContent {
-            PlateViewTheme {
-                ProfileScreen(
-                    state = adminState(),
-                    onNavigateUp = {},
-                    onOpenAdmin = {},
-                    onCheckForUpdate = {},
-                    onLogout = { logoutCalls++ },
-                    onUploadAvatar = {},
-                    onDeleteAvatar = {},
-                    onSaveProfile = { _, _, _ -> },
-                )
-            }
-        }
-
-        composeRule.onNodeWithTag("profile_switch_account_action").performClick()
-        composeRule.onAllNodesWithText("切换账号？").assertCountEquals(1)
-        composeRule.onNodeWithTag("profile_confirm_switch").performClick()
-        composeRule.runOnIdle { assertEquals(1, logoutCalls) }
-    }
-
-    @Test
     fun 退出登录显示独立确认文案() {
         var logoutCalls = 0
         composeRule.setContent {
@@ -111,6 +87,29 @@ class ProfileScreenTest {
 
         composeRule.onNodeWithText("系统更新").performClick()
         composeRule.runOnIdle { assertEquals(1, updateChecks) }
+    }
+
+    @Test
+    fun 我的页面使用单一操作列表且不显示分组说明文字() {
+        composeRule.setContent {
+            PlateViewTheme {
+                ProfileScreen(
+                    state = adminState(),
+                    onNavigateUp = {},
+                    onOpenAdmin = {},
+                    onCheckForUpdate = {},
+                    onLogout = {},
+                    onUploadAvatar = {},
+                    onDeleteAvatar = {},
+                    onSaveProfile = { _, _, _ -> },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("账号与安全").assertExists()
+        composeRule.onAllNodesWithText("账户操作").assertCountEquals(0)
+        composeRule.onAllNodesWithText("检查并下载最新版本").assertCountEquals(0)
+        composeRule.onAllNodesWithText("切换账号").assertCountEquals(0)
     }
 
     private fun adminState() = ProfileUiState(

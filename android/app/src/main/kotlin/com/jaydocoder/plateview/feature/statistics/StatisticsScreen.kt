@@ -41,6 +41,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,6 +61,15 @@ private val CategoryLabels = mapOf(
     "CADRE" to "干部车辆",
     "KANAS_TOURISM_DEVELOPMENT" to "喀旅公司车辆",
     "OTHER_LONG_TERM" to "其他长期通行车辆",
+)
+
+private val CategoryPalette = listOf(
+    Color(0xFF087B8A),
+    Color(0xFF1C604B),
+    Color(0xFFD59A36),
+    Color(0xFF5C7E9E),
+    Color(0xFFB83E4A),
+    Color(0xFF737D5C),
 )
 
 @Composable
@@ -93,7 +103,10 @@ internal fun StatisticsScreen(
                 Text("查询统计", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 FilterRow(StatisticsRange.entries, state.range, StatisticsRange::label, onRange)
                 CategorySelector(selected = state.category, onSelected = onCategory)
-                if (state.isAdministrator) FilterRow(StatisticsScope.entries, state.scope, StatisticsScope::label, onScope)
+                if (state.isAdministrator) {
+                    val scopes = if (state.canViewAllStatistics) StatisticsScope.entries else listOf(StatisticsScope.ME)
+                    FilterRow(scopes, state.scope, StatisticsScope::label, onScope)
+                }
                 if (state.scope == StatisticsScope.ME && state.pendingSyncCount > 0) {
                     Text(
                         "有 ${state.pendingSyncCount} 条查询记录等待同步",
@@ -124,8 +137,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.statisticsContent(
             MetricCard("活跃用户", statistics.activeUsers.toString(), Modifier.weight(1f))
         }
     }
-    if (category == null) item {
-        ChartCard("类别占比") { CategoryChart(statistics.categories) }
+    if (category == null) {
+        item {
+            ChartCard("类别占比") { CategoryChart(statistics.categories) }
+        }
+        item {
+            ChartCard("类别查询数量") { CategoryBarChart(statistics.categories) }
+        }
     } else {
         item { QueryHistoryCard(history) }
     }
@@ -192,7 +210,6 @@ private fun ChartCard(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun CategoryChart(points: List<VehicleCategoryPoint>) {
-    val palette = listOf(Color(0xFF087B8A), Color(0xFF1C604B), Color(0xFFD59A36), Color(0xFF5C7E9E), Color(0xFFB83E4A), Color(0xFF737D5C))
     val total = points.sumOf { it.queryCount }.coerceAtLeast(1L)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Canvas(modifier = Modifier.size(150.dp)) {
@@ -200,7 +217,7 @@ private fun CategoryChart(points: List<VehicleCategoryPoint>) {
             points.forEachIndexed { index, point ->
                 val sweep = point.queryCount.toFloat() / total * 360f
                 drawArc(
-                    color = palette[index % palette.size],
+                    color = CategoryPalette[index % CategoryPalette.size],
                     startAngle = start,
                     sweepAngle = sweep,
                     useCenter = false,
@@ -214,9 +231,61 @@ private fun CategoryChart(points: List<VehicleCategoryPoint>) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             points.take(6).forEachIndexed { index, point ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.foundation.layout.Box(Modifier.size(10.dp).background(palette[index % palette.size], CircleShape))
+                    androidx.compose.foundation.layout.Box(
+                        Modifier.size(10.dp).background(CategoryPalette[index % CategoryPalette.size], CircleShape),
+                    )
                     Spacer(Modifier.width(7.dp))
                     Text("${CategoryLabels[point.category] ?: point.category} ${point.queryCount}", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryBarChart(points: List<VehicleCategoryPoint>) {
+    val countsByCategory = points.associate { it.category to it.queryCount }
+    val categoryPoints = CategoryLabels.keys.map { category ->
+        VehicleCategoryPoint(category, countsByCategory[category] ?: 0L)
+    }
+    val largestCount = categoryPoints.maxOfOrNull(VehicleCategoryPoint::queryCount)?.coerceAtLeast(1L) ?: 1L
+    Column(
+        modifier = Modifier.testTag("statistics_category_count_chart"),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        categoryPoints.forEachIndexed { index, point ->
+            val fraction = point.queryCount.toFloat() / largestCount
+            Column(
+                modifier = Modifier.testTag("statistics_category_count_${point.category}"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = CategoryLabels[point.category] ?: point.category,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = "${point.queryCount} 次",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(CategoryPalette[index % CategoryPalette.size]),
+                    )
                 }
             }
         }

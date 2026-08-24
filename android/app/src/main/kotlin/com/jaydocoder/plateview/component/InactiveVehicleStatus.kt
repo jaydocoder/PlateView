@@ -13,8 +13,8 @@ import androidx.compose.ui.unit.dp
 
 val InactiveVehicleContainerColor = Color(0xFFFFF1C7)
 val InactiveVehicleContentColor = Color(0xFF6E4A00)
-private val InactiveVehicleBadgeColor = Color(0xFFE6AE3C)
-private val InactiveVehicleBadgeContentColor = Color(0xFF3D2A00)
+private val InactiveVehicleBadgeColor = Color(0xFFB83E4A)
+private val InactiveVehicleBadgeContentColor = Color.White
 
 @Composable
 fun InactiveVehicleStatusBadge(modifier: Modifier = Modifier) {

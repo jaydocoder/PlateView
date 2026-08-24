@@ -58,9 +58,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -68,7 +68,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
-import com.jaydocoder.plateview.component.InactiveVehicleContainerColor
 import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
 import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
@@ -141,17 +140,20 @@ fun SearchScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 48.dp)
+                            .heightIn(min = 64.dp)
                             .clickable(onClick = onOpenProfile),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AvatarImage(avatar, Modifier.size(28.dp))
+                        AvatarImage(avatar, Modifier.size(42.dp))
                         Text(
                             text = stringResource(R.string.search_title),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 30.sp,
+                                lineHeight = 36.sp,
+                            ),
                             color = MaterialTheme.colorScheme.onBackground,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 },
@@ -287,14 +289,6 @@ private fun SearchBar(
             value = query,
             onValueChange = onQueryChanged,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = {
-                Text(
-                    stringResource(R.string.search_input_placeholder),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Outlined.Search,
@@ -453,7 +447,7 @@ private fun VehicleCandidateRow(
             .testTag("candidate_${candidate.id}"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = if (candidate.status == "INACTIVE") InactiveVehicleContainerColor else MaterialTheme.colorScheme.surface,
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = PlateViewDimensions.cardElevation),
     ) {
@@ -463,9 +457,12 @@ private fun VehicleCandidateRow(
                 .padding(PlateViewDimensions.itemSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            VehiclePlateBadge(plateNumber = candidate.plateNumber)
+            VehiclePlateBadge(
+                plateNumber = candidate.plateNumber,
+                compact = true,
+            )
             
-            Spacer(modifier = Modifier.width(PlateViewDimensions.itemSpacing))
+            Spacer(modifier = Modifier.width(8.dp))
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -473,6 +470,7 @@ private fun VehicleCandidateRow(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = candidateCategoryColor(candidate.category),
+                    maxLines = 1,
                 )
                 if (candidate.status == "INACTIVE") {
                     InactiveVehicleStatusBadge(modifier = Modifier.padding(top = 4.dp))

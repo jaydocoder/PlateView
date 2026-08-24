@@ -1,6 +1,7 @@
 package com.jaydocoder.plateview.server.admin
 
 import com.jaydocoder.plateview.server.auth.AvatarUpload
+import com.jaydocoder.plateview.server.auth.isPrimaryAdministrator
 import com.jaydocoder.plateview.server.vehicle.VehicleCategory
 import com.jaydocoder.plateview.server.vehicle.normalizePlate
 import java.sql.Connection
@@ -426,13 +427,6 @@ internal class AdminManagementService(
         statement.executeQuery().use { result ->
             if (result.next()) VehicleCategory.valueOf(result.getString("category")) else null
         }
-    }
-
-    private fun Connection.isPrimaryAdministrator(actorId: Long): Boolean = prepareStatement(
-        "SELECT 1 FROM users WHERE id = ? AND username = 'admin' AND role = 'ADMIN' AND status = 'ACTIVE'",
-    ).use { statement ->
-        statement.setLong(1, actorId)
-        statement.executeQuery().use { it.next() }
     }
 
     private fun Connection.requirePrimaryAdministrator(actorId: Long) {

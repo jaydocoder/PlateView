@@ -1,5 +1,6 @@
 package com.jaydocoder.plateview.server.statistics
 
+import com.jaydocoder.plateview.server.auth.isPrimaryAdministrator
 import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
@@ -32,12 +33,13 @@ internal fun Application.configureVehicleStatisticsFeature() {
                     val principal = call.principal<JWTPrincipal>()!!
                     val actorId = principal.payload.getClaim("userId").asLong()
                         ?: throw IllegalArgumentException("登录状态无效")
+                    val isPrimaryAdministrator = dataSource.connection.use { it.isPrimaryAdministrator(actorId) }
                     val filter = StatisticsFilter.fromRequest(
                         range = call.request.queryParameters["range"],
                         category = call.request.queryParameters["category"],
                         scope = call.request.queryParameters["scope"],
                         actorId = actorId,
-                        administrator = principal.payload.getClaim("role").asString() == "ADMIN",
+                        isPrimaryAdministrator = isPrimaryAdministrator,
                     )
                     call.respond(service.query(filter))
                 }
@@ -45,12 +47,13 @@ internal fun Application.configureVehicleStatisticsFeature() {
                     val principal = call.principal<JWTPrincipal>()!!
                     val actorId = principal.payload.getClaim("userId").asLong()
                         ?: throw IllegalArgumentException("登录状态无效")
+                    val isPrimaryAdministrator = dataSource.connection.use { it.isPrimaryAdministrator(actorId) }
                     val filter = StatisticsFilter.fromRequest(
                         range = call.request.queryParameters["range"],
                         category = call.request.queryParameters["category"],
                         scope = call.request.queryParameters["scope"],
                         actorId = actorId,
-                        administrator = principal.payload.getClaim("role").asString() == "ADMIN",
+                        isPrimaryAdministrator = isPrimaryAdministrator,
                     )
                     call.respond(service.queryHistory(filter))
                 }
@@ -183,7 +186,7 @@ private class VehicleStatisticsService(private val dataSource: DataSource) {
     }
 }
 
-private data class StatisticsFilter(
+internal data class StatisticsFilter(
     val range: StatisticsRange,
     val category: String?,
     val actorId: Long?,
@@ -201,11 +204,11 @@ private data class StatisticsFilter(
             category: String?,
             scope: String?,
             actorId: Long,
-            administrator: Boolean,
+            isPrimaryAdministrator: Boolean,
         ): StatisticsFilter {
             val parsedScope = scope?.uppercase()?.takeIf { it.isNotBlank() } ?: "ME"
             require(parsedScope in setOf("ME", "ALL")) { "统计范围无效" }
-            require(parsedScope != "ALL" || administrator) { "仅管理员可以查看全员统计" }
+            require(parsedScope != "ALL" || isPrimaryAdministrator) { "仅admin账号可以查看全员统计" }
             return StatisticsFilter(
                 range = StatisticsRange.fromRequest(range),
                 category = category?.trim()?.takeIf { it.isNotEmpty() },
@@ -222,7 +225,7 @@ private fun PreparedStatement.bind(filter: StatisticsFilter) {
     filter.actorId?.let { setLong(index, it) }
 }
 
-private enum class StatisticsRange {
+internal enum class StatisticsRange {
     TODAY,
     SEVEN_DAYS,
     THIRTY_DAYS;
