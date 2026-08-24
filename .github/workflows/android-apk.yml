@@ -121,7 +121,7 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/plateview_deploy"
           chmod 600 "$HOME/.ssh/plateview_deploy"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          apk="android/app/build/outputs/apk/release/app-release.apk"
+          apk="app/build/outputs/apk/release/app-release.apk"
           sha256=$(sha256sum "$apk" | awk '{print $1}')
           remote="$DEPLOY_USER@$DEPLOY_HOST"
           ssh_args=(-i "$HOME/.ssh/plateview_deploy" -o BatchMode=yes -o StrictHostKeyChecking=yes -p "$DEPLOY_PORT")
