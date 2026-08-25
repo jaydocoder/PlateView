@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -339,6 +340,7 @@ private fun DetailSection(
                 DetailInfoCell(
                     label = field.label,
                     value = field.value,
+                    displayMode = field.displayMode,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (index != fields.lastIndex) {
@@ -353,6 +355,7 @@ private fun DetailSection(
 private fun DetailInfoCell(
     label: String,
     value: String,
+    displayMode: DetailFieldDisplayMode,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -360,7 +363,7 @@ private fun DetailInfoCell(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
     ) {
-        if (value.isShortDetailValue()) {
+        if (displayMode == DetailFieldDisplayMode.Auto && value.isShortDetailValue()) {
             Row(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -384,7 +387,11 @@ private fun DetailInfoCell(
                 )
             }
         } else {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Column(
+                modifier = Modifier
+                    .testTag("vehicle_detail_field_$label")
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelMedium,
@@ -405,19 +412,29 @@ private fun DetailInfoCell(
 private data class DetailField(
     val label: String,
     val value: String,
+    val displayMode: DetailFieldDisplayMode = DetailFieldDisplayMode.Auto,
 )
+
+private enum class DetailFieldDisplayMode {
+    Auto,
+    Stacked,
+}
 
 private fun String.isShortDetailValue(): Boolean {
     if (contains('\n')) return false
 
     val wideCharacterCount = count { character -> character.code > 0x7F }
-    return if (wideCharacterCount == 0) length <= 20 else length <= 9
+    return if (wideCharacterCount == 0) length <= 12 else length <= 9
 }
 
 @Composable
 private fun ResidentProfile.toFields(): List<DetailField> = listOfNotNull(
     DetailField(stringResource(R.string.detail_owner_name), ownerName.displayDetailValue()),
-    DetailField(stringResource(R.string.detail_identity_card), identityCardNumber.displayDetailValue()),
+    DetailField(
+        label = stringResource(R.string.detail_identity_card),
+        value = identityCardNumber.displayDetailValue(),
+        displayMode = DetailFieldDisplayMode.Stacked,
+    ),
     contactPhone?.let { DetailField(stringResource(R.string.detail_contact_phone), it) },
     remarks?.let { DetailField(stringResource(R.string.detail_remarks), it) },
 )

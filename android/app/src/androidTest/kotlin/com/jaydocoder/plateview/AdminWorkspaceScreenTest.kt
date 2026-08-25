@@ -1,14 +1,18 @@
 package com.jaydocoder.plateview
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.Density
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
@@ -23,6 +27,7 @@ import com.jaydocoder.plateview.feature.admin.VehicleEditorState
 import com.jaydocoder.plateview.feature.admin.AdminWorkspaceScreen
 import com.jaydocoder.plateview.feature.admin.toEditor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -258,6 +263,36 @@ class AdminWorkspaceScreenTest {
 
         composeRule.onNodeWithText("车辆信息").assertIsDisplayed()
         composeRule.onNodeWithText("保存档案").assertIsDisplayed()
+    }
+
+    @Test
+    fun 放大字体时底部取消和保存操作完整可见() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 1.5f)) {
+                PlateViewTheme {
+                    AdminWorkspaceScreen(
+                        uiState = AdminUiState(
+                            tab = AdminTab.Vehicles,
+                            isLoading = false,
+                            vehicleEditor = VehicleEditorState(id = 101, plateNumber = "新A12345"),
+                        ),
+                        onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                        onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                        onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                        onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                        onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                        onPublishImport = {}, onRollbackImport = {},
+                    )
+                }
+            }
+        }
+
+        val actions = composeRule.onNodeWithTag("admin_bottom_actions").assertIsDisplayed()
+        composeRule.onNodeWithText("取消").assertIsDisplayed()
+        composeRule.onNodeWithText("保存档案").assertIsDisplayed()
+        composeRule.runOnIdle {
+            assertTrue(actions.fetchSemanticsNode().boundsInRoot.height >= 48f)
+        }
     }
 
     @Test

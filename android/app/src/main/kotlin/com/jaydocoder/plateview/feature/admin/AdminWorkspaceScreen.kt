@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1168,6 +1170,7 @@ private fun UserEditorDialog(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AdminEditorDialog(
     title: String,
@@ -1185,9 +1188,16 @@ private fun AdminEditorDialog(
         subtitle = subtitle,
         onDismiss = { if (!isSaving) onDismiss() },
         bottomBar = {
-            TextButton(onClick = onDismiss, enabled = !isSaving) { Text("取消") }
-            Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-            Button(onClick = onSave, enabled = !isSaving) {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isSaving,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text("取消") }
+            Button(
+                onClick = onSave,
+                enabled = !isSaving,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
                 if (isSaving) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
@@ -1528,14 +1538,19 @@ private fun ImportRowDetailDialog(
         onDismiss = onDismiss,
         bottomBar = {
             if (row.resolution == "PENDING") {
-                OutlinedButton(onClick = { onResolution(row.id, "SKIP") }, enabled = !isSaving) {
+                OutlinedButton(
+                    onClick = { onResolution(row.id, "SKIP") },
+                    enabled = !isSaving,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
                     Text(row.importSkipLabel())
                 }
-                Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
                 Button(
                     onClick = { onResolution(row.id, "PUBLISH") },
                     enabled = !isSaving,
-                    modifier = Modifier.testTag("admin_import_confirm_${row.id}"),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("admin_import_confirm_${row.id}"),
                 ) { Text(row.importConfirmLabel()) }
             } else {
                 TextButton(onClick = onDismiss) { Text("关闭") }
@@ -1609,7 +1624,7 @@ private fun ImportRowDetailDialog(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun AdminFullScreenWorkspace(
     title: String,
@@ -1620,10 +1635,14 @@ private fun AdminFullScreenWorkspace(
 ) {
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
     ) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Scaffold(
+                contentWindowInsets = WindowInsets.safeDrawing,
                 topBar = {
                     TopAppBar(
                         title = {
@@ -1642,14 +1661,15 @@ private fun AdminFullScreenWorkspace(
                 bottomBar = {
                     Column {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        Row(
+                        FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .navigationBarsPadding()
                                 .imePadding()
-                                .padding(PlateViewDimensions.itemSpacing),
+                                .padding(horizontal = PlateViewDimensions.itemSpacing, vertical = PlateViewDimensions.compactSpacing)
+                                .testTag("admin_bottom_actions"),
                             horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
                         ) {
                             bottomBar()
                         }

@@ -95,7 +95,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`，同时同步同一签名 APK、SHA-256 校验值与更新清单到服务器。客户端优先从 GitHub 下载；GitHub 不可用或中途下载失败时，会复用未完成文件并从服务器镜像继续断点下载。
 
-当前版本：`0.3.15`（`versionCode 18`）。
+当前版本：`0.3.17`（`versionCode 20`）。
 
 ## 文档索引
 

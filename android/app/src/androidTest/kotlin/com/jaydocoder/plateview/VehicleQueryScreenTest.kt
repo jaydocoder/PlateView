@@ -1,10 +1,12 @@
 package com.jaydocoder.plateview
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -12,6 +14,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
@@ -24,6 +28,7 @@ import com.jaydocoder.plateview.feature.vehicle.VehicleDetailContent
 import com.jaydocoder.plateview.feature.vehicle.VehicleDetailScreen
 import com.jaydocoder.plateview.feature.vehicle.VehicleDetailUiState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -234,6 +239,46 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onAllNodesWithText("未填写").assertCountEquals(2)
+    }
+
+    @Test
+    fun 字体放大时身份证号使用完整纵向字段() {
+        val identityCardNumber = "654321199410183210"
+        val vehicle = VehicleDetail(
+            id = 109,
+            plateNumber = "新A12348",
+            normalizedPlate = "新A12348",
+            category = "RESIDENT",
+            categoryLabel = "村民车辆",
+            vehicleType = null,
+            status = "ACTIVE",
+            attributes = emptyList(),
+            residentProfile = ResidentProfile(
+                ownerName = "测试姓名",
+                identityCardNumber = identityCardNumber,
+                contactPhone = null,
+                remarks = null,
+            ),
+            longTermProfile = null,
+        )
+
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 1.5f)) {
+                PlateViewTheme {
+                    VehicleDetailScreen(
+                        uiState = VehicleDetailUiState(VehicleDetailContent.Data(vehicle)),
+                        onNavigateUp = {},
+                        onRetry = {},
+                    )
+                }
+            }
+        }
+
+        val field = composeRule.onNodeWithTag("vehicle_detail_field_身份证号").assertIsDisplayed()
+        composeRule.onNodeWithText(identityCardNumber).assertIsDisplayed()
+        composeRule.runOnIdle {
+            assertTrue(field.fetchSemanticsNode().boundsInRoot.height > 64f)
+        }
     }
 
     @Test
