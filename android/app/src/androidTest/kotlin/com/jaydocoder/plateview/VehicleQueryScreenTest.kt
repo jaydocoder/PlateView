@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -242,7 +241,7 @@ class VehicleQueryScreenTest {
     }
 
     @Test
-    fun 字体放大时身份证号使用完整纵向字段() {
+    fun 字体放大时身份证号在同一行完整显示() {
         val identityCardNumber = "654321199410183210"
         val vehicle = VehicleDetail(
             id = 109,
@@ -274,11 +273,9 @@ class VehicleQueryScreenTest {
             }
         }
 
-        val field = composeRule.onNodeWithTag("vehicle_detail_field_身份证号").assertIsDisplayed()
+        composeRule.onNodeWithTag("vehicle_detail_field_身份证号").assertIsDisplayed()
+        composeRule.onNodeWithText("身份证号").assertIsDisplayed()
         composeRule.onNodeWithText(identityCardNumber).assertIsDisplayed()
-        composeRule.runOnIdle {
-            assertTrue(field.fetchSemanticsNode().boundsInRoot.height > 64f)
-        }
     }
 
     @Test

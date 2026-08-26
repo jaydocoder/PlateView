@@ -71,17 +71,35 @@ class QueryEventDatabaseTest {
         assertEquals(listOf("新A102", "新A101"), history.map(LocalQueryHistoryRow::plateNumber))
     }
 
+    @Test
+    fun 前五车牌按查询次数聚合排序() = runBlocking {
+        dao.insert(event("event-1", accountId = 1, vehicleId = 101, category = "RESIDENT", occurredAt = 1_000L, plateNumber = "新A10001"))
+        dao.insert(event("event-2", accountId = 1, vehicleId = 101, category = "RESIDENT", occurredAt = 2_000L, plateNumber = "新A10001"))
+        dao.insert(event("event-3", accountId = 1, vehicleId = 102, category = "RESIDENT", occurredAt = 3_000L, plateNumber = "新A10002"))
+        dao.insert(event("event-4", accountId = 1, vehicleId = 103, category = "RESIDENT", occurredAt = 4_000L, plateNumber = "新A10003"))
+        dao.insert(event("event-5", accountId = 1, vehicleId = 104, category = "RESIDENT", occurredAt = 5_000L, plateNumber = "新A10004"))
+        dao.insert(event("event-6", accountId = 1, vehicleId = 105, category = "RESIDENT", occurredAt = 6_000L, plateNumber = "新A10005"))
+        dao.insert(event("event-7", accountId = 1, vehicleId = 106, category = "RESIDENT", occurredAt = 7_000L, plateNumber = "新A10006"))
+        dao.insert(event("event-8", accountId = 2, vehicleId = 107, category = "RESIDENT", occurredAt = 8_000L, plateNumber = "新A99999"))
+
+        val topPlates = dao.topPlates(accountId = 1, startAtEpochMillis = 0L, category = null, limit = 5)
+
+        assertEquals(listOf("新A10001", "新A10002", "新A10003", "新A10004", "新A10005"), topPlates.map(LocalStatisticsTopPlateRow::plateNumber))
+        assertEquals(listOf(2L, 1L, 1L, 1L, 1L), topPlates.map(LocalStatisticsTopPlateRow::queryCount))
+    }
+
     private fun event(
         eventId: String,
         accountId: Long,
         vehicleId: Long,
         category: String,
         occurredAt: Long,
+        plateNumber: String = "新A$vehicleId",
     ) = LocalQueryEventEntity(
         eventId = eventId,
         accountId = accountId,
         vehicleId = vehicleId,
-        plateNumber = "新A$vehicleId",
+        plateNumber = plateNumber,
         category = category,
         occurredAtEpochMillis = occurredAt,
     )

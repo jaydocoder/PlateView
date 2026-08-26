@@ -58,6 +58,19 @@ interface QueryEventDao {
     ): List<LocalStatisticsCategoryRow>
 
     @Query(
+        "SELECT plateNumber, COUNT(*) AS queryCount FROM local_query_events " +
+            "WHERE accountId = :accountId AND occurredAtEpochMillis >= :startAtEpochMillis " +
+            "AND (:category IS NULL OR category = :category) AND plateNumber IS NOT NULL " +
+            "GROUP BY plateNumber ORDER BY queryCount DESC, plateNumber ASC LIMIT :limit",
+    )
+    suspend fun topPlates(
+        accountId: Long,
+        startAtEpochMillis: Long,
+        category: String?,
+        limit: Int,
+    ): List<LocalStatisticsTopPlateRow>
+
+    @Query(
         "SELECT vehicleId, plateNumber, category, occurredAtEpochMillis FROM local_query_events " +
             "WHERE accountId = :accountId AND occurredAtEpochMillis >= :startAtEpochMillis " +
             "AND (:category IS NULL OR category = :category) " +

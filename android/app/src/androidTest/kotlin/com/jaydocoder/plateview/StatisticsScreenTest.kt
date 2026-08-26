@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performScrollTo
 import com.jaydocoder.plateview.data.statistics.VehicleCategoryPoint
 import com.jaydocoder.plateview.data.statistics.VehicleQueryHistoryItem
 import com.jaydocoder.plateview.data.statistics.VehicleStatistics
+import com.jaydocoder.plateview.data.statistics.VehicleTopPlatePoint
 import com.jaydocoder.plateview.feature.statistics.StatisticsRange
 import com.jaydocoder.plateview.feature.statistics.StatisticsScope
 import com.jaydocoder.plateview.feature.statistics.StatisticsScreen
@@ -38,15 +39,14 @@ class StatisticsScreenTest {
         }
 
         composeRule.onNodeWithText("类别占比").assertIsDisplayed()
-        composeRule.onNodeWithText("类别查询数量").assertIsDisplayed()
-        composeRule.onNodeWithTag("statistics_category_count_chart").assertIsDisplayed()
-        composeRule.onNodeWithText("村民车辆").assertIsDisplayed()
-        composeRule.onNodeWithText("4 次").assertIsDisplayed()
-        composeRule.onNodeWithTag("statistics_category_count_OTHER_LONG_TERM").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("查询最多的车牌").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics_top_plate_ranking").assertIsDisplayed()
+        composeRule.onNodeWithText("新A·12345").assertIsDisplayed()
         composeRule.onNodeWithTag("statistics_category_selector").performClick()
         composeRule.onNodeWithTag("statistics_category_option_RESIDENT").performClick()
 
         composeRule.runOnIdle { org.junit.Assert.assertEquals("RESIDENT", selected) }
+        composeRule.onNodeWithTag("statistics_category_count_OTHER_LONG_TERM").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -65,6 +65,7 @@ class StatisticsScreenTest {
         composeRule.onNodeWithText("查询记录").assertIsDisplayed()
         composeRule.onNodeWithText("新A·12345").assertIsDisplayed()
         composeRule.onAllNodesWithText("类别占比").assertCountEquals(0)
+        composeRule.onAllNodesWithText("查询最多的车牌").assertCountEquals(0)
         composeRule.onAllNodesWithText("类别查询数量").assertCountEquals(0)
     }
 
@@ -117,6 +118,10 @@ class StatisticsScreenTest {
             categories = listOf(
                 VehicleCategoryPoint("RESIDENT", 4),
                 VehicleCategoryPoint("SCENIC_UNIT", 2),
+            ),
+            topPlates = listOf(
+                VehicleTopPlatePoint("新A12345", 6),
+                VehicleTopPlatePoint("新A22345", 3),
             ),
         ),
         history = if (category == null) emptyList() else listOf(

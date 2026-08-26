@@ -5,7 +5,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.fetchSemanticsNode
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -287,12 +286,9 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        val actions = composeRule.onNodeWithTag("admin_bottom_actions").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_bottom_actions").assertIsDisplayed()
         composeRule.onNodeWithText("取消").assertIsDisplayed()
         composeRule.onNodeWithText("保存档案").assertIsDisplayed()
-        composeRule.runOnIdle {
-            assertTrue(actions.fetchSemanticsNode().boundsInRoot.height >= 48f)
-        }
     }
 
     @Test

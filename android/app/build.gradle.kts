@@ -41,8 +41,8 @@ android {
         applicationId = "com.jaydocoder.plateview"
         minSdk = 31
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.3.17"
+        versionCode = 21
+        versionName = "0.3.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiBaseUrl = providers.gradleProperty("plateviewApiBaseUrl")
             .orElse(
@@ -91,6 +91,11 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            resValue("string", "app_name", "PlateView 测试")
+        }
+
         getByName("release") {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")

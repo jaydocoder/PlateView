@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -1640,9 +1641,14 @@ private fun AdminFullScreenWorkspace(
             decorFitsSystemWindows = false,
         ),
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing),
+            color = MaterialTheme.colorScheme.background,
+        ) {
             Scaffold(
-                contentWindowInsets = WindowInsets.safeDrawing,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     TopAppBar(
                         title = {
@@ -1664,9 +1670,13 @@ private fun AdminFullScreenWorkspace(
                         FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .navigationBarsPadding()
                                 .imePadding()
-                                .padding(horizontal = PlateViewDimensions.itemSpacing, vertical = PlateViewDimensions.compactSpacing)
+                                .padding(
+                                    start = PlateViewDimensions.itemSpacing,
+                                    top = PlateViewDimensions.compactSpacing,
+                                    end = PlateViewDimensions.itemSpacing,
+                                    bottom = 48.dp,
+                                )
                                 .testTag("admin_bottom_actions"),
                             horizontalArrangement = Arrangement.End,
                             verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),

@@ -103,7 +103,27 @@ private class VehicleStatisticsService(private val dataSource: DataSource) {
                 buildList { while (result.next()) add(StatisticsCategoryPoint(result.getString("category"), result.getLong("total"))) }
             }
         }
-        StatisticsResponse(filter.range.name, summary, trend, categories)
+        val topPlates = connection.prepareStatement(
+            """
+            SELECT vehicle.plate_number, COUNT(*) AS total
+            FROM vehicle_query_events event
+            JOIN vehicles vehicle ON vehicle.id = event.vehicle_id
+            ${filter.toCriteria(tableAlias = "event")}
+            GROUP BY vehicle.plate_number
+            ORDER BY total DESC, vehicle.plate_number ASC
+            LIMIT $TOP_PLATE_LIMIT
+            """.trimIndent(),
+        ).use { statement ->
+            statement.bind(filter)
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) {
+                        add(StatisticsTopPlatePoint(result.getString("plate_number"), result.getLong("total")))
+                    }
+                }
+            }
+        }
+        StatisticsResponse(filter.range.name, summary, trend, categories, topPlates)
     }
 
     fun synchronize(actorId: Long, events: List<QueryEventUpload>): List<String> {
@@ -183,6 +203,7 @@ private class VehicleStatisticsService(private val dataSource: DataSource) {
     private companion object {
         const val MAX_SYNC_BATCH_SIZE = 200
         const val HISTORY_LIMIT = 50
+        const val TOP_PLATE_LIMIT = 5
     }
 }
 
@@ -246,10 +267,12 @@ internal enum class StatisticsRange {
     val summary: StatisticsSummary,
     val trend: List<StatisticsTrendPoint>,
     val categories: List<StatisticsCategoryPoint>,
+    val topPlates: List<StatisticsTopPlatePoint>,
 )
 @Serializable private data class StatisticsSummary(val totalQueries: Long, val distinctPlates: Long, val activeUsers: Long)
 @Serializable private data class StatisticsTrendPoint(val bucket: String, val queryCount: Long)
 @Serializable private data class StatisticsCategoryPoint(val category: String, val queryCount: Long)
+@Serializable private data class StatisticsTopPlatePoint(val plateNumber: String, val queryCount: Long)
 @Serializable private data class StatisticsHistoryResponse(val items: List<StatisticsHistoryItem>)
 @Serializable private data class StatisticsHistoryItem(
     val vehicleId: Long,

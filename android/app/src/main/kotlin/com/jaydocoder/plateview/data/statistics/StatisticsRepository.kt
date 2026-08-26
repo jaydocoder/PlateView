@@ -20,11 +20,13 @@ data class StatisticsResponseDto(
     val summary: StatisticsSummaryDto,
     val trend: List<StatisticsTrendPointDto>,
     val categories: List<StatisticsCategoryPointDto>,
+    val topPlates: List<StatisticsTopPlatePointDto>,
 )
 
 data class StatisticsSummaryDto(val totalQueries: Long, val distinctPlates: Long, val activeUsers: Long)
 data class StatisticsTrendPointDto(val bucket: String, val queryCount: Long)
 data class StatisticsCategoryPointDto(val category: String, val queryCount: Long)
+data class StatisticsTopPlatePointDto(val plateNumber: String, val queryCount: Long)
 data class StatisticsHistoryResponseDto(val items: List<StatisticsHistoryItemDto>)
 data class StatisticsHistoryItemDto(
     val vehicleId: Long,
@@ -66,10 +68,12 @@ data class VehicleStatistics(
     val activeUsers: Long,
     val trend: List<VehicleTrendPoint>,
     val categories: List<VehicleCategoryPoint>,
+    val topPlates: List<VehicleTopPlatePoint>,
 )
 
 data class VehicleTrendPoint(val bucket: String, val queryCount: Long)
 data class VehicleCategoryPoint(val category: String, val queryCount: Long)
+data class VehicleTopPlatePoint(val plateNumber: String, val queryCount: Long)
 data class VehicleQueryHistoryItem(
     val vehicleId: Long,
     val plateNumber: String?,
@@ -108,12 +112,19 @@ class StatisticsRepository @Inject constructor(
             queryEventDao.dailyTrend(session.userId, startAtEpochMillis, category)
         }
         val categories = queryEventDao.categories(session.userId, startAtEpochMillis, category)
+        val topPlates = queryEventDao.topPlates(
+            accountId = session.userId,
+            startAtEpochMillis = startAtEpochMillis,
+            category = category,
+            limit = TOP_PLATE_LIMIT,
+        )
         return VehicleStatistics(
             totalQueries = summary.totalQueries,
             distinctPlates = summary.distinctPlates,
             activeUsers = summary.activeUsers,
             trend = trend.map { VehicleTrendPoint(it.bucket, it.queryCount) },
             categories = categories.map { VehicleCategoryPoint(it.category, it.queryCount) },
+            topPlates = topPlates.map { VehicleTopPlatePoint(it.plateNumber, it.queryCount) },
         )
     }
 
@@ -129,6 +140,7 @@ class StatisticsRepository @Inject constructor(
             activeUsers = response.summary.activeUsers,
             trend = response.trend.map { VehicleTrendPoint(it.bucket, it.queryCount) },
             categories = response.categories.map { VehicleCategoryPoint(it.category, it.queryCount) },
+            topPlates = response.topPlates.map { VehicleTopPlatePoint(it.plateNumber, it.queryCount) },
         )
     }
 
@@ -197,5 +209,6 @@ class StatisticsRepository @Inject constructor(
         const val THIRTY_DAYS_RANGE = "THIRTY_DAYS"
         const val SYNC_BATCH_SIZE = 200
         const val HISTORY_LIMIT = 50
+        const val TOP_PLATE_LIMIT = 5
     }
 }

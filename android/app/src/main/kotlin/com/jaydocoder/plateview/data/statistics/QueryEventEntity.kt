@@ -37,6 +37,11 @@ data class LocalStatisticsCategoryRow(
     val queryCount: Long,
 )
 
+data class LocalStatisticsTopPlateRow(
+    val plateNumber: String,
+    val queryCount: Long,
+)
+
 data class LocalQueryHistoryRow(
     val vehicleId: Long,
     val plateNumber: String?,

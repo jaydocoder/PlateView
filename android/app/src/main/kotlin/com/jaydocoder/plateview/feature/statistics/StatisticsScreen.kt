@@ -50,6 +50,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.data.statistics.VehicleCategoryPoint
 import com.jaydocoder.plateview.data.statistics.VehicleQueryHistoryItem
 import com.jaydocoder.plateview.data.statistics.VehicleStatistics
+import com.jaydocoder.plateview.data.statistics.VehicleTopPlatePoint
+import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.domain.vehicle.formatPlateForDisplay
 import java.text.DateFormat
 import java.util.Date
@@ -139,13 +141,56 @@ private fun androidx.compose.foundation.lazy.LazyListScope.statisticsContent(
     }
     if (category == null) {
         item {
-            ChartCard("类别占比") { CategoryChart(statistics.categories) }
+            ChartCard("类别占比") {
+                TopPlateRanking(statistics.topPlates)
+                Spacer(Modifier.height(16.dp))
+                CategoryChart(statistics.categories)
+            }
         }
         item {
             ChartCard("类别查询数量") { CategoryBarChart(statistics.categories) }
         }
     } else {
         item { QueryHistoryCard(history) }
+    }
+}
+
+@Composable
+private fun TopPlateRanking(points: List<VehicleTopPlatePoint>) {
+    Column(
+        modifier = Modifier.testTag("statistics_top_plate_ranking"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "查询最多的车牌",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        points.take(5).forEachIndexed { index, point ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "${index + 1}",
+                    modifier = Modifier.width(20.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+                VehiclePlateBadge(
+                    plateNumber = point.plateNumber,
+                    compact = true,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "${point.queryCount} 次",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
     }
 }
 

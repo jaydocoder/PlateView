@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -358,12 +360,14 @@ private fun DetailInfoCell(
     displayMode: DetailFieldDisplayMode,
     modifier: Modifier = Modifier,
 ) {
+    val isInline = displayMode == DetailFieldDisplayMode.Inline ||
+        (displayMode == DetailFieldDisplayMode.Auto && value.isShortDetailValue())
     Surface(
-        modifier = modifier,
+        modifier = modifier.testTag("vehicle_detail_field_$label"),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
     ) {
-        if (displayMode == DetailFieldDisplayMode.Auto && value.isShortDetailValue()) {
+        if (isInline) {
             Row(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -378,19 +382,23 @@ private fun DetailInfoCell(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = value,
-                    modifier = Modifier.weight(1f),
+                    modifier = if (displayMode == DetailFieldDisplayMode.Inline) {
+                        Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState())
+                    } else {
+                        Modifier.weight(1f)
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow = if (displayMode == DetailFieldDisplayMode.Inline) TextOverflow.Clip else TextOverflow.Ellipsis,
                 )
             }
         } else {
             Column(
-                modifier = Modifier
-                    .testTag("vehicle_detail_field_$label")
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 Text(
                     text = label,
@@ -417,6 +425,7 @@ private data class DetailField(
 
 private enum class DetailFieldDisplayMode {
     Auto,
+    Inline,
     Stacked,
 }
 
@@ -433,7 +442,7 @@ private fun ResidentProfile.toFields(): List<DetailField> = listOfNotNull(
     DetailField(
         label = stringResource(R.string.detail_identity_card),
         value = identityCardNumber.displayDetailValue(),
-        displayMode = DetailFieldDisplayMode.Stacked,
+        displayMode = DetailFieldDisplayMode.Inline,
     ),
     contactPhone?.let { DetailField(stringResource(R.string.detail_contact_phone), it) },
     remarks?.let { DetailField(stringResource(R.string.detail_remarks), it) },
