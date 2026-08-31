@@ -25,15 +25,18 @@ import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Statement
+import java.time.Clock
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import javax.sql.DataSource
 import kotlinx.serialization.Serializable
 
 private val firstScheduleWeek = LocalDate.of(2026, 7, 27)
+private val scheduleZone = ZoneId.of("Asia/Shanghai")
 
 internal fun Application.configureScheduleFeature() {
     val dataSource = attributes.getOrNull(DataSourceKey) ?: return
@@ -130,7 +133,10 @@ private fun io.ktor.server.application.ApplicationCall.auditSchedule(actorId: Lo
     application.attributes.getOrNull(AuditLogWriterKey)?.write(AuditEvent(actorId, action, "SCHEDULE_TEMPLATE", targetId, "SUCCESS", callId, kotlinx.serialization.json.JsonObject(emptyMap())))
 }
 
-internal class ScheduleService(private val dataSource: DataSource) {
+internal class ScheduleService(
+    private val dataSource: DataSource,
+    private val clock: Clock = Clock.system(scheduleZone),
+) {
     fun isScheduleEnabled(userId: Long): Boolean = dataSource.connection.use { connection ->
         connection.isPrimaryAdministrator(userId) || connection.prepareStatement("SELECT 1 FROM schedule_participants WHERE account_id = ? AND enabled = TRUE").use {
             it.setLong(1, userId); it.executeQuery().use(ResultSet::next)
@@ -220,7 +226,7 @@ internal class ScheduleService(private val dataSource: DataSource) {
                        SELECT applied_version.template_id
                        FROM schedule_applications a
                        JOIN schedule_template_versions applied_version ON applied_version.id = a.template_version_id
-                       WHERE a.effective_from <= CURRENT_DATE
+                       WHERE a.effective_from <= ?
                        ORDER BY a.effective_from DESC
                        LIMIT 1
                    ) THEN 'ACTIVE' ELSE 'INACTIVE' END AS status
@@ -229,6 +235,7 @@ internal class ScheduleService(private val dataSource: DataSource) {
             WHERE t.archived_at IS NULL AND v.version_number = (SELECT MAX(v2.version_number) FROM schedule_template_versions v2 WHERE v2.template_id = t.id)
             ORDER BY t.updated_at DESC, t.id DESC
         """).use { statement ->
+            statement.setObject(1, scheduleCurrentDate(clock))
             statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toTemplateSummary()) } }
         }
     }
@@ -441,6 +448,8 @@ internal fun scheduleCycleDay(effectiveFrom: LocalDate, date: LocalDate, cycleDa
     require(!date.isBefore(effectiveFrom)) { "排班日期不能早于模板生效日期" }
     return ((ChronoUnit.DAYS.between(effectiveFrom, date) % cycleDays) + 1).toInt()
 }
+
+internal fun scheduleCurrentDate(clock: Clock): LocalDate = LocalDate.now(clock.withZone(scheduleZone))
 private data class ScheduleApplicationResolution(val effectiveFrom: LocalDate, val versionId: Long, val cycleDays: Int)
 private data class TemplateVersion(val id: Long, val versionNumber: Int, val cycleDays: Int)
 internal enum class ShiftType { MORNING, AFTERNOON, SMALL_NIGHT, NIGHT }
