@@ -44,7 +44,9 @@ fun PlateViewApp(
                     }
                 } else {
                     AuthenticatedNavigation(
+                        username = session.username,
                         role = session.role,
+                        scheduleEnabled = session.scheduleEnabled,
                         onLogout = viewModel::logout,
                         onOpenUpdate = updateState.update?.let { updateViewModel::openUpdateDialog },
                         onCheckForUpdate = updateViewModel::checkForUpdateFromUser,

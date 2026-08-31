@@ -7,6 +7,20 @@ import kotlin.test.assertNull
 
 class StatisticsAccessPolicyTest {
     @Test
+    fun `全部时间范围从最早查询事件开始统计`() {
+        val filter = StatisticsFilter.fromRequest(
+            range = "ALL_TIME",
+            category = null,
+            scope = "ME",
+            actorId = 1L,
+            isPrimaryAdministrator = false,
+        )
+
+        assertEquals(StatisticsRange.ALL_TIME, filter.range)
+        assertEquals(java.time.Instant.EPOCH, filter.range.startAt())
+    }
+
+    @Test
     fun `仅主管理员可使用全员统计范围`() {
         val filter = StatisticsFilter.fromRequest(
             range = "TODAY",

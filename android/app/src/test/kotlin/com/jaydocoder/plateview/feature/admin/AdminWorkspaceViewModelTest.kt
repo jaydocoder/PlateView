@@ -60,6 +60,24 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `用户名为admin的管理员加载概览时显示排班规划入口`() = runTest {
+        val viewModel = createViewModel()
+
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isPrimaryAdministrator)
+    }
+
+    @Test
+    fun `其他管理员加载概览时不显示排班规划入口`() = runTest {
+        val viewModel = createViewModel(username = "test10")
+
+        advanceUntilIdle()
+
+        assertTrue(!viewModel.uiState.value.isPrimaryAdministrator)
+    }
+
+    @Test
     fun `普通用户不能加载管理员数据`() = runTest {
         val viewModel = createViewModel(role = "USER")
 
@@ -283,9 +301,10 @@ class AdminWorkspaceViewModelTest {
     private fun createViewModel(
         repository: FakeAdminRepository = FakeAdminRepository(),
         role: String = "ADMIN",
+        username: String = "admin",
     ): AdminWorkspaceViewModel = AdminWorkspaceViewModel(
         repository = repository,
-        sessionProvider = FakeAdminSessionProvider(role),
+        sessionProvider = FakeAdminSessionProvider(role, username),
         importFileReader = FakeAdminImportFileReader(),
     )
 }
@@ -399,9 +418,9 @@ private class FakeAdminRepository(
     }
 }
 
-private class FakeAdminSessionProvider(role: String) : AuthSessionProvider {
+private class FakeAdminSessionProvider(role: String, username: String) : AuthSessionProvider {
     override val session: Flow<AuthSession?> = MutableStateFlow(
-        AuthSession("测试令牌", "测试刷新令牌", "admin", role),
+        AuthSession("测试令牌", "测试刷新令牌", username, role),
     )
     override suspend fun logout() = Unit
 }

@@ -68,6 +68,7 @@ data class ManagedUser(
     val updatedAt: String?,
     val avatarVersion: Long = 0L,
     val hasAvatar: Boolean = false,
+    val realName: String? = null,
 )
 
 data class UserCreateCommand(
@@ -81,6 +82,7 @@ data class UserUpdateCommand(
     val status: String,
     val username: String? = null,
     val password: String? = null,
+    val realName: String? = null,
 )
 
 data class ManagedImportBatchSummary(

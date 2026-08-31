@@ -9,6 +9,7 @@ import com.jaydocoder.plateview.server.infrastructure.web.configureRequestContex
 import com.jaydocoder.plateview.server.imports.configureImportPreviewFeature
 import com.jaydocoder.plateview.server.vehicle.configureVehicleQueryFeature
 import com.jaydocoder.plateview.server.statistics.configureVehicleStatisticsFeature
+import com.jaydocoder.plateview.server.schedule.configureScheduleFeature
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -33,6 +34,7 @@ fun Application.module() {
     configureImportPreviewFeature()
     configureVehicleQueryFeature()
     configureVehicleStatisticsFeature()
+    configureScheduleFeature()
     configureAdminManagementFeature()
 
     routing {

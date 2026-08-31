@@ -21,3 +21,6 @@ data class VehicleDetailDestination(
 
 @Serializable
 data object AdminWorkspaceDestination
+
+@Serializable
+data object SchedulePlannerDestination

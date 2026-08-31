@@ -86,15 +86,16 @@ internal fun Application.configureAdminManagementFeature() {
                 route("/users") {
                     get {
                         val actorId = call.requireAdministrator() ?: return@get
+                        val canManageProfiles = service.isPrimaryAdministrator(actorId)
                         val users = service.listUsers(call.pageLimit(), call.pageOffset())
                         call.auditAdmin(actorId, "USER_LIST", "USER", null)
-                        call.respond(AdminUserListResponse(users.map(AdminUserRecord::toResponse)))
+                        call.respond(AdminUserListResponse(users.map { it.toResponse(canManageProfiles) }))
                     }
                     post {
                         val actorId = call.requireAdministrator() ?: return@post
                         val user = service.createUser(call.receive<AdminUserCreateRequest>().toCommand(), actorId)
                         call.auditAdmin(actorId, "USER_CREATE", "USER", user.id)
-                        call.respond(HttpStatusCode.Created, user.toResponse())
+                        call.respond(HttpStatusCode.Created, user.toResponse(service.isPrimaryAdministrator(actorId)))
                     }
                     put("/{userId}") {
                         val actorId = call.requireAdministrator() ?: return@put
@@ -105,7 +106,7 @@ internal fun Application.configureAdminManagementFeature() {
                             actorId = actorId,
                         )
                         call.auditAdmin(actorId, "USER_UPDATE", "USER", user.id)
-                        call.respond(user.toResponse())
+                        call.respond(user.toResponse(service.isPrimaryAdministrator(actorId)))
                     }
                     post("/{userId}/avatar") {
                         val actorId = call.requireAdministrator() ?: return@post
@@ -116,13 +117,13 @@ internal fun Application.configureAdminManagementFeature() {
                             actorId = actorId,
                         )
                         call.auditAdmin(actorId, "USER_AVATAR_UPDATE", "USER", user.id)
-                        call.respond(user.toResponse())
+                        call.respond(user.toResponse(service.isPrimaryAdministrator(actorId)))
                     }
                     post("/{userId}/avatar/delete") {
                         val actorId = call.requireAdministrator() ?: return@post
                         val user = service.deleteUserAvatar(call.userId(), call.expectedVersion(), actorId)
                         call.auditAdmin(actorId, "USER_AVATAR_DELETE", "USER", user.id)
-                        call.respond(user.toResponse())
+                        call.respond(user.toResponse(service.isPrimaryAdministrator(actorId)))
                     }
                     get("/{userId}/avatar") {
                         call.requireAdministrator() ?: return@get
@@ -266,12 +267,14 @@ private data class AdminUserUpdateRequest(
     val status: String,
     val username: String? = null,
     val password: String? = null,
+    val realName: String? = null,
 ) {
     fun toCommand(): AdminUserUpdateCommand = AdminUserUpdateCommand(
         role = parseEnum(role, "账号角色") { AdminValidationException("账号角色无效") },
         status = parseEnum(status, "账号状态") { AdminValidationException("账号状态无效") },
         username = username,
         password = password,
+        realName = realName,
     )
 }
 
@@ -305,7 +308,7 @@ private fun AdminVehicleRecord.toResponse(): AdminVehicleResponse = AdminVehicle
     longTermProfile = longTermProfile?.let { AdminLongTermProfileResponse(it.organizationName, it.passHolder, it.passageDetails, it.remarks) },
 )
 
-private fun AdminUserRecord.toResponse(): AdminUserResponse = AdminUserResponse(
+private fun AdminUserRecord.toResponse(includeRealName: Boolean): AdminUserResponse = AdminUserResponse(
     id = id,
     username = username,
     role = role.name,
@@ -315,6 +318,7 @@ private fun AdminUserRecord.toResponse(): AdminUserResponse = AdminUserResponse(
     updatedAt = updatedAt,
     avatarVersion = avatarVersion,
     hasAvatar = hasAvatar,
+    realName = if (includeRealName) realName else null,
 )
 
 private fun AdminImportBatchSummary.toResponse(): AdminImportBatchSummaryResponse = AdminImportBatchSummaryResponse(
@@ -363,7 +367,7 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 @Serializable private data class AdminResidentProfileResponse(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)
 @Serializable private data class AdminLongTermProfileResponse(val organizationName: String?, val passHolder: String?, val passageDetails: String?, val remarks: String?)
 @Serializable private data class AdminUserListResponse(val items: List<AdminUserResponse>)
-@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean)
+@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String?)
 @Serializable private data class AdminImportBatchListResponse(val items: List<AdminImportBatchSummaryResponse>)
 @Serializable private data class AdminImportBatchSummaryResponse(val id: Long, val sourceFileName: String, val status: String, val totalRows: Int, val validRows: Int, val duplicateRows: Int, val errorRows: Int, val version: Int, val createdAt: String?, val publishedAt: String?, val rollbackAt: String?)
 @Serializable private data class AdminAuditListResponse(

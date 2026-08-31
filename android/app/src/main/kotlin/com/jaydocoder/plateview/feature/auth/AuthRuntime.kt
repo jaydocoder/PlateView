@@ -36,11 +36,12 @@ data class AuthSession(
     val role: String,
     val userId: Long = 0L,
     val avatarVersion: Long = 0L,
+    val scheduleEnabled: Boolean = false,
 )
 data class LoginRequest(val username: String, val password: String)
 data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto)
-data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long)
-data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean)
+data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false)
+data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false)
 data class ProfileUpdateRequest(
     val username: String? = null,
     val password: String? = null,
@@ -95,6 +96,7 @@ class AuthRepository @Inject constructor(
             role = p[ROLE].orEmpty(),
             userId = p[USER_ID] ?: return@map null,
             avatarVersion = p[AVATAR_VERSION] ?: 0L,
+            scheduleEnabled = p[SCHEDULE_ENABLED] ?: false,
         )
     }
 
@@ -107,6 +109,7 @@ class AuthRepository @Inject constructor(
             preferences[USERNAME] = response.user.username
             preferences[ROLE] = response.user.role
             preferences[AVATAR_VERSION] = response.user.avatarVersion
+            preferences[SCHEDULE_ENABLED] = response.user.scheduleEnabled
         }
     }
 
@@ -129,6 +132,7 @@ class AuthRepository @Inject constructor(
         val ROLE = stringPreferencesKey("role")
         val USER_ID = longPreferencesKey("user_id")
         val AVATAR_VERSION = longPreferencesKey("avatar_version")
+        val SCHEDULE_ENABLED = androidx.datastore.preferences.core.booleanPreferencesKey("schedule_enabled")
     }
 }
 

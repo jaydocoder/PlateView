@@ -199,6 +199,7 @@ class StatisticsRepository @Inject constructor(
 
             SEVEN_DAYS_RANGE -> now.minus(7, ChronoUnit.DAYS).toEpochMilli()
             THIRTY_DAYS_RANGE -> now.minus(30, ChronoUnit.DAYS).toEpochMilli()
+            ALL_TIME_RANGE -> 0L
             else -> throw IllegalArgumentException("统计范围无效")
         }
     }
@@ -207,6 +208,7 @@ class StatisticsRepository @Inject constructor(
         const val TODAY_RANGE = "TODAY"
         const val SEVEN_DAYS_RANGE = "SEVEN_DAYS"
         const val THIRTY_DAYS_RANGE = "THIRTY_DAYS"
+        const val ALL_TIME_RANGE = "ALL_TIME"
         const val SYNC_BATCH_SIZE = 200
         const val HISTORY_LIMIT = 50
         const val TOP_PLATE_LIMIT = 5

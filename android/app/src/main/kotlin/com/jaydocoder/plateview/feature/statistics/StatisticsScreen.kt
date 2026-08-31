@@ -1,15 +1,20 @@
 package com.jaydocoder.plateview.feature.statistics
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,8 +24,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,22 +32,28 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.data.statistics.VehicleCategoryPoint
@@ -52,7 +61,6 @@ import com.jaydocoder.plateview.data.statistics.VehicleQueryHistoryItem
 import com.jaydocoder.plateview.data.statistics.VehicleStatistics
 import com.jaydocoder.plateview.data.statistics.VehicleTopPlatePoint
 import com.jaydocoder.plateview.component.VehiclePlateBadge
-import com.jaydocoder.plateview.domain.vehicle.formatPlateForDisplay
 import java.text.DateFormat
 import java.util.Date
 
@@ -75,13 +83,17 @@ private val CategoryPalette = listOf(
 )
 
 @Composable
-fun StatisticsRoute(viewModel: StatisticsViewModel = hiltViewModel()) {
+fun StatisticsRoute(
+    onNavigateToVehicle: (Long) -> Unit = {},
+    viewModel: StatisticsViewModel = hiltViewModel(),
+) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     StatisticsScreen(
         state = state,
         onRange = viewModel::selectRange,
         onCategory = viewModel::selectCategory,
         onScope = viewModel::selectScope,
+        onNavigateToVehicle = onNavigateToVehicle,
     )
 }
 
@@ -91,7 +103,10 @@ internal fun StatisticsScreen(
     onRange: (StatisticsRange) -> Unit,
     onCategory: (String?) -> Unit,
     onScope: (StatisticsScope) -> Unit,
+    onNavigateToVehicle: (Long) -> Unit = {},
 ) {
+    var historyQuery by rememberSaveable { mutableStateOf("") }
+    var historySearchFocused by rememberSaveable { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -103,7 +118,7 @@ internal fun StatisticsScreen(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("查询统计", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                FilterRow(StatisticsRange.entries, state.range, StatisticsRange::label, onRange)
+                TimeRangeSelector(selected = state.range, onSelected = onRange)
                 CategorySelector(selected = state.category, onSelected = onCategory)
                 if (state.isAdministrator) {
                     val scopes = if (state.canViewAllStatistics) StatisticsScope.entries else listOf(StatisticsScope.ME)
@@ -116,13 +131,25 @@ internal fun StatisticsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                HistorySearchField(
+                    query = historyQuery,
+                    onQueryChanged = { historyQuery = it },
+                    onFocusedChanged = { historySearchFocused = it },
+                )
             }
         }
         when {
             state.loading -> item { LoadingState() }
             state.error != null -> item { EmptyState(state.error) }
             state.statistics == null || state.statistics.totalQueries == 0L -> item { EmptyState("当前条件下还没有查询记录") }
-            else -> statisticsContent(state.statistics, state.category, state.history)
+            else -> statisticsContent(
+                statistics = state.statistics,
+                category = state.category,
+                history = state.history,
+                historyQuery = historyQuery,
+                showOverview = !historySearchFocused && historyQuery.isBlank(),
+                onNavigateToVehicle = onNavigateToVehicle,
+            )
         }
     }
 }
@@ -131,44 +158,38 @@ private fun androidx.compose.foundation.lazy.LazyListScope.statisticsContent(
     statistics: VehicleStatistics,
     category: String?,
     history: List<VehicleQueryHistoryItem>,
+    historyQuery: String,
+    showOverview: Boolean,
+    onNavigateToVehicle: (Long) -> Unit,
 ) {
-    item {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricCard("查询总数", statistics.totalQueries.toString(), Modifier.weight(1f))
-            MetricCard("不同车牌", statistics.distinctPlates.toString(), Modifier.weight(1f))
-            MetricCard("活跃用户", statistics.activeUsers.toString(), Modifier.weight(1f))
-        }
-    }
-    if (category == null) {
+    if (category == null && showOverview) {
         item {
-            ChartCard("类别占比") {
-                TopPlateRanking(statistics.topPlates)
-                Spacer(Modifier.height(16.dp))
-                CategoryChart(statistics.categories)
+            ChartCard("查询最多的车牌") {
+                TopPlateRanking(statistics.topPlates, history, onNavigateToVehicle)
             }
         }
         item {
-            ChartCard("类别查询数量") { CategoryBarChart(statistics.categories) }
+            ChartCard("类别查询数量") { CategoryColumnChart(statistics.categories) }
         }
-    } else {
-        item { QueryHistoryCard(history) }
     }
+    item { QueryHistoryCard(history, historyQuery, onNavigateToVehicle) }
 }
 
 @Composable
-private fun TopPlateRanking(points: List<VehicleTopPlatePoint>) {
+private fun TopPlateRanking(
+    points: List<VehicleTopPlatePoint>,
+    history: List<VehicleQueryHistoryItem>,
+    onNavigateToVehicle: (Long) -> Unit,
+) {
     Column(
         modifier = Modifier.testTag("statistics_top_plate_ranking"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = "查询最多的车牌",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
         points.take(5).forEachIndexed { index, point ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp)).clickable {
+                    history.firstOrNull { it.plateNumber == point.plateNumber }?.let { onNavigateToVehicle(it.vehicleId) }
+                }.testTag("statistics_top_plate_${point.plateNumber}"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -223,21 +244,62 @@ private fun CategorySelector(selected: String?, onSelected: (String?) -> Unit) {
 }
 
 @Composable
-private fun <T> FilterRow(values: List<T>, selected: T, label: (T) -> String, onSelected: (T) -> Unit) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(values, key = { label(it) }) { value ->
-            FilterChip(selected = value == selected, onClick = { onSelected(value) }, label = { Text(label(value)) })
+private fun HistorySearchField(
+    query: String,
+    onQueryChanged: (String) -> Unit,
+    onFocusedChanged: (Boolean) -> Unit,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChanged,
+        modifier = Modifier.fillMaxWidth().onFocusChanged { onFocusedChanged(it.isFocused) }.testTag("statistics_history_search"),
+        singleLine = true,
+        shape = RoundedCornerShape(14.dp),
+        leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.Search, contentDescription = "搜索历史") },
+        label = { Text("搜索历史车牌") },
+        placeholder = { Text("输入车牌号") },
+    )
+}
+
+@Composable
+private fun TimeRangeSelector(
+    selected: StatisticsRange,
+    onSelected: (StatisticsRange) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("statistics_time_range_selector"),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        StatisticsRange.entries.forEach { range ->
+            val isSelected = range == selected
+            Surface(
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).clickable { onSelected(range) },
+                shape = RoundedCornerShape(14.dp),
+                color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = range.label,
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
+                        color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun MetricCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            Spacer(Modifier.height(6.dp))
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+private fun <T> FilterRow(values: List<T>, selected: T, label: (T) -> String, onSelected: (T) -> Unit) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(values, key = { label(it) }) { value ->
+            FilterChip(selected = value == selected, onClick = { onSelected(value) }, label = { Text(label(value)) })
         }
     }
 }
@@ -254,83 +316,63 @@ private fun ChartCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun CategoryChart(points: List<VehicleCategoryPoint>) {
-    val total = points.sumOf { it.queryCount }.coerceAtLeast(1L)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Canvas(modifier = Modifier.size(150.dp)) {
-            var start = -90f
-            points.forEachIndexed { index, point ->
-                val sweep = point.queryCount.toFloat() / total * 360f
-                drawArc(
-                    color = CategoryPalette[index % CategoryPalette.size],
-                    startAngle = start,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(12.dp.toPx(), 12.dp.toPx()),
-                    size = Size(size.width - 24.dp.toPx(), size.height - 24.dp.toPx()),
-                    style = Stroke(26.dp.toPx()),
-                )
-                start += sweep
-            }
-        }
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            points.take(6).forEachIndexed { index, point ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.foundation.layout.Box(
-                        Modifier.size(10.dp).background(CategoryPalette[index % CategoryPalette.size], CircleShape),
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    Text("${CategoryLabels[point.category] ?: point.category} ${point.queryCount}", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CategoryBarChart(points: List<VehicleCategoryPoint>) {
+private fun CategoryColumnChart(points: List<VehicleCategoryPoint>) {
     val countsByCategory = points.associate { it.category to it.queryCount }
     val categoryPoints = CategoryLabels.keys.map { category ->
         VehicleCategoryPoint(category, countsByCategory[category] ?: 0L)
     }
     val largestCount = categoryPoints.maxOfOrNull(VehicleCategoryPoint::queryCount)?.coerceAtLeast(1L) ?: 1L
-    Column(
-        modifier = Modifier.testTag("statistics_category_count_chart"),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    val shortLabels = listOf("村民", "单位", "企业", "干部", "喀旅", "其他")
+    val chartHeight = 190.dp
+    val axisColor = MaterialTheme.colorScheme.outline
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    Row(
+        modifier = Modifier.fillMaxWidth().height(chartHeight + 34.dp).testTag("statistics_category_count_chart"),
+        verticalAlignment = Alignment.Top,
     ) {
-        categoryPoints.forEachIndexed { index, point ->
-            val fraction = point.queryCount.toFloat() / largestCount
-            Column(
-                modifier = Modifier.testTag("statistics_category_count_${point.category}"),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = CategoryLabels[point.category] ?: point.category,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Text(
-                        text = "${point.queryCount} 次",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        Column(
+            modifier = Modifier.width(28.dp).height(chartHeight),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.End,
+        ) {
+            Text(largestCount.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text((largestCount / 2).toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(6.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.fillMaxWidth().height(chartHeight)) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val baseY = size.height - 1.dp.toPx()
+                    val topY = 1.dp.toPx()
+                    drawLine(axisColor, Offset(0f, topY), Offset(0f, baseY), 1.dp.toPx())
+                    drawLine(axisColor, Offset(0f, baseY), Offset(size.width, baseY), 1.dp.toPx())
+                    drawLine(gridColor, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 1.dp.toPx())
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(10.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                            .height(10.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(CategoryPalette[index % CategoryPalette.size]),
-                    )
+                    categoryPoints.forEachIndexed { index, point ->
+                        val fraction = point.queryCount.toFloat() / largestCount
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(fraction.coerceIn(0f, 1f))
+                                .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
+                                .background(CategoryPalette[index % CategoryPalette.size])
+                                .testTag("statistics_category_count_${point.category}"),
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                shortLabels.forEach { label ->
+                    Text(label, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -338,26 +380,42 @@ private fun CategoryBarChart(points: List<VehicleCategoryPoint>) {
 }
 
 @Composable
-private fun QueryHistoryCard(items: List<VehicleQueryHistoryItem>) {
+private fun QueryHistoryCard(
+    items: List<VehicleQueryHistoryItem>,
+    query: String,
+    onNavigateToVehicle: (Long) -> Unit,
+) {
     ChartCard("查询记录") {
-        if (items.isEmpty()) {
+        val normalizedQuery = query.trim().filterNot { it.isWhitespace() || it == '·' }
+        val filteredItems = items.filter { item ->
+            normalizedQuery.isBlank() || item.plateNumber?.filterNot { it.isWhitespace() || it == '·' }?.contains(normalizedQuery, ignoreCase = true) == true
+        }
+        if (filteredItems.isEmpty()) {
             Text("当前筛选条件下还没有查询记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items.forEach { item ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = item.plateNumber?.let(::formatPlateForDisplay) ?: "车辆档案 #${item.vehicleId}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = "${CategoryLabels[item.category] ?: item.category} · ${formatQueryTime(item.occurredAtEpochMillis)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                filteredItems.forEach { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onNavigateToVehicle(item.vehicleId) }
+                            .testTag("statistics_history_vehicle_${item.vehicleId}")
+                            .padding(horizontal = 4.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (item.plateNumber != null) {
+                            VehiclePlateBadge(plateNumber = item.plateNumber, compact = true)
+                        } else {
+                            Text("车辆档案 #${item.vehicleId}", style = MaterialTheme.typography.bodyMedium)
                         }
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = formatQueryTime(item.occurredAtEpochMillis),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

@@ -23,19 +23,23 @@ import androidx.navigation.compose.rememberNavController
 import com.jaydocoder.plateview.feature.admin.AdminWorkspaceRoute
 import com.jaydocoder.plateview.feature.search.SearchRoute
 import com.jaydocoder.plateview.feature.schedule.ScheduleScreen
+import com.jaydocoder.plateview.feature.schedule.SchedulePlannerRoute
 import com.jaydocoder.plateview.feature.statistics.StatisticsRoute
 import com.jaydocoder.plateview.feature.profile.ProfileRoute
 import com.jaydocoder.plateview.feature.vehicle.VehicleDetailRoute
 
 @Composable
 fun AuthenticatedNavigation(
+    username: String,
     role: String,
+    scheduleEnabled: Boolean,
     onLogout: () -> Unit,
     onOpenUpdate: (() -> Unit)? = null,
     onCheckForUpdate: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val isAdministrator = role == "ADMIN"
+    val isPrimaryAdministrator = isAdministrator && username == "admin"
     val navigateToVehicle = remember(navController) {
         { vehicleId: Long -> navController.navigate(VehicleDetailDestination(vehicleId)) }
     }
@@ -48,14 +52,19 @@ fun AuthenticatedNavigation(
     }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = backStackEntry?.destination
-    val topLevelDestinations = listOf(SearchDestination, ScheduleDestination, StatisticsDestination, ProfileDestination)
+    val topLevelDestinations = buildList {
+        add(SearchDestination)
+        if (scheduleEnabled) add(ScheduleDestination)
+        add(StatisticsDestination)
+        add(ProfileDestination)
+    }
     val showBottomNavigation = topLevelDestinations.any { destination?.hasRoute(it::class) == true }
     Scaffold(
         bottomBar = {
             if (showBottomNavigation) {
                 NavigationBar {
                     BottomNavigationItem("首页", Icons.Outlined.Home, destination?.hasRoute<SearchDestination>() == true) { navController.navigate(SearchDestination) { launchSingleTop = true } }
-                    BottomNavigationItem("排班", Icons.Outlined.CalendarMonth, destination?.hasRoute<ScheduleDestination>() == true) { navController.navigate(ScheduleDestination) { launchSingleTop = true } }
+                    if (scheduleEnabled) BottomNavigationItem("排班", Icons.Outlined.CalendarMonth, destination?.hasRoute<ScheduleDestination>() == true) { navController.navigate(ScheduleDestination) { launchSingleTop = true } }
                     BottomNavigationItem("统计", Icons.Outlined.QueryStats, destination?.hasRoute<StatisticsDestination>() == true) { navController.navigate(StatisticsDestination) { launchSingleTop = true } }
                     BottomNavigationItem("我的", Icons.Outlined.Person, destination?.hasRoute<ProfileDestination>() == true) { navController.navigate(ProfileDestination) { launchSingleTop = true } }
                 }
@@ -70,8 +79,8 @@ fun AuthenticatedNavigation(
             composable<SearchDestination> {
                 SearchRoute(onNavigateToVehicle = navigateToVehicle, onNavigateToProfile = { navController.navigate(ProfileDestination) })
             }
-            composable<ScheduleDestination> { ScheduleScreen() }
-            composable<StatisticsDestination> { StatisticsRoute() }
+            if (scheduleEnabled) composable<ScheduleDestination> { ScheduleScreen() }
+            composable<StatisticsDestination> { StatisticsRoute(onNavigateToVehicle = navigateToVehicle) }
             composable<ProfileDestination> {
                 ProfileRoute(
                     onNavigateUp = { navController.navigate(SearchDestination) { launchSingleTop = true } },
@@ -85,8 +94,19 @@ fun AuthenticatedNavigation(
             }
             if (isAdministrator) {
                 composable<AdminWorkspaceDestination> {
-                    AdminWorkspaceRoute(onNavigateUp = navController::navigateUp, onOpenUpdate = onOpenUpdate)
+                    AdminWorkspaceRoute(
+                        onNavigateUp = navController::navigateUp,
+                        onOpenUpdate = onOpenUpdate,
+                        onOpenSchedulePlanner = if (isPrimaryAdministrator) {
+                            { navController.navigate(SchedulePlannerDestination) }
+                        } else {
+                            {}
+                        },
+                    )
                 }
+            }
+            if (isPrimaryAdministrator) {
+                composable<SchedulePlannerDestination> { SchedulePlannerRoute(onNavigateUp = navController::navigateUp) }
             }
         }
     }

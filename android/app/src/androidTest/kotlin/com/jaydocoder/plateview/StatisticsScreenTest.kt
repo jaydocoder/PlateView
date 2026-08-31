@@ -5,10 +5,12 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import com.jaydocoder.plateview.data.statistics.VehicleCategoryPoint
 import com.jaydocoder.plateview.data.statistics.VehicleQueryHistoryItem
 import com.jaydocoder.plateview.data.statistics.VehicleStatistics
@@ -25,28 +27,37 @@ class StatisticsScreenTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun 全部类别显示类别图表并可通过下拉菜单选择类别() {
+    fun 全部类别显示柱状图和历史搜索并可通过下拉菜单选择类别() {
         var selected: String? = null
+        var selectedRange: StatisticsRange? = null
+        var openedVehicleId: Long? = null
         composeRule.setContent {
             PlateViewTheme {
                 StatisticsScreen(
                     state = state(category = null),
-                    onRange = {},
+                    onRange = { selectedRange = it },
                     onCategory = { selected = it },
                     onScope = {},
+                    onNavigateToVehicle = { openedVehicleId = it },
                 )
             }
         }
 
-        composeRule.onNodeWithText("类别占比").assertIsDisplayed()
-        composeRule.onNodeWithText("查询最多的车牌").assertIsDisplayed()
         composeRule.onNodeWithTag("statistics_top_plate_ranking").assertIsDisplayed()
-        composeRule.onNodeWithText("新A·12345").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics_top_plate_新A12345").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics_category_count_chart").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics_time_range_selector").assertIsDisplayed()
+        composeRule.onNodeWithText("全部时间").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { org.junit.Assert.assertEquals(StatisticsRange.ALL_TIME, selectedRange) }
+        composeRule.onAllNodesWithText("类别占比").assertCountEquals(0)
+        composeRule.onNodeWithTag("statistics_history_search").performTextInput("12345")
+        composeRule.onNodeWithTag("statistics_history_vehicle_1").performClick()
+        composeRule.runOnIdle { org.junit.Assert.assertEquals(1L, openedVehicleId) }
         composeRule.onNodeWithTag("statistics_category_selector").performClick()
         composeRule.onNodeWithTag("statistics_category_option_RESIDENT").performClick()
 
         composeRule.runOnIdle { org.junit.Assert.assertEquals("RESIDENT", selected) }
-        composeRule.onNodeWithTag("statistics_category_count_OTHER_LONG_TERM").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodesWithTag("statistics_category_count_chart").assertCountEquals(0)
     }
 
     @Test
@@ -124,7 +135,7 @@ class StatisticsScreenTest {
                 VehicleTopPlatePoint("新A22345", 3),
             ),
         ),
-        history = if (category == null) emptyList() else listOf(
+        history = listOf(
             VehicleQueryHistoryItem(1, "新A12345", "RESIDENT", 1_000L),
         ),
         loading = false,

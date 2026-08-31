@@ -27,7 +27,7 @@ data class StatisticsUiState(
     val canViewAllStatistics: Boolean = false,
 )
 
-enum class StatisticsRange(val label: String) { TODAY("今天"), SEVEN_DAYS("近 7 天"), THIRTY_DAYS("近 30 天") }
+enum class StatisticsRange(val label: String) { TODAY("今天"), SEVEN_DAYS("近 7 天"), THIRTY_DAYS("近 30 天"), ALL_TIME("全部时间") }
 enum class StatisticsScope(val label: String) { ME("我的统计"), ALL("全员统计") }
 
 @HiltViewModel
@@ -68,9 +68,7 @@ class StatisticsViewModel @Inject constructor(
             } else {
                 repository.localStatistics(session, effectiveFilters.range.name, effectiveFilters.category)
             }
-            val history = if (effectiveFilters.category == null) {
-                emptyList()
-            } else if (usesServer) {
+            val history = if (usesServer) {
                 repository.serverHistory(session, effectiveFilters.range.name, effectiveFilters.category, effectiveFilters.scope.name)
             } else {
                 repository.localHistory(session, effectiveFilters.range.name, effectiveFilters.category)

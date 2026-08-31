@@ -11,6 +11,8 @@ import com.jaydocoder.plateview.server.vehicle.VehicleNotFoundException
 import com.jaydocoder.plateview.server.vehicle.VehicleSearchKeywordException
 import com.jaydocoder.plateview.server.vehicle.VehicleCatalogVersionConflictException
 import com.jaydocoder.plateview.server.auth.ProfileConflictException
+import com.jaydocoder.plateview.server.schedule.ScheduleNotFoundException
+import com.jaydocoder.plateview.server.schedule.SchedulePermissionException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.application
@@ -121,6 +123,14 @@ internal fun Application.configureErrorHandling() {
                 status = HttpStatusCode.Conflict,
                 message = ApiErrorResponse("PROFILE_CONFLICT", cause.message ?: "账号资料冲突", call.callId),
             )
+        }
+
+        exception<ScheduleNotFoundException> { call, cause ->
+            call.respond(HttpStatusCode.NotFound, ApiErrorResponse("SCHEDULE_NOT_FOUND", cause.message ?: "排班模板不存在", call.callId))
+        }
+
+        exception<SchedulePermissionException> { call, cause ->
+            call.respond(HttpStatusCode.Forbidden, ApiErrorResponse("SCHEDULE_PERMISSION_DENIED", cause.message ?: "没有排班权限", call.callId))
         }
 
         exception<IllegalArgumentException> { call, cause ->

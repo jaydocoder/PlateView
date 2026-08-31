@@ -20,6 +20,8 @@ import org.mindrot.jbcrypt.BCrypt
 internal class AdminManagementService(
     private val dataSource: DataSource,
 ) {
+    fun isPrimaryAdministrator(actorId: Long): Boolean = dataSource.connection.use { it.isPrimaryAdministrator(actorId) }
+
     fun listVehicles(keyword: String?, limit: Int, offset: Int): AdminVehiclePage {
         val normalizedKeyword = keyword?.takeIf(String::isNotBlank)?.let(::normalizePlate)
         return dataSource.connection.use { connection ->
@@ -177,7 +179,7 @@ internal class AdminManagementService(
         command.validate()
         inTransaction { connection ->
             val existing = connection.findUserForUpdate(userId) ?: throw AdminResourceNotFoundException("账号不存在")
-            val profileChangeRequested = command.username != null || command.password != null
+            val profileChangeRequested = command.username != null || command.password != null || command.realName != null
             AdminUserProfilePolicy.requireModificationAllowed(
                 canManageOtherUserProfiles = connection.isPrimaryAdministrator(actorId),
                 profileChangeRequested = profileChangeRequested,
@@ -203,12 +205,13 @@ internal class AdminManagementService(
             val changed = connection.prepareStatement(UPDATE_USER).use { statement ->
                 statement.setNullableString(1, command.username?.trim())
                 statement.setNullableString(2, command.password?.let { BCrypt.hashpw(it, BCrypt.gensalt()) })
-                statement.setString(3, command.role.name)
-                statement.setString(4, command.status.name)
-                statement.setBoolean(5, profileChangeRequested)
-                statement.setLong(6, actorId)
-                statement.setLong(7, userId)
-                statement.setInt(8, expectedVersion)
+                statement.setNullableString(3, command.realName?.trim())
+                statement.setString(4, command.role.name)
+                statement.setString(5, command.status.name)
+                statement.setBoolean(6, profileChangeRequested)
+                statement.setLong(7, actorId)
+                statement.setLong(8, userId)
+                statement.setInt(9, expectedVersion)
                 statement.executeUpdate()
             }
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
@@ -411,10 +414,11 @@ internal class AdminManagementService(
         updatedAt = getTimestamp("updated_at").toIsoString(),
         avatarVersion = getLong("avatar_version"),
         hasAvatar = getBytes("avatar_content") != null,
+        realName = getString("real_name"),
     )
 
     private fun Connection.findUserForUpdate(userId: Long): AdminUserRecord? = prepareStatement(
-        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content FROM users WHERE id = ? FOR UPDATE",
+        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name FROM users WHERE id = ? FOR UPDATE",
     ).use { statement ->
         statement.setLong(1, userId)
         statement.executeQuery().use { result -> if (result.next()) result.toUserRecord() else null }
@@ -609,14 +613,14 @@ internal class AdminManagementService(
         const val DELETE_LONG_TERM_PROFILE = "DELETE FROM long_term_profiles WHERE vehicle_id = ?"
 
         const val SELECT_USERS = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name
             FROM users
             ORDER BY username, id
             LIMIT ? OFFSET ?
         """
 
         const val SELECT_USER = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name
             FROM users WHERE id = ?
         """
 
@@ -627,7 +631,7 @@ internal class AdminManagementService(
 
         const val UPDATE_USER = """
             UPDATE users
-            SET username = COALESCE(?, username), password_hash = COALESCE(?, password_hash),
+            SET username = COALESCE(?, username), password_hash = COALESCE(?, password_hash), real_name = COALESCE(?, real_name),
                 role = ?, status = ?, auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
                 version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
@@ -785,6 +789,7 @@ internal data class AdminUserUpdateCommand(
     val status: AdminUserStatus,
     val username: String? = null,
     val password: String? = null,
+    val realName: String? = null,
 )
 
 internal data class AdminUserRecord(
@@ -797,6 +802,7 @@ internal data class AdminUserRecord(
     val updatedAt: String?,
     val avatarVersion: Long,
     val hasAvatar: Boolean,
+    val realName: String?,
 )
 
 internal data class AdminAvatarContent(val content: ByteArray, val contentType: String)

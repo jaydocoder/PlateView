@@ -249,12 +249,14 @@ private fun PreparedStatement.bind(filter: StatisticsFilter) {
 internal enum class StatisticsRange {
     TODAY,
     SEVEN_DAYS,
-    THIRTY_DAYS;
+    THIRTY_DAYS,
+    ALL_TIME;
 
     fun startAt(): Instant = when (this) {
         TODAY -> ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).truncatedTo(ChronoUnit.DAYS).toInstant()
         SEVEN_DAYS -> Instant.now().minus(7, ChronoUnit.DAYS)
         THIRTY_DAYS -> Instant.now().minus(30, ChronoUnit.DAYS)
+        ALL_TIME -> Instant.EPOCH
     }
 
     companion object {

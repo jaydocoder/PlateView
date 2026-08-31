@@ -203,6 +203,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         status = editor.status,
                         username = editor.username.trim().takeIf { editor.canEditProfile && it != editor.originalUsername },
                         password = editor.password.takeIf { editor.canEditProfile && it.isNotBlank() },
+                        realName = editor.realName.trim().takeIf { editor.canEditProfile && it != editor.originalRealName },
                     ),
                 )
             }
@@ -330,6 +331,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun loadDashboard(accessToken: String) {
+        val session = sessionProvider.session.first() ?: return
         val capabilities = repository.getVehicleCreationCapabilities(accessToken)
         val vehiclePage = repository.listVehicles(accessToken)
         val users = repository.listUsers(accessToken)
@@ -342,6 +344,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 canChangeVehicleCategory = capabilities.canChangeVehicleCategory,
                 users = users,
                 importBatches = batches,
+                isPrimaryAdministrator = session.role == "ADMIN" && session.username == "admin",
             )
         }
     }
@@ -411,6 +414,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 users = users,
                 userAvatars = avatars,
                 canManageOtherUserProfiles = session.role == "ADMIN" && session.username == "admin",
+                isPrimaryAdministrator = session.role == "ADMIN" && session.username == "admin",
             )
         }
     }

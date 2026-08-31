@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -117,6 +118,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 fun AdminWorkspaceRoute(
     onNavigateUp: () -> Unit,
     onOpenUpdate: (() -> Unit)? = null,
+    onOpenSchedulePlanner: () -> Unit = {},
     viewModel: AdminWorkspaceViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -166,6 +168,7 @@ fun AdminWorkspaceRoute(
         onAuditResultChanged = viewModel::updateAuditResult,
         onLoadMoreAuditEntries = viewModel::loadMoreAuditEntries,
         onOpenUpdate = onOpenUpdate,
+        onOpenSchedulePlanner = onOpenSchedulePlanner,
     )
 }
 
@@ -210,6 +213,7 @@ fun AdminWorkspaceScreen(
     onAuditResultChanged: (AuditResult) -> Unit = {},
     onLoadMoreAuditEntries: () -> Unit = {},
     onOpenUpdate: (() -> Unit)? = null,
+    onOpenSchedulePlanner: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -285,7 +289,9 @@ fun AdminWorkspaceScreen(
                             vehiclesCount = uiState.vehicleTotalCount,
                             usersCount = uiState.users.size,
                             importsCount = uiState.importBatches.size,
+                            showSchedulePlanner = uiState.isPrimaryAdministrator,
                             onTabSelected = onTabSelected,
+                            onOpenSchedulePlanner = onOpenSchedulePlanner,
                         )
 
                         AdminTab.Vehicles -> VehiclesPane(
@@ -431,7 +437,9 @@ private fun DashboardPane(
     vehiclesCount: Int,
     usersCount: Int,
     importsCount: Int,
+    showSchedulePlanner: Boolean,
     onTabSelected: (AdminTab) -> Unit,
+    onOpenSchedulePlanner: () -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -451,6 +459,11 @@ private fun DashboardPane(
         }
         item {
             DashboardCard("操作审计", "安全日志", Icons.Outlined.Security, MaterialTheme.colorScheme.outline) { onTabSelected(AdminTab.Audit) }
+        }
+        if (showSchedulePlanner) {
+            item {
+                DashboardCard("排班规划", "模板", Icons.Outlined.CalendarMonth, MaterialTheme.colorScheme.primary) { onOpenSchedulePlanner() }
+            }
         }
     }
 }
@@ -1139,6 +1152,7 @@ private fun UserEditorDialog(
         } else if (editor.canEditProfile) {
             item { EditorSectionHeading("账号资料", "修改后目标账号需要重新登录") }
             item { EditorTextField("用户名", editor.username) { value -> onChanged { it.copy(username = value, error = null) } } }
+            item { EditorTextField("真实姓名", editor.realName) { value -> onChanged { it.copy(realName = value, error = null) } } }
             item {
                 OutlinedTextField(
                     value = editor.password,

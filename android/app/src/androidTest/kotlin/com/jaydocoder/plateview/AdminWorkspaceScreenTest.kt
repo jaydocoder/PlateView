@@ -2,6 +2,9 @@ package com.jaydocoder.plateview
 
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
@@ -470,5 +473,28 @@ class AdminWorkspaceScreenTest {
 
         composeRule.onNodeWithText("近30天").assertIsDisplayed()
         composeRule.onNodeWithText("FAILURE").assertIsDisplayed()
+    }
+
+    @Test
+    fun 仅主管理员在工作台看见排班规划入口() {
+        var isPrimaryAdministrator by mutableStateOf(false)
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(isLoading = false, isPrimaryAdministrator = isPrimaryAdministrator),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("排班规划").assertCountEquals(0)
+
+        composeRule.runOnUiThread { isPrimaryAdministrator = true }
+        composeRule.onNodeWithText("排班规划").assertIsDisplayed()
     }
 }
