@@ -93,7 +93,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 `main` 分支每次推送会自动执行 Android 单元测试、静态检查并上传调试 APK 工件。
 
-推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`，同时同步同一签名 APK、SHA-256 校验值与更新清单到服务器。客户端优先从 GitHub 下载；GitHub 不可用或中途下载失败时，会复用未完成文件并从服务器镜像继续断点下载。
+推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。七牛云服务器上的 `plateview-update-mirror.timer` 每五分钟主动检查 GitHub Release，断点续传同一签名 APK，校验 SHA-256 后原子更新服务器镜像与 `latest.json`。客户端优先从 GitHub 下载；GitHub 不可用或中途下载失败时，会复用未完成文件并从服务器镜像继续断点下载。
 
 当前版本：`0.3.17`（`versionCode 20`）。
 

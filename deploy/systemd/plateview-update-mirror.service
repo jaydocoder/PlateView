@@ -1,0 +1,8 @@
+[Unit]
+Description=PlateView APK 镜像同步
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/plateview-update-mirror

@@ -1,0 +1,12 @@
+[Unit]
+Description=PlateView APK 镜像定时检查
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=1min
+Persistent=true
+Unit=plateview-update-mirror.service
+
+[Install]
+WantedBy=timers.target

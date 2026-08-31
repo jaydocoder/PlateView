@@ -27,6 +27,20 @@ git_source() { git --git-dir="$SOURCE_DIR/.git" --work-tree="$SOURCE_DIR" "$@"; 
 write_caddy_upstream() { printf 'reverse_proxy %s:8080\n' "$1" > "$RUNTIME_DIR/Caddyfile"; }
 restore_caddy_config() { cat "$RUNTIME_DIR/Caddyfile.previous" > "$RUNTIME_DIR/Caddyfile"; }
 
+install_update_mirror_timer() {
+    command -v systemctl >/dev/null 2>&1 || die "服务器缺少 systemctl，无法启用 APK 镜像定时同步"
+    install -D -m 0755 "$SOURCE_DIR/deploy/plateview-update-mirror.sh" /usr/local/sbin/plateview-update-mirror
+    install -D -m 0644 "$SOURCE_DIR/deploy/systemd/plateview-update-mirror.service" \
+        /etc/systemd/system/plateview-update-mirror.service
+    install -D -m 0644 "$SOURCE_DIR/deploy/systemd/plateview-update-mirror.timer" \
+        /etc/systemd/system/plateview-update-mirror.timer
+    systemctl daemon-reload
+    systemctl enable --now plateview-update-mirror.timer
+    if ! systemctl start plateview-update-mirror.service; then
+        log "APK 镜像首次同步失败，定时器会自动重试"
+    fi
+}
+
 exec 9>"$LOCK_FILE"
 flock -n 9 || die "已有部署正在运行，拒绝并发部署"
 
@@ -63,6 +77,7 @@ git_source cat-file -e "$target_commit^{commit}" || die "目标提交不存在�
 git_source checkout --detach --force "$target_commit"
 resolved_commit=$(git_source rev-parse HEAD)
 short_commit=${resolved_commit:0:12}
+install_update_mirror_timer
 
 if git_source rev-parse "$resolved_commit^" >/dev/null 2>&1; then
     has_server_change=0
