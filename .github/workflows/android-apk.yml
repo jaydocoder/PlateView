@@ -125,9 +125,41 @@ jobs:
           apk="app/build/outputs/apk/release/app-release.apk"
           sha256=$(sha256sum "$apk" | awk '{print $1}')
           remote="$DEPLOY_USER@$DEPLOY_HOST"
-          ssh_args=(-i "$HOME/.ssh/plateview_deploy" -o BatchMode=yes -o StrictHostKeyChecking=yes -p "$DEPLOY_PORT")
+          ssh_args=(
+            -i "$HOME/.ssh/plateview_deploy"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=20
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=20
+            -o TCPKeepAlive=yes
+            -p "$DEPLOY_PORT"
+          )
           remote_apk="/opt/plateview/updates/PlateView-${VERSION}.apk"
+          remote_upload="${remote_apk}.upload"
+          local_size=$(stat -c%s "$apk")
           ssh "${ssh_args[@]}" "$remote" "mkdir -p /opt/plateview/updates"
-          ssh "${ssh_args[@]}" "$remote" "cat > '${remote_apk}.upload'" < "$apk"
+          for attempt in $(seq 1 3); do
+            remote_size=$(ssh "${ssh_args[@]}" "$remote" "test -f '${remote_upload}' && stat -c%s '${remote_upload}' || printf 0")
+            if [ "$remote_size" -gt "$local_size" ]; then
+              ssh "${ssh_args[@]}" "$remote" "rm -f '${remote_upload}'"
+              remote_size=0
+            fi
+            while [ "$remote_size" -lt "$local_size" ]; do
+              chunk_size=$((4 * 1024 * 1024))
+              remaining=$((local_size - remote_size))
+              if [ "$remaining" -lt "$chunk_size" ]; then
+                chunk_size=$remaining
+              fi
+              dd if="$apk" bs=4M iflag=skip_bytes,count_bytes skip="$remote_size" count="$chunk_size" status=none | \
+                ssh "${ssh_args[@]}" "$remote" "cat >> '${remote_upload}'" || break
+              remote_size=$((remote_size + chunk_size))
+            done
+            remote_size=$(ssh "${ssh_args[@]}" "$remote" "test -f '${remote_upload}' && stat -c%s '${remote_upload}' || printf 0")
+            if [ "$remote_size" -eq "$local_size" ]; then
+              break
+            fi
+          done
+          test "$remote_size" -eq "$local_size"
           ssh "${ssh_args[@]}" "$remote" \
-            "set -eu; test \"\$(sha256sum '${remote_apk}.upload' | awk '{print \$1}')\" = '$sha256'; mv '${remote_apk}.upload' '$remote_apk'; printf '{\\\"versionName\\\":\\\"%s\\\",\\\"releaseNotes\\\":\\\"\\\",\\\"apkUrl\\\":\\\"https://api.chenxiruyu.dpdns.org/updates/PlateView-%s.apk\\\",\\\"sha256\\\":\\\"%s\\\"}\\n' '$VERSION' '$VERSION' '$sha256' > /opt/plateview/updates/latest.json.next; mv /opt/plateview/updates/latest.json.next /opt/plateview/updates/latest.json; ls -1t /opt/plateview/updates/PlateView-v*.apk | tail -n +6 | xargs -r rm -f"
+            "set -eu; test \"\$(sha256sum '${remote_upload}' | awk '{print \$1}')\" = '$sha256'; mv '${remote_upload}' '$remote_apk'; printf '{\\\"versionName\\\":\\\"%s\\\",\\\"releaseNotes\\\":\\\"\\\",\\\"apkUrl\\\":\\\"https://api.chenxiruyu.dpdns.org/updates/PlateView-%s.apk\\\",\\\"sha256\\\":\\\"%s\\\"}\\n' '$VERSION' '$VERSION' '$sha256' > /opt/plateview/updates/latest.json.next; mv /opt/plateview/updates/latest.json.next /opt/plateview/updates/latest.json; ls -1t /opt/plateview/updates/PlateView-v*.apk | tail -n +6 | xargs -r rm -f"
