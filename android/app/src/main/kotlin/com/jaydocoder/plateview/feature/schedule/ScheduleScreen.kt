@@ -3,6 +3,7 @@ package com.jaydocoder.plateview.feature.schedule
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -533,7 +534,9 @@ private fun ScheduleWeekGrid(week: ScheduleWeek) {
         Column(modifier = Modifier.fillMaxSize().testTag("schedule_week_grid")) {
             Row(modifier = Modifier.fillMaxWidth().height(scheduleGridHeaderHeight)) {
                 MonthHeader(week.weekStart)
-                dates.forEach { DateHeader(it, dayWidth) }
+                dates.forEach { date ->
+                    DateHeader(date, dayWidth, isToday = date == LocalDate.now())
+                }
             }
             BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 val shiftAreaHeight = maxHeight.coerceAtLeast(scheduleMinimumShiftRowHeight * 4)
@@ -577,18 +580,35 @@ private fun MonthHeader(date: LocalDate) = Box(
 }
 
 @Composable
-private fun DateHeader(date: LocalDate, width: Dp) = Box(
+private fun DateHeader(date: LocalDate, width: Dp, isToday: Boolean) = Box(
     Modifier
         .width(width)
         .fillMaxHeight()
         .padding(2.dp)
         .clip(RoundedCornerShape(10.dp))
-        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+        .background(
+            if (isToday) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        )
+        .then(
+            if (isToday) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+            else Modifier,
+        )
+        .testTag(if (isToday) "schedule_today_header" else "schedule_date_header_${date}"),
     contentAlignment = Alignment.Center,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("${date.dayOfMonth}日", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-        Text(date.weekdayLabel(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "${date.dayOfMonth}日",
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            date.weekdayLabel(),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -599,11 +619,30 @@ private fun TimeCell(type: ScheduleShiftType) = Box(
         .fillMaxHeight()
         .padding(2.dp)
         .clip(RoundedCornerShape(8.dp))
-        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.68f)),
+        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.68f))
+        .testTag("schedule_time_${type.name}"),
     contentAlignment = Alignment.Center,
 ) {
     val time = if (type == ScheduleShiftType.NIGHT) "" else type.timeLabel.substringBefore('-')
-    Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        if (time.isNotBlank()) {
+            Text(
+                time,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+            )
+        }
+        Text(
+            type.axisLabel(),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
+    }
 }
 
 @Composable
@@ -623,10 +662,9 @@ private fun ShiftCell(type: ScheduleShiftType, shift: ScheduleShift?, width: Dp,
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(type.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
             Text(
                 shift.persons.joinToString("\n") { it.realName },
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = Color.White,
                 textAlign = TextAlign.Center,
                 maxLines = 3,
@@ -635,6 +673,13 @@ private fun ShiftCell(type: ScheduleShiftType, shift: ScheduleShift?, width: Dp,
             )
         }
     }
+}
+
+private fun ScheduleShiftType.axisLabel() = when (this) {
+    ScheduleShiftType.MORNING -> "早班"
+    ScheduleShiftType.AFTERNOON -> "晚班"
+    ScheduleShiftType.SMALL_NIGHT -> "小夜"
+    ScheduleShiftType.NIGHT -> "大夜"
 }
 
 private fun ScheduleShiftType.color() = when (this) {

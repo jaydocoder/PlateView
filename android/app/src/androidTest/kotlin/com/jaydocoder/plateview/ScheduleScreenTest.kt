@@ -26,6 +26,7 @@ import com.jaydocoder.plateview.feature.schedule.SchedulePlannerState
 import com.jaydocoder.plateview.feature.schedule.ScheduleScreen
 import com.jaydocoder.plateview.feature.schedule.ScheduleTemplateEditor
 import com.jaydocoder.plateview.feature.schedule.ScheduleUiState
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import org.junit.Assert.assertEquals
@@ -54,6 +55,32 @@ class ScheduleScreenTest {
         composeRule.onNodeWithTag("schedule_shift_SMALL_NIGHT_2026-08-31").assertIsDisplayed()
         composeRule.onNodeWithText("刘添\n许志川\n穆拉迪力").assertIsDisplayed()
         composeRule.onAllNodesWithText("20:00").assertCountEquals(1)
+    }
+
+    @Test
+    fun 今日日期使用强调色且班次名只显示在时间轴() {
+        val weekStart = LocalDate.now().minusDays((LocalDate.now().dayOfWeek.value - DayOfWeek.MONDAY.value).toLong())
+        val person = SchedulePerson(3, "schedule-3", "刘添")
+        composeRule.setContent {
+            PlateViewTheme {
+                ScheduleScreen(
+                    state = ScheduleUiState(
+                        week = ScheduleWeek(
+                            weekStart,
+                            1,
+                            ScheduleShiftType.entries.map { type -> ScheduleShift(weekStart, type, listOf(person)) },
+                        ),
+                        loading = false,
+                        currentUserId = 3,
+                    ),
+                    onPreviousWeek = {}, onNextWeek = {}, onToday = {}, onWeekNumber = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("schedule_today_header").assertIsDisplayed()
+        listOf("早班", "晚班", "小夜", "大夜").forEach { label -> composeRule.onAllNodesWithText(label).assertCountEquals(1) }
+        ScheduleShiftType.entries.forEach { type -> composeRule.onNodeWithTag("schedule_time_${type.name}").assertIsDisplayed() }
     }
 
     @Test
