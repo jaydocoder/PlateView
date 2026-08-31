@@ -5,4 +5,4 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/plateview-update-mirror
+ExecStart=/opt/plateview/source/deploy/plateview-update-mirror.sh
