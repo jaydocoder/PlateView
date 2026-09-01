@@ -53,7 +53,7 @@ class ScheduleScreenTest {
         composeRule.onNodeWithText("第6周 · 2026年8月31日-9月6日").assertIsDisplayed()
         listOf("31日", "1日", "2日", "3日", "4日", "5日", "6日").forEach { day -> composeRule.onAllNodesWithText(day).assertCountEquals(1) }
         composeRule.onNodeWithTag("schedule_shift_SMALL_NIGHT_2026-08-31").assertIsDisplayed()
-        composeRule.onNodeWithText("刘添\n许志川\n穆拉迪力").assertIsDisplayed()
+        listOf("刘添", "许志川", "穆拉迪力").forEach { name -> composeRule.onNodeWithText(name).assertIsDisplayed() }
         composeRule.onAllNodesWithText("20:00").assertCountEquals(1)
     }
 
@@ -114,11 +114,12 @@ class ScheduleScreenTest {
         }
 
         composeRule.onNodeWithTag("schedule_display_mine").assertIsSelected()
-        composeRule.onNodeWithText("刘添\n许志川").assertIsDisplayed()
-        composeRule.onAllNodesWithText("许志川").assertCountEquals(0)
+        composeRule.onNodeWithText("刘添").assertIsDisplayed()
+        composeRule.onNodeWithText("许志川").assertIsDisplayed()
+        composeRule.onAllNodesWithText("许志川").assertCountEquals(1)
         composeRule.onNodeWithTag("schedule_display_all").performClick()
         composeRule.onNodeWithTag("schedule_display_all").assertIsSelected()
-        composeRule.onNodeWithText("许志川").assertIsDisplayed()
+        composeRule.onAllNodesWithText("许志川").assertCountEquals(2)
     }
 
     @Test
@@ -134,6 +135,20 @@ class ScheduleScreenTest {
         composeRule.onNodeWithText("停用").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("编辑模板").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("选择应用日期").assertIsDisplayed()
+    }
+
+    @Test
+    fun 模板应用成功后显示实际生效日期提示() {
+        composeRule.setContent {
+            PlateViewTheme {
+                SchedulePlannerScreen(
+                    state = SchedulePlannerState(loading = false, applicationSuccessMessage = "模板已从2026年9月1日开始生效"),
+                    onNavigateUp = {}, onNew = {}, onEdit = {}, onChanged = {}, onSave = {}, onDismiss = {}, onApply = { _, _ -> }, onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("模板已从2026年9月1日开始生效").assertIsDisplayed()
     }
 
     @Test

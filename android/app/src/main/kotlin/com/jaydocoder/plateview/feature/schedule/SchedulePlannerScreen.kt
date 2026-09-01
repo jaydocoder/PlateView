@@ -39,6 +39,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -66,9 +69,9 @@ import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.domain.schedule.ScheduleParticipant
 import com.jaydocoder.plateview.domain.schedule.ScheduleShiftType
 import com.jaydocoder.plateview.domain.schedule.ScheduleTemplateSummary
+import java.time.Instant
 import java.time.LocalDate
-
-private const val MILLIS_PER_DAY = 86_400_000L
+import java.time.ZoneOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +86,7 @@ fun SchedulePlannerRoute(onNavigateUp: () -> Unit, viewModel: SchedulePlannerVie
         onSave = viewModel::saveTemplate,
         onDismiss = viewModel::dismissEditor,
         onApply = viewModel::applyTemplate,
+        onApplicationSuccessMessageConsumed = viewModel::consumeApplicationSuccessMessage,
         onDelete = viewModel::deleteTemplate,
     )
 }
@@ -99,8 +103,16 @@ fun SchedulePlannerScreen(
     onDismiss: () -> Unit,
     onApply: (Long, LocalDate) -> Unit,
     onDelete: (Long) -> Unit,
+    onApplicationSuccessMessageConsumed: () -> Unit = {},
 ) {
     var applicationTarget by remember { mutableStateOf<ScheduleTemplateSummary?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(state.applicationSuccessMessage) {
+        state.applicationSuccessMessage?.let { message ->
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+            onApplicationSuccessMessageConsumed()
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -112,6 +124,7 @@ fun SchedulePlannerScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         if (state.editor == null) {
             TemplateList(state, onNew, onEdit, { applicationTarget = it }, onDelete, Modifier.padding(padding))
@@ -139,13 +152,13 @@ fun SchedulePlannerScreen(
 @Composable
 private fun ApplyTemplateDateDialog(onDismiss: () -> Unit, onApply: (LocalDate) -> Unit) {
     val pickerState = androidx.compose.material3.rememberDatePickerState(
-        initialSelectedDateMillis = LocalDate.now().toEpochDay() * MILLIS_PER_DAY,
+        initialSelectedDateMillis = scheduleDatePickerUtcMillis(LocalDate.now()),
     )
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(
-                onClick = { pickerState.selectedDateMillis?.let { onApply(LocalDate.ofEpochDay(it / MILLIS_PER_DAY)) } },
+                onClick = { pickerState.selectedDateMillis?.let { onApply(scheduleDateFromPickerUtcMillis(it)) } },
                 enabled = pickerState.selectedDateMillis != null,
                 shape = RoundedCornerShape(14.dp),
             ) { Text("确认应用") }
@@ -160,6 +173,10 @@ private fun ApplyTemplateDateDialog(onDismiss: () -> Unit, onApply: (LocalDate) 
         )
     }
 }
+
+internal fun scheduleDatePickerUtcMillis(date: LocalDate): Long = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+internal fun scheduleDateFromPickerUtcMillis(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
 
 @Composable
 private fun TemplateList(
@@ -474,7 +491,7 @@ private fun ShiftPeopleEditor(
                         onClick = {
                             onChanged { value ->
                                 val key = value.selectedDay to type
-                                val selectedPeople = value.people(value.selectedDay, type).toMutableSet()
+                                val selectedPeople = value.people(value.selectedDay, type).toMutableList()
                                 if (selected) selectedPeople.remove(person.id) else if (selectedPeople.size < 3) selectedPeople.add(person.id)
                                 value.copy(assignments = value.assignments + (key to selectedPeople))
                             }

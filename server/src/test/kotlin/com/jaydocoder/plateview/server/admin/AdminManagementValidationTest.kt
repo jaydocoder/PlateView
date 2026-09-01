@@ -126,6 +126,21 @@ class AdminManagementValidationTest {
     }
 
     @Test
+    fun `仅admin账号可修改其他账号的排班入口许可`() {
+        assertFailsWith<AdminPermissionException> {
+            AdminUserProfilePolicy.requireModificationAllowed(
+                canManageOtherUserProfiles = false,
+                profileChangeRequested = true,
+            )
+        }
+
+        AdminUserProfilePolicy.requireModificationAllowed(
+            canManageOtherUserProfiles = true,
+            profileChangeRequested = true,
+        )
+    }
+
+    @Test
     fun `账号密码少于六位时拒绝创建`() {
         val command = AdminUserCreateCommand("operator", "12345", AdminRole.USER)
 

@@ -138,7 +138,7 @@ internal class ScheduleService(
     private val clock: Clock = Clock.system(scheduleZone),
 ) {
     fun isScheduleEnabled(userId: Long): Boolean = dataSource.connection.use { connection ->
-        connection.isPrimaryAdministrator(userId) || connection.prepareStatement("SELECT 1 FROM schedule_participants WHERE account_id = ? AND enabled = TRUE").use {
+        connection.isPrimaryAdministrator(userId) || connection.prepareStatement("SELECT 1 FROM schedule_participants p JOIN users u ON u.id = p.account_id WHERE p.account_id = ? AND p.enabled = TRUE AND u.schedule_access_enabled = TRUE").use {
             it.setLong(1, userId); it.executeQuery().use(ResultSet::next)
         }
     }
@@ -318,7 +318,7 @@ internal class ScheduleService(
     private fun assignmentsForVersion(connection: Connection, versionId: Long, cycleDay: Int, date: LocalDate): List<ScheduleShift> = connection.prepareStatement("""
         SELECT a.shift_type, u.id, u.username, u.real_name FROM schedule_shift_assignments a
         JOIN users u ON u.id = a.account_id
-        WHERE a.template_version_id = ? AND a.cycle_day = ? ORDER BY a.shift_type, u.id
+        WHERE a.template_version_id = ? AND a.cycle_day = ? ORDER BY a.shift_type, a.display_order, u.id
     """).use { statement ->
         statement.setLong(1, versionId); statement.setInt(2, cycleDay)
         statement.executeQuery().use { result ->
@@ -342,9 +342,9 @@ internal class ScheduleService(
             }
             statement.executeBatch()
         }
-        connection.prepareStatement("INSERT INTO schedule_shift_assignments (template_version_id, cycle_day, shift_type, account_id) VALUES (?, ?, ?, ?)").use { statement ->
-            command.assignments.forEach { assignment -> assignment.accountIds.forEach { accountId ->
-                statement.setLong(1, versionId); statement.setInt(2, assignment.cycleDay); statement.setString(3, assignment.shiftType.name); statement.setLong(4, accountId); statement.addBatch()
+        connection.prepareStatement("INSERT INTO schedule_shift_assignments (template_version_id, cycle_day, shift_type, account_id, display_order) VALUES (?, ?, ?, ?, ?)").use { statement ->
+            command.assignments.forEach { assignment -> assignment.accountIds.forEachIndexed { index, accountId ->
+                statement.setLong(1, versionId); statement.setInt(2, assignment.cycleDay); statement.setString(3, assignment.shiftType.name); statement.setLong(4, accountId); statement.setInt(5, index + 1); statement.addBatch()
             } }
             statement.executeBatch()
         }
@@ -418,7 +418,7 @@ internal class ScheduleService(
         WHERE u.status = 'ACTIVE' AND u.username <> 'admin' AND NULLIF(BTRIM(u.real_name), '') IS NOT NULL
         ORDER BY u.real_name, u.username
     """).use { statement -> statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toParticipant()) } } }
-    private fun Connection.isScheduleParticipant(userId: Long): Boolean = prepareStatement("SELECT 1 FROM schedule_participants p JOIN users u ON u.id = p.account_id WHERE p.account_id = ? AND p.enabled = TRUE AND u.status = 'ACTIVE'").use { it.setLong(1, userId); it.executeQuery().use(ResultSet::next) }
+    private fun Connection.isScheduleParticipant(userId: Long): Boolean = prepareStatement("SELECT 1 FROM schedule_participants p JOIN users u ON u.id = p.account_id WHERE p.account_id = ? AND p.enabled = TRUE AND u.schedule_access_enabled = TRUE AND u.status = 'ACTIVE'").use { it.setLong(1, userId); it.executeQuery().use(ResultSet::next) }
     private fun ResultSet.toParticipant() = ScheduleParticipant(getLong("id"), getString("username"), getString("real_name") ?: getString("username"), getString("status"))
     private fun ResultSet.toPerson() = SchedulePerson(getLong("id"), getString("username"), getString("real_name") ?: getString("username"))
     private fun ResultSet.toTemplateSummary() = ScheduleTemplateSummary(

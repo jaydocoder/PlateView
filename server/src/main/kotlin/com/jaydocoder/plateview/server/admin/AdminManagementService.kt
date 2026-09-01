@@ -180,10 +180,14 @@ internal class AdminManagementService(
         inTransaction { connection ->
             val existing = connection.findUserForUpdate(userId) ?: throw AdminResourceNotFoundException("账号不存在")
             val profileChangeRequested = command.username != null || command.password != null || command.realName != null
+            val scheduleAccessChangeRequested = command.scheduleAccessEnabled != null
             AdminUserProfilePolicy.requireModificationAllowed(
                 canManageOtherUserProfiles = connection.isPrimaryAdministrator(actorId),
-                profileChangeRequested = profileChangeRequested,
+                profileChangeRequested = profileChangeRequested || scheduleAccessChangeRequested,
             )
+            if (scheduleAccessChangeRequested && existing.username == "admin") {
+                throw AdminValidationException("admin账号的排班入口不能关闭")
+            }
             command.username?.trim()?.let { username ->
                 connection.prepareStatement("SELECT 1 FROM users WHERE username = ? AND id <> ?").use { statement ->
                     statement.setString(1, username)
@@ -208,14 +212,15 @@ internal class AdminManagementService(
                 statement.setNullableString(3, command.realName?.trim())
                 statement.setString(4, command.role.name)
                 statement.setString(5, command.status.name)
-                statement.setBoolean(6, profileChangeRequested)
-                statement.setLong(7, actorId)
-                statement.setLong(8, userId)
-                statement.setInt(9, expectedVersion)
+                statement.setNullableBoolean(6, command.scheduleAccessEnabled)
+                statement.setBoolean(7, profileChangeRequested || scheduleAccessChangeRequested)
+                statement.setLong(8, actorId)
+                statement.setLong(9, userId)
+                statement.setInt(10, expectedVersion)
                 statement.executeUpdate()
             }
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
-            if (profileChangeRequested) connection.revokeUserSessions(userId)
+            if (profileChangeRequested || scheduleAccessChangeRequested) connection.revokeUserSessions(userId)
         }
         return getUser(userId)
     }
@@ -415,10 +420,11 @@ internal class AdminManagementService(
         avatarVersion = getLong("avatar_version"),
         hasAvatar = getBytes("avatar_content") != null,
         realName = getString("real_name"),
+        scheduleAccessEnabled = getBoolean("schedule_access_enabled"),
     )
 
     private fun Connection.findUserForUpdate(userId: Long): AdminUserRecord? = prepareStatement(
-        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name FROM users WHERE id = ? FOR UPDATE",
+        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled FROM users WHERE id = ? FOR UPDATE",
     ).use { statement ->
         statement.setLong(1, userId)
         statement.executeQuery().use { result -> if (result.next()) result.toUserRecord() else null }
@@ -613,14 +619,14 @@ internal class AdminManagementService(
         const val DELETE_LONG_TERM_PROFILE = "DELETE FROM long_term_profiles WHERE vehicle_id = ?"
 
         const val SELECT_USERS = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled
             FROM users
             ORDER BY username, id
             LIMIT ? OFFSET ?
         """
 
         const val SELECT_USER = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled
             FROM users WHERE id = ?
         """
 
@@ -632,7 +638,7 @@ internal class AdminManagementService(
         const val UPDATE_USER = """
             UPDATE users
             SET username = COALESCE(?, username), password_hash = COALESCE(?, password_hash), real_name = COALESCE(?, real_name),
-                role = ?, status = ?, auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
+                role = ?, status = ?, schedule_access_enabled = COALESCE(?, schedule_access_enabled), auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
                 version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
@@ -790,6 +796,7 @@ internal data class AdminUserUpdateCommand(
     val username: String? = null,
     val password: String? = null,
     val realName: String? = null,
+    val scheduleAccessEnabled: Boolean? = null,
 )
 
 internal data class AdminUserRecord(
@@ -803,6 +810,7 @@ internal data class AdminUserRecord(
     val avatarVersion: Long,
     val hasAvatar: Boolean,
     val realName: String?,
+    val scheduleAccessEnabled: Boolean,
 )
 
 internal data class AdminAvatarContent(val content: ByteArray, val contentType: String)
@@ -957,6 +965,9 @@ private fun java.sql.Timestamp?.toIsoString(): String? = this?.toInstant()?.toSt
 private fun ResultSet.getLongOrNull(column: String): Long? = getLong(column).takeUnless { wasNull() }
 private fun java.sql.PreparedStatement.setNullableString(index: Int, value: String?) {
     if (value == null) setObject(index, null) else setString(index, value)
+}
+private fun java.sql.PreparedStatement.setNullableBoolean(index: Int, value: Boolean?) {
+    if (value == null) setObject(index, null) else setBoolean(index, value)
 }
 
 private val ALLOWED_ATTRIBUTE_KEYS = setOf(

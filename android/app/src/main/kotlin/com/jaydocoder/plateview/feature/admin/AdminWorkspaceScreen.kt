@@ -69,6 +69,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -1174,6 +1175,31 @@ private fun UserEditorDialog(
                     Button(onClick = onChooseAvatar, enabled = !isSaving) { Text("更换头像") }
                     if (avatar?.file != null) {
                         TextButton(onClick = onDeleteAvatar, enabled = !isSaving) { Text("删除") }
+                    }
+                }
+            }
+            if (editor.originalUsername != "admin") {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("显示排班功能", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text("切换后该账号需要重新登录", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                            Switch(
+                                checked = editor.scheduleAccessEnabled,
+                                onCheckedChange = { enabled -> onChanged { it.copy(scheduleAccessEnabled = enabled, error = null) } },
+                                enabled = !isSaving,
+                                modifier = Modifier.testTag("admin_schedule_access_switch"),
+                            )
+                        }
                     }
                 }
             }

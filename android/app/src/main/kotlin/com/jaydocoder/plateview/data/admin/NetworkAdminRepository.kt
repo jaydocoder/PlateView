@@ -89,7 +89,7 @@ class NetworkAdminRepository @Inject constructor(
             bearer(accessToken),
             version,
             userId,
-            AdminUserUpdateRequestDto(command.role, command.status, command.username, command.password, command.realName),
+            AdminUserUpdateRequestDto(command.role, command.status, command.username, command.password, command.realName, command.scheduleAccessEnabled),
         )
         .toDomain()
 
@@ -224,6 +224,7 @@ private fun AdminUserDto.toDomain(): ManagedUser = ManagedUser(
     avatarVersion = avatarVersion,
     hasAvatar = hasAvatar,
     realName = realName,
+    scheduleAccessEnabled = scheduleAccessEnabled,
 )
 
 private fun AdminImportBatchSummaryDto.toDomain(): ManagedImportBatchSummary = ManagedImportBatchSummary(

@@ -14,9 +14,9 @@ data class AdminLongTermProfileDto(val organizationName: String?, val passHolder
 data class AdminVehicleWriteRequestDto(val plateNumber: String, val category: String, val vehicleType: String?, val status: String, val attributes: Map<String, String>, val residentProfile: AdminResidentProfileDto?, val longTermProfile: AdminLongTermProfileDto?)
 
 data class AdminUserListResponseDto(val items: List<AdminUserDto>)
-data class AdminUserDto(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String? = null)
+data class AdminUserDto(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String? = null, val scheduleAccessEnabled: Boolean = true)
 data class AdminUserCreateRequestDto(val username: String, val password: String, val role: String)
-data class AdminUserUpdateRequestDto(val role: String, val status: String, val username: String? = null, val password: String? = null, val realName: String? = null)
+data class AdminUserUpdateRequestDto(val role: String, val status: String, val username: String? = null, val password: String? = null, val realName: String? = null, val scheduleAccessEnabled: Boolean? = null)
 
 data class AdminImportBatchListResponseDto(val items: List<AdminImportBatchSummaryDto>)
 data class AdminImportBatchSummaryDto(val id: Long, val sourceFileName: String, val status: String, val totalRows: Int, val validRows: Int, val duplicateRows: Int, val errorRows: Int, val version: Int, val createdAt: String?, val publishedAt: String?, val rollbackAt: String?)

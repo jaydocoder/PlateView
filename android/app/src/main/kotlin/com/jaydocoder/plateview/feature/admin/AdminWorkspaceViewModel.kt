@@ -204,6 +204,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         username = editor.username.trim().takeIf { editor.canEditProfile && it != editor.originalUsername },
                         password = editor.password.takeIf { editor.canEditProfile && it.isNotBlank() },
                         realName = editor.realName.trim().takeIf { editor.canEditProfile && it != editor.originalRealName },
+                        scheduleAccessEnabled = editor.scheduleAccessEnabled.takeIf { editor.canEditProfile && it != editor.originalScheduleAccessEnabled },
                     ),
                 )
             }

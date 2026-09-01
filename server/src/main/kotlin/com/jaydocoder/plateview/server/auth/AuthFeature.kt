@@ -208,7 +208,7 @@ private class AuthService(private val dataSource: DataSource, private val settin
     }
 
     fun findActiveUserById(userId: Long): UserAccount? = findUser(
-        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, ((username = 'admin' AND role = 'ADMIN') OR EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id)) AS schedule_enabled FROM users WHERE id = ? AND status = 'ACTIVE'",
+        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, ((username = 'admin' AND role = 'ADMIN') OR (schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id AND p.enabled = TRUE))) AS schedule_enabled FROM users WHERE id = ? AND status = 'ACTIVE'",
         userId,
     )
 
@@ -316,11 +316,11 @@ private class AuthService(private val dataSource: DataSource, private val settin
     }
 
     private fun findUserByUsername(username: String): UserAccount? = findUser(
-        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, ((username = 'admin' AND role = 'ADMIN') OR EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id)) AS schedule_enabled FROM users WHERE username = ? AND status = 'ACTIVE'",
+        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, ((username = 'admin' AND role = 'ADMIN') OR (schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id AND p.enabled = TRUE))) AS schedule_enabled FROM users WHERE username = ? AND status = 'ACTIVE'",
         username,
     )
     private fun findUserByRefreshHash(tokenHash: String): UserAccount? = findUser(
-        "SELECT u.id, u.username, u.password_hash, u.role, u.auth_version, u.avatar_version, u.avatar_content, u.avatar_content_type, ((u.username = 'admin' AND u.role = 'ADMIN') OR EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = u.id)) AS schedule_enabled FROM refresh_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP AND u.status = 'ACTIVE'",
+        "SELECT u.id, u.username, u.password_hash, u.role, u.auth_version, u.avatar_version, u.avatar_content, u.avatar_content_type, ((u.username = 'admin' AND u.role = 'ADMIN') OR (u.schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = u.id AND p.enabled = TRUE))) AS schedule_enabled FROM refresh_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP AND u.status = 'ACTIVE'",
         tokenHash,
     )
     private fun findUser(sql: String, value: Any): UserAccount? = dataSource.connection.use { connection ->

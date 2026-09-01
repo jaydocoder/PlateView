@@ -78,6 +78,20 @@ private const val WEEK_PICKER_LIMIT = 5200
 private const val MONTH_PICKER_YEAR_MIN = 2020
 private const val MONTH_PICKER_YEAR_MAX = 2100
 private val scheduleTimeColumnWidth = 38.dp
+private val schedulePersonNameColors = listOf(
+    Color(0xFFFFE7A8),
+    Color(0xFFC9F2FF),
+    Color(0xFFFFD9EC),
+    Color(0xFFD8F8D4),
+    Color(0xFFE9D7FF),
+    Color(0xFFFFDEC9),
+    Color(0xFFD5F4E9),
+    Color(0xFFFFE0A8),
+    Color(0xFFDCE5FF),
+    Color(0xFFFFD6D1),
+    Color(0xFFD7F1FF),
+    Color(0xFFE8F1C4),
+)
 
 @Composable
 fun ScheduleScreen(viewModel: ScheduleViewModel = hiltViewModel()) {
@@ -662,18 +676,23 @@ private fun ShiftCell(type: ScheduleShiftType, shift: ScheduleShift?, width: Dp,
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                shift.persons.joinToString("\n") { it.realName },
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-            )
+            shift.persons.forEach { person ->
+                Text(
+                    text = person.realName,
+                    modifier = Modifier.testTag("schedule_person_${person.id}"),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = schedulePersonNameColor(person.id),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                )
+            }
         }
     }
 }
+
+internal fun schedulePersonNameColor(personId: Long): Color = schedulePersonNameColors[(personId % schedulePersonNameColors.size).toInt()]
 
 private fun ScheduleShiftType.axisLabel() = when (this) {
     ScheduleShiftType.MORNING -> "早班"

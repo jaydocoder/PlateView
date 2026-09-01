@@ -268,6 +268,7 @@ private data class AdminUserUpdateRequest(
     val username: String? = null,
     val password: String? = null,
     val realName: String? = null,
+    val scheduleAccessEnabled: Boolean? = null,
 ) {
     fun toCommand(): AdminUserUpdateCommand = AdminUserUpdateCommand(
         role = parseEnum(role, "账号角色") { AdminValidationException("账号角色无效") },
@@ -275,6 +276,7 @@ private data class AdminUserUpdateRequest(
         username = username,
         password = password,
         realName = realName,
+        scheduleAccessEnabled = scheduleAccessEnabled,
     )
 }
 
@@ -319,6 +321,7 @@ private fun AdminUserRecord.toResponse(includeRealName: Boolean): AdminUserRespo
     avatarVersion = avatarVersion,
     hasAvatar = hasAvatar,
     realName = if (includeRealName) realName else null,
+    scheduleAccessEnabled = scheduleAccessEnabled,
 )
 
 private fun AdminImportBatchSummary.toResponse(): AdminImportBatchSummaryResponse = AdminImportBatchSummaryResponse(
@@ -367,7 +370,7 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 @Serializable private data class AdminResidentProfileResponse(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)
 @Serializable private data class AdminLongTermProfileResponse(val organizationName: String?, val passHolder: String?, val passageDetails: String?, val remarks: String?)
 @Serializable private data class AdminUserListResponse(val items: List<AdminUserResponse>)
-@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String?)
+@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String?, val scheduleAccessEnabled: Boolean)
 @Serializable private data class AdminImportBatchListResponse(val items: List<AdminImportBatchSummaryResponse>)
 @Serializable private data class AdminImportBatchSummaryResponse(val id: Long, val sourceFileName: String, val status: String, val totalRows: Int, val validRows: Int, val duplicateRows: Int, val errorRows: Int, val version: Int, val createdAt: String?, val publishedAt: String?, val rollbackAt: String?)
 @Serializable private data class AdminAuditListResponse(

@@ -8,6 +8,7 @@ import com.jaydocoder.plateview.domain.schedule.ScheduleRepository
 import com.jaydocoder.plateview.domain.schedule.ScheduleTemplateCommand
 import com.jaydocoder.plateview.domain.schedule.ScheduleTemplateSummary
 import com.jaydocoder.plateview.domain.schedule.ScheduleWeek
+import com.jaydocoder.plateview.domain.schedule.ScheduleShiftType
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.feature.search.MainDispatcherRule
@@ -19,6 +20,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -51,6 +53,29 @@ class ScheduleViewModelTest {
 
         assertEquals(month, repository.requestedMonths.last())
         assertEquals(month, viewModel.uiState.value.selectedMonth)
+    }
+
+    @Test
+    fun `班次人员按点击顺序保存到模板命令`() {
+        val editor = ScheduleTemplateEditor()
+        val command = editor.copy(
+            assignments = mapOf(1 to ScheduleShiftType.MORNING to listOf(8L, 3L, 5L)),
+        ).command()
+
+        assertEquals(listOf(8L, 3L, 5L), command.assignments.single { it.cycleDay == 1 && it.type == ScheduleShiftType.MORNING }.accountIds)
+    }
+
+    @Test
+    fun `同一人员使用稳定且可区分的姓名颜色`() {
+        assertEquals(schedulePersonNameColor(3), schedulePersonNameColor(3))
+        assertNotEquals(schedulePersonNameColor(3), schedulePersonNameColor(4))
+    }
+
+    @Test
+    fun `日期选择器按 UTC 日历日往返转换`() {
+        val date = LocalDate.of(2026, 9, 1)
+
+        assertEquals(date, scheduleDateFromPickerUtcMillis(scheduleDatePickerUtcMillis(date)))
     }
 }
 

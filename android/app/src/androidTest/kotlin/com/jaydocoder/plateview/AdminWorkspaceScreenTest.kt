@@ -193,6 +193,8 @@ class AdminWorkspaceScreenTest {
         composeRule.onNodeWithText("账号资料").assertIsDisplayed()
         composeRule.onNodeWithText("新登录密码").assertIsDisplayed()
         composeRule.onNodeWithText("更换头像").assertIsDisplayed()
+        composeRule.onNodeWithText("显示排班功能").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_schedule_access_switch").assertIsDisplayed()
     }
 
     @Test
@@ -221,6 +223,33 @@ class AdminWorkspaceScreenTest {
         composeRule.onAllNodesWithText("账号资料").assertCountEquals(0)
         composeRule.onAllNodesWithText("新登录密码").assertCountEquals(0)
         composeRule.onAllNodesWithText("更换头像").assertCountEquals(0)
+        composeRule.onAllNodesWithText("显示排班功能").assertCountEquals(0)
+    }
+
+    @Test
+    fun admin账号资料不显示排班入口开关() {
+        val user = ManagedUser(1, "admin", "ADMIN", "ACTIVE", 0, null, null)
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Users,
+                        users = listOf(user),
+                        isLoading = false,
+                        userEditor = user.toEditor(canEditProfile = true),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("显示排班功能").assertCountEquals(0)
     }
 
     @Test
