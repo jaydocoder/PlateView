@@ -153,12 +153,15 @@ internal class AdminManagementService(
         command.validate()
         val userId = try {
             dataSource.connection.use { connection ->
+                val isPrimaryAdministrator = connection.isPrimaryAdministrator(actorId)
                 connection.prepareStatement(INSERT_USER, Statement.RETURN_GENERATED_KEYS).use { statement ->
                     statement.setString(1, command.username.trim())
                     statement.setString(2, BCrypt.hashpw(command.password, BCrypt.gensalt()))
                     statement.setString(3, command.role.name)
-                    statement.setLong(4, actorId)
-                    statement.setLong(5, actorId)
+                    statement.setNullableString(4, command.realName?.trimToNull()?.takeIf { isPrimaryAdministrator })
+                    statement.setBoolean(5, command.scheduleAccessEnabled && isPrimaryAdministrator)
+                    statement.setLong(6, actorId)
+                    statement.setLong(7, actorId)
                     statement.executeUpdate()
                     statement.generatedKeys.use { keys ->
                         if (!keys.next()) error("创建账号后未返回标识")
@@ -181,9 +184,16 @@ internal class AdminManagementService(
             val existing = connection.findUserForUpdate(userId) ?: throw AdminResourceNotFoundException("账号不存在")
             val profileChangeRequested = command.username != null || command.password != null || command.realName != null
             val scheduleAccessChangeRequested = command.scheduleAccessEnabled != null
+            val roleOrStatusChanged = command.role != existing.role || command.status != existing.status
+            val userInfoChanged = hasUserInfoChanged(existing, command)
             AdminUserProfilePolicy.requireModificationAllowed(
                 canManageOtherUserProfiles = connection.isPrimaryAdministrator(actorId),
                 profileChangeRequested = profileChangeRequested || scheduleAccessChangeRequested,
+            )
+            AdminUserProfilePolicy.requireTargetModificationAllowed(
+                targetUsername = existing.username,
+                canManageOtherUserProfiles = connection.isPrimaryAdministrator(actorId),
+                modificationRequested = profileChangeRequested || scheduleAccessChangeRequested || roleOrStatusChanged,
             )
             if (scheduleAccessChangeRequested && existing.username == "admin") {
                 throw AdminValidationException("admin账号的排班入口不能关闭")
@@ -213,14 +223,14 @@ internal class AdminManagementService(
                 statement.setString(4, command.role.name)
                 statement.setString(5, command.status.name)
                 statement.setNullableBoolean(6, command.scheduleAccessEnabled)
-                statement.setBoolean(7, profileChangeRequested || scheduleAccessChangeRequested)
+                statement.setBoolean(7, userInfoChanged)
                 statement.setLong(8, actorId)
                 statement.setLong(9, userId)
                 statement.setInt(10, expectedVersion)
                 statement.executeUpdate()
             }
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
-            if (profileChangeRequested || scheduleAccessChangeRequested) connection.revokeUserSessions(userId)
+            if (userInfoChanged) connection.revokeUserSessions(userId)
         }
         return getUser(userId)
     }
@@ -239,6 +249,7 @@ internal class AdminManagementService(
                 statement.executeUpdate()
             }
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
+            connection.revokeUserSessions(userId)
         }
         return getUser(userId)
     }
@@ -255,6 +266,7 @@ internal class AdminManagementService(
                 statement.executeUpdate()
             }
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
+            connection.revokeUserSessions(userId)
         }
         return getUser(userId)
     }
@@ -631,8 +643,8 @@ internal class AdminManagementService(
         """
 
         const val INSERT_USER = """
-            INSERT INTO users (username, password_hash, role, created_by, updated_by)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO users (username, password_hash, role, real_name, schedule_access_enabled, created_by, updated_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """
 
         const val UPDATE_USER = """
@@ -645,13 +657,13 @@ internal class AdminManagementService(
 
         const val UPDATE_USER_AVATAR = """
             UPDATE users SET avatar_content = ?, avatar_content_type = ?, avatar_version = avatar_version + 1,
-                version = version + 1, updated_by = ?
+                auth_version = auth_version + 1, version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
 
         const val DELETE_USER_AVATAR = """
             UPDATE users SET avatar_content = NULL, avatar_content_type = NULL, avatar_version = avatar_version + 1,
-                version = version + 1, updated_by = ?
+                auth_version = auth_version + 1, version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
 
@@ -690,6 +702,14 @@ internal class AdminManagementService(
             LEFT JOIN users u ON u.id = a.actor_id
         """
     }
+}
+
+internal fun hasUserInfoChanged(existing: AdminUserRecord, command: AdminUserUpdateCommand): Boolean {
+    val usernameChanged = command.username?.trim()?.let { it != existing.username } == true
+    val realNameChanged = command.realName?.trim()?.let { it != existing.realName } == true
+    val roleOrStatusChanged = command.role != existing.role || command.status != existing.status
+    return usernameChanged || command.password != null || realNameChanged || roleOrStatusChanged ||
+        command.scheduleAccessEnabled?.let { it != existing.scheduleAccessEnabled } == true
 }
 
 internal data class AdminVehicleCommand(
@@ -735,6 +755,16 @@ internal object AdminUserProfilePolicy {
     fun requireModificationAllowed(canManageOtherUserProfiles: Boolean, profileChangeRequested: Boolean) {
         if (profileChangeRequested && !canManageOtherUserProfiles) {
             throw AdminPermissionException("仅admin账号可以修改其他账号的用户名、密码或头像")
+        }
+    }
+
+    fun requireTargetModificationAllowed(
+        targetUsername: String,
+        canManageOtherUserProfiles: Boolean,
+        modificationRequested: Boolean,
+    ) {
+        if (targetUsername == "admin" && modificationRequested && !canManageOtherUserProfiles) {
+            throw AdminPermissionException("仅admin账号可以修改admin账号")
         }
     }
 }
@@ -788,6 +818,8 @@ internal data class AdminUserCreateCommand(
     val username: String,
     val password: String,
     val role: AdminRole,
+    val realName: String? = null,
+    val scheduleAccessEnabled: Boolean = false,
 )
 
 internal data class AdminUserUpdateCommand(

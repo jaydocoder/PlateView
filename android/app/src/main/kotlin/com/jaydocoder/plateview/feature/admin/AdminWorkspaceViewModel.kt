@@ -165,7 +165,12 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun createUser() {
-        _uiState.update { it.copy(userEditor = UserEditorState(), failure = null) }
+        _uiState.update { state ->
+            state.copy(
+                userEditor = UserEditorState(canEditProfile = state.canManageOtherUserProfiles),
+                failure = null,
+            )
+        }
     }
 
     fun editUser(userId: Long) {
@@ -192,7 +197,16 @@ class AdminWorkspaceViewModel @Inject constructor(
         launchAdminAction { accessToken ->
             _uiState.update { it.copy(isSaving = true, failure = null) }
             if (editor.id == null) {
-                repository.createUser(accessToken, UserCreateCommand(editor.username.trim(), editor.password, editor.role))
+                repository.createUser(
+                    accessToken,
+                    UserCreateCommand(
+                        username = editor.username.trim(),
+                        password = editor.password,
+                        role = editor.role,
+                        realName = editor.realName.trim().takeIf { editor.canEditProfile },
+                        scheduleAccessEnabled = editor.scheduleAccessEnabled && editor.canEditProfile,
+                    ),
+                )
             } else {
                 repository.updateUser(
                     accessToken,

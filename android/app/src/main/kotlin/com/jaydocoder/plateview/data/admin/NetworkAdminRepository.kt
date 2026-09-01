@@ -76,7 +76,7 @@ class NetworkAdminRepository @Inject constructor(
         .map(AdminUserDto::toDomain)
 
     override suspend fun createUser(accessToken: String, command: UserCreateCommand): ManagedUser = api
-        .createUser(bearer(accessToken), AdminUserCreateRequestDto(command.username, command.password, command.role))
+        .createUser(bearer(accessToken), AdminUserCreateRequestDto(command.username, command.password, command.role, command.realName, command.scheduleAccessEnabled))
         .toDomain()
 
     override suspend fun updateUser(

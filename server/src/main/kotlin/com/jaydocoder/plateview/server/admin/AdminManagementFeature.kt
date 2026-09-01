@@ -253,11 +253,15 @@ private data class AdminUserCreateRequest(
     val username: String,
     val password: String,
     val role: String,
+    val realName: String? = null,
+    val scheduleAccessEnabled: Boolean? = null,
 ) {
     fun toCommand(): AdminUserCreateCommand = AdminUserCreateCommand(
         username = username,
         password = password,
         role = parseEnum(role, "账号角色") { AdminValidationException("账号角色无效") },
+        realName = realName,
+        scheduleAccessEnabled = scheduleAccessEnabled ?: false,
     )
 }
 

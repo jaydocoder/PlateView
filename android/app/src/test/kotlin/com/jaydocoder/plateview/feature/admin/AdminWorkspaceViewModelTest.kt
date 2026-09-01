@@ -78,6 +78,29 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `新建用户时排班入口默认关闭`() = runTest {
+        val viewModel = createViewModel()
+        viewModel.selectTab(AdminTab.Users)
+        advanceUntilIdle()
+
+        viewModel.createUser()
+
+        assertTrue(!viewModel.uiState.value.userEditor!!.scheduleAccessEnabled)
+        assertTrue(viewModel.uiState.value.userEditor!!.canEditProfile)
+    }
+
+    @Test
+    fun `其他管理员新建用户时不能设置真实姓名和排班入口`() = runTest {
+        val viewModel = createViewModel(username = "manager2")
+        viewModel.selectTab(AdminTab.Users)
+        advanceUntilIdle()
+
+        viewModel.createUser()
+
+        assertTrue(!viewModel.uiState.value.userEditor!!.canEditProfile)
+    }
+
+    @Test
     fun `普通用户不能加载管理员数据`() = runTest {
         val viewModel = createViewModel(role = "USER")
 

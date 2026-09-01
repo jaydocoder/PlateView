@@ -1150,6 +1150,33 @@ private fun UserEditorDialog(
                     shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                 )
             }
+            if (editor.canEditProfile) {
+                item { EditorSectionHeading("账号资料", "仅主管理员可设置") }
+                item { EditorTextField("真实姓名", editor.realName) { value -> onChanged { it.copy(realName = value, error = null) } } }
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("显示排班功能", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text("新账号默认关闭", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                            Switch(
+                                checked = editor.scheduleAccessEnabled,
+                                onCheckedChange = { enabled -> onChanged { it.copy(scheduleAccessEnabled = enabled, error = null) } },
+                                enabled = !isSaving,
+                                modifier = Modifier.testTag("admin_schedule_access_switch"),
+                            )
+                        }
+                    }
+                }
+            }
         } else if (editor.canEditProfile) {
             item { EditorSectionHeading("账号资料", "修改后目标账号需要重新登录") }
             item { EditorTextField("用户名", editor.username) { value -> onChanged { it.copy(username = value, error = null) } } }
@@ -1205,8 +1232,17 @@ private fun UserEditorDialog(
             }
         }
         item { EditorSectionHeading("访问权限", "决定可访问的管理范围") }
-        item { ChoiceField("分配角色", editor.role, USER_ROLES) { value -> onChanged { it.copy(role = value) } } }
-        item { ChoiceField("账号状态", editor.status, USER_STATUSES) { value -> onChanged { it.copy(status = value) } } }
+        val canEditTargetAccess = editor.canEditProfile || editor.originalUsername != "admin"
+        item {
+            ChoiceField("分配角色", editor.role, USER_ROLES, enabled = canEditTargetAccess) { value ->
+                onChanged { it.copy(role = value) }
+            }
+        }
+        item {
+            ChoiceField("账号状态", editor.status, USER_STATUSES, enabled = canEditTargetAccess) { value ->
+                onChanged { it.copy(status = value) }
+            }
+        }
         editor.error?.let { message -> item { EditorErrorMessage(message) } }
     }
 }
@@ -1798,6 +1834,7 @@ private fun ChoiceField(
     label: String,
     selected: String,
     options: List<ChoiceOption>,
+    enabled: Boolean = true,
     onSelected: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1806,7 +1843,8 @@ private fun ChoiceField(
             options.forEach { option ->
                 FilterChip(
                     selected = selected == option.value,
-                    onClick = { onSelected(option.value) },
+                    onClick = { if (enabled) onSelected(option.value) },
+                    enabled = enabled,
                     label = { Text(option.label) },
                     shape = RoundedCornerShape(PlateViewDimensions.cornerSmall)
                 )

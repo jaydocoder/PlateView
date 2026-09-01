@@ -125,6 +125,10 @@ class AuthRepository @Inject constructor(
         api.updateProfile("Bearer $accessToken", request)
     }
 
+    suspend fun validateSession(session: AuthSession) {
+        api.profile("Bearer ${session.accessToken}")
+    }
+
     private companion object {
         val ACCESS = stringPreferencesKey("access")
         val REFRESH = stringPreferencesKey("refresh")

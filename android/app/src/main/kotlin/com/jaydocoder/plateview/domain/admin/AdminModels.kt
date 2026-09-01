@@ -69,13 +69,15 @@ data class ManagedUser(
     val avatarVersion: Long = 0L,
     val hasAvatar: Boolean = false,
     val realName: String? = null,
-    val scheduleAccessEnabled: Boolean = true,
+    val scheduleAccessEnabled: Boolean = false,
 )
 
 data class UserCreateCommand(
     val username: String,
     val password: String,
     val role: String,
+    val realName: String? = null,
+    val scheduleAccessEnabled: Boolean = false,
 )
 
 data class UserUpdateCommand(

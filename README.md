@@ -95,7 +95,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。服务器由 `root` 一次性安装 `plateview-update-mirror.timer` 后，每五分钟主动检查 GitHub Release，断点续传同一签名 APK，校验 SHA-256 后原子更新服务器镜像与 `latest.json`。客户端优先从 GitHub 下载；GitHub 不可用或中途下载失败时，会复用未完成文件并从服务器镜像继续断点下载。
 
-当前版本：`0.3.21`（`versionCode 24`）。
+当前版本：`0.3.22`（`versionCode 25`）。
 
 ## 文档索引
 
