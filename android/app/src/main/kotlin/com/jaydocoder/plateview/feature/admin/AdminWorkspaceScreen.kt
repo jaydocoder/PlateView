@@ -742,6 +742,7 @@ private fun AdminVehicleItem(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VehicleStatusFilterSelector(
     selected: VehicleStatusFilter,
@@ -753,11 +754,12 @@ private fun VehicleStatusFilterSelector(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        LazyRow(
+        FlowRow(
             modifier = Modifier.fillMaxWidth().testTag("admin_vehicle_status_filter"),
             horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing),
         ) {
-            items(VehicleStatusFilter.entries, key = VehicleStatusFilter::name) { filter ->
+            VehicleStatusFilter.entries.forEach { filter ->
                 FilterChip(
                     selected = filter == selected,
                     onClick = { onSelected(filter) },

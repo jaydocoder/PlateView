@@ -131,11 +131,16 @@ class AdminWorkspaceScreenTest {
 
         composeRule.onNodeWithTag("admin_vehicle_status_filter").assertIsDisplayed()
         composeRule.onNodeWithText("全部").assertIsDisplayed()
+        composeRule.onNodeWithText("启用").assertIsDisplayed()
+        composeRule.onNodeWithText("拉黑").assertIsDisplayed()
+        composeRule.onNodeWithText("失效").assertIsDisplayed()
         composeRule.onNodeWithText("删除").assertIsDisplayed()
-        composeRule.onNodeWithText("拉黑").performClick()
 
-        composeRule.runOnIdle {
-            assertEquals(VehicleStatusFilter.Blacklisted, selected)
+        VehicleStatusFilter.entries.forEach { filter ->
+            composeRule.onNodeWithText(filter.label).performClick()
+            composeRule.runOnIdle {
+                assertEquals(filter, selected)
+            }
         }
     }
 
