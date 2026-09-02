@@ -472,8 +472,8 @@ private fun VehicleCandidateRow(
                     color = candidateCategoryColor(candidate.category),
                     maxLines = 1,
                 )
-                if (candidate.status == "INACTIVE") {
-                    InactiveVehicleStatusBadge(modifier = Modifier.padding(top = 4.dp))
+                if (candidate.status == "BLACKLISTED" || candidate.status == "INACTIVE") {
+                    InactiveVehicleStatusBadge(candidate.status, modifier = Modifier.padding(top = 4.dp))
                 }
                 if (candidate.category == "OTHER_LONG_TERM") {
                     Text(

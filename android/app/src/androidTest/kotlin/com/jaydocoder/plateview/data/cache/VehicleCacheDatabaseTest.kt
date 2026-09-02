@@ -94,12 +94,23 @@ class VehicleCacheDatabaseTest {
         assertEquals(listOf(1L), result.map { it.vehicleId })
     }
 
+    @Test
+    fun 已删除车辆不会从遗留本地快照中被搜索或读取详情() = runBlocking {
+        val dao = database.vehicleCacheDao()
+        dao.insertSnapshots(listOf(snapshot(11, 1, "新A12345", status = "DELETED")))
+        dao.promoteGeneration(11, 7, 100, 100)
+
+        assertEquals(emptyList<Long>(), dao.searchCandidates("A123", 20).map { it.vehicleId })
+        assertEquals(null, dao.getDetail(1))
+    }
+
     private fun snapshot(
         generation: Long,
         vehicleId: Long,
         plateNumber: String,
         category: String = "RESIDENT",
         searchableText: String = plateNumber,
+        status: String = "ACTIVE",
     ): VehicleSnapshotCacheEntity =
         VehicleSnapshotCacheEntity(
             generation = generation,
@@ -109,7 +120,7 @@ class VehicleCacheDatabaseTest {
             category = category,
             categoryLabel = if (category == "RESIDENT") "村民车辆" else "驻景区单位车辆",
             organizationName = null,
-            status = "ACTIVE",
+            status = status,
             searchableText = searchableText,
             detailJson = "{}",
         )

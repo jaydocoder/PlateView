@@ -17,7 +17,7 @@ private val InactiveVehicleBadgeColor = Color(0xFFB83E4A)
 private val InactiveVehicleBadgeContentColor = Color.White
 
 @Composable
-fun InactiveVehicleStatusBadge(modifier: Modifier = Modifier) {
+fun InactiveVehicleStatusBadge(status: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         color = InactiveVehicleBadgeColor,
@@ -25,7 +25,11 @@ fun InactiveVehicleStatusBadge(modifier: Modifier = Modifier) {
         shape = RoundedCornerShape(8.dp),
     ) {
         Text(
-            text = "已拉黑 / 已停用",
+            text = when (status) {
+                "BLACKLISTED" -> "已拉黑"
+                "INACTIVE" -> "已停用（已失效）"
+                else -> "状态异常"
+            },
             modifier = Modifier.padding(PaddingValues(horizontal = 8.dp, vertical = 3.dp)),
             style = MaterialTheme.typography.labelMedium,
         )

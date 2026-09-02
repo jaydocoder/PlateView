@@ -43,10 +43,11 @@ class NetworkAdminRepository @Inject constructor(
     override suspend fun listVehicles(
         accessToken: String,
         keyword: String?,
+        status: String?,
         limit: Int,
         offset: Int,
     ): ManagedVehiclePage = api
-        .listVehicles(bearer(accessToken), keyword, limit, offset)
+        .listVehicles(bearer(accessToken), keyword, status, limit, offset)
         .let { response -> ManagedVehiclePage(response.items.map(AdminVehicleListItemDto::toDomain), response.total) }
 
     override suspend fun getVehicle(accessToken: String, vehicleId: Long): ManagedVehicle = api
@@ -66,8 +67,8 @@ class NetworkAdminRepository @Inject constructor(
         .updateVehicle(bearer(accessToken), version, vehicleId, command.toRequest())
         .toDomain()
 
-    override suspend fun deactivateVehicle(accessToken: String, vehicleId: Long, version: Int): ManagedVehicle = api
-        .deactivateVehicle(bearer(accessToken), version, vehicleId)
+    override suspend fun updateVehicleStatus(accessToken: String, vehicleId: Long, version: Int, status: String): ManagedVehicle = api
+        .updateVehicleStatus(bearer(accessToken), version, vehicleId, AdminVehicleStatusUpdateRequestDto(status))
         .toDomain()
 
     override suspend fun listUsers(accessToken: String): List<ManagedUser> = api

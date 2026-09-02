@@ -44,6 +44,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Security
@@ -143,9 +144,10 @@ fun AdminWorkspaceRoute(
         onVehicleEditorChanged = viewModel::updateVehicleEditor,
         onDismissVehicleEditor = viewModel::dismissVehicleEditor,
         onSaveVehicle = viewModel::saveVehicle,
-        onDeactivateVehicle = viewModel::requestVehicleDeactivation,
-        onDismissVehicleDeactivation = viewModel::dismissVehicleDeactivation,
-        onConfirmVehicleDeactivation = viewModel::confirmVehicleDeactivation,
+        onVehicleStatusFilterChanged = viewModel::updateVehicleStatusFilter,
+        onRequestVehicleStatusChange = viewModel::requestVehicleStatusChange,
+        onDismissVehicleStatusChange = viewModel::dismissVehicleStatusChange,
+        onConfirmVehicleStatusChange = viewModel::confirmVehicleStatusChange,
         onCreateUser = viewModel::createUser,
         onEditUser = viewModel::editUser,
         onUserEditorChanged = viewModel::updateUserEditor,
@@ -188,9 +190,13 @@ fun AdminWorkspaceScreen(
     onVehicleEditorChanged: ((VehicleEditorState) -> VehicleEditorState) -> Unit,
     onDismissVehicleEditor: () -> Unit,
     onSaveVehicle: () -> Unit,
-    onDeactivateVehicle: (ManagedVehicleSummary) -> Unit,
-    onDismissVehicleDeactivation: () -> Unit,
-    onConfirmVehicleDeactivation: () -> Unit,
+    onDeactivateVehicle: (ManagedVehicleSummary) -> Unit = {},
+    onDismissVehicleDeactivation: () -> Unit = {},
+    onConfirmVehicleDeactivation: () -> Unit = {},
+    onVehicleStatusFilterChanged: (VehicleStatusFilter) -> Unit = {},
+    onRequestVehicleStatusChange: (ManagedVehicleSummary, String) -> Unit = { _, _ -> },
+    onDismissVehicleStatusChange: () -> Unit = {},
+    onConfirmVehicleStatusChange: () -> Unit = {},
     onCreateUser: () -> Unit,
     onEditUser: (Long) -> Unit,
     onUserEditorChanged: ((UserEditorState) -> UserEditorState) -> Unit,
@@ -298,14 +304,16 @@ fun AdminWorkspaceScreen(
                         AdminTab.Vehicles -> VehiclesPane(
                             items = uiState.vehicles,
                             searchQuery = uiState.vehicleSearchQuery,
+                            statusFilter = uiState.vehicleStatusFilter,
                             totalCount = uiState.vehicleTotalCount,
                             isPageLoading = uiState.isVehiclePageLoading,
                             isSaving = uiState.isSaving,
                             onSearchQueryChanged = onVehicleSearchQueryChanged,
+                            onStatusFilterChanged = onVehicleStatusFilterChanged,
                             onLoadMore = onLoadMoreVehicles,
                             onCreate = onCreateVehicle,
                             onEdit = onEditVehicle,
-                            onDeactivate = onDeactivateVehicle,
+                            onStatusChange = onRequestVehicleStatusChange,
                         )
 
                         AdminTab.Users -> UsersPane(
@@ -370,11 +378,11 @@ fun AdminWorkspaceScreen(
             onDeleteAvatar = onDeleteUserAvatar,
         )
     }
-    uiState.pendingVehicleDeactivation?.let { vehicle ->
-        VehicleDeactivationDialog(
-            vehicle = vehicle,
-            onDismiss = onDismissVehicleDeactivation,
-            onConfirm = onConfirmVehicleDeactivation,
+    uiState.pendingVehicleStatusChange?.let { pendingChange ->
+        VehicleStatusChangeDialog(
+            pendingChange = pendingChange,
+            onDismiss = onDismissVehicleStatusChange,
+            onConfirm = onConfirmVehicleStatusChange,
         )
     }
     uiState.selectedImportBatch?.let { batch ->
@@ -514,14 +522,16 @@ private fun DashboardCard(
 private fun VehiclesPane(
     items: List<ManagedVehicleSummary>,
     searchQuery: String,
+    statusFilter: VehicleStatusFilter,
     totalCount: Int,
     isPageLoading: Boolean,
     isSaving: Boolean,
     onSearchQueryChanged: (String) -> Unit,
+    onStatusFilterChanged: (VehicleStatusFilter) -> Unit,
     onLoadMore: () -> Unit,
     onCreate: () -> Unit,
     onEdit: (Long) -> Unit,
-    onDeactivate: (ManagedVehicleSummary) -> Unit,
+    onStatusChange: (ManagedVehicleSummary, String) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val shouldLoadMore by remember {
@@ -592,6 +602,9 @@ private fun VehiclesPane(
             )
         }
         item {
+            VehicleStatusFilterSelector(selected = statusFilter, onSelected = onStatusFilterChanged)
+        }
+        item {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(
                 text = "已加载 ${items.size} / $totalCount 条",
@@ -601,10 +614,10 @@ private fun VehiclesPane(
             )
         }
         if (items.isEmpty() && !isPageLoading) item {
-            EmptyPane(if (searchQuery.isBlank()) "暂无车辆记录" else "未找到匹配的车辆档案")
+            EmptyPane(if (searchQuery.isBlank()) "当前筛选条件下暂无车辆档案" else "未找到匹配的车辆档案")
         }
         items(items, key = ManagedVehicleSummary::id) { item ->
-            AdminVehicleItem(item, onEdit, onDeactivate, isSaving)
+            AdminVehicleItem(item, onEdit, onStatusChange, isSaving)
         }
         if (isPageLoading) {
             item {
@@ -641,7 +654,7 @@ private fun VehiclesPane(
 private fun AdminVehicleItem(
     item: ManagedVehicleSummary,
     onEdit: (Long) -> Unit,
-    onDeactivate: (ManagedVehicleSummary) -> Unit,
+    onStatusChange: (ManagedVehicleSummary, String) -> Unit,
     isSaving: Boolean
 ) {
     ElevatedCard(
@@ -658,7 +671,7 @@ private fun AdminVehicleItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(item.plateNumber, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-                    AdminStatusBadge(item.statusLabel(), item.status == "ACTIVE")
+                    AdminStatusBadge(item.statusLabel(), item.status.statusTone())
                 }
                 Spacer(Modifier.height(PlateViewDimensions.tinySpacing))
                 Text(item.categoryLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -669,8 +682,44 @@ private fun AdminVehicleItem(
             IconButton(onClick = { onEdit(item.id) }) {
                 Icon(Icons.Outlined.Edit, contentDescription = "编辑 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             }
-            IconButton(onClick = { onDeactivate(item) }, enabled = item.status == "ACTIVE" && !isSaving) {
-                Icon(Icons.Outlined.Block, contentDescription = "停用 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+            IconButton(onClick = { onStatusChange(item, "ACTIVE") }, enabled = item.status != "ACTIVE" && !isSaving) {
+                Icon(Icons.Outlined.CheckCircle, contentDescription = "启用 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+            IconButton(onClick = { onStatusChange(item, "BLACKLISTED") }, enabled = item.status != "BLACKLISTED" && !isSaving) {
+                Icon(Icons.Outlined.Block, contentDescription = "拉黑 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+            }
+            IconButton(onClick = { onStatusChange(item, "DELETED") }, enabled = item.status != "DELETED" && !isSaving) {
+                Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VehicleStatusFilterSelector(
+    selected: VehicleStatusFilter,
+    onSelected: (VehicleStatusFilter) -> Unit,
+) {
+    var expanded by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth().testTag("admin_vehicle_status_filter"),
+            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        ) {
+            Icon(Icons.Outlined.FilterList, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("筛选：${selected.label}")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            VehicleStatusFilter.entries.forEach { filter ->
+                DropdownMenuItem(
+                    text = { Text(filter.label) },
+                    onClick = {
+                        expanded = false
+                        onSelected(filter)
+                    },
+                )
             }
         }
     }
@@ -724,7 +773,10 @@ private fun UsersPane(
                         Text(item.username, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(item.roleLabel(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                     }
-                    AdminStatusBadge(item.statusLabel(), item.status == "ACTIVE")
+                    AdminStatusBadge(
+                        item.statusLabel(),
+                        if (item.status == "ACTIVE") AdminStatusTone.Positive else AdminStatusTone.Warning,
+                    )
                     Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
                     Icon(Icons.Outlined.Edit, contentDescription = "编辑 ${item.username}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.outline)
                 }
@@ -776,7 +828,10 @@ private fun ImportsPane(
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(item.sourceFileName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        AdminStatusBadge(item.importStatusLabel(), item.status == "PUBLISHED")
+                        AdminStatusBadge(
+                            item.importStatusLabel(),
+                            if (item.status == "PUBLISHED") AdminStatusTone.Positive else AdminStatusTone.Neutral,
+                        )
                     }
                     Spacer(Modifier.height(8.dp))
                     Row {
@@ -1039,16 +1094,24 @@ private fun AdminPaneHeading(
 }
 
 @Composable
-private fun AdminStatusBadge(label: String, isPositive: Boolean) {
-    val containerColor = if (isPositive) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    val contentColor = if (isPositive) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+private fun AdminStatusBadge(label: String, tone: AdminStatusTone) {
+    val containerColor = when (tone) {
+        AdminStatusTone.Positive -> MaterialTheme.colorScheme.secondaryContainer
+        AdminStatusTone.Warning -> MaterialTheme.colorScheme.errorContainer
+        AdminStatusTone.Neutral -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = when (tone) {
+        AdminStatusTone.Positive -> MaterialTheme.colorScheme.onSecondaryContainer
+        AdminStatusTone.Warning -> MaterialTheme.colorScheme.onErrorContainer
+        AdminStatusTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Surface(color = containerColor, contentColor = contentColor, shape = RoundedCornerShape(PlateViewDimensions.cornerSmall)) {
         Row(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                if (isPositive) Icons.Outlined.CheckCircle else Icons.Outlined.Block,
+                if (tone == AdminStatusTone.Positive) Icons.Outlined.CheckCircle else Icons.Outlined.Block,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
             )
@@ -1078,7 +1141,7 @@ private fun VehicleEditorDialog(
         onSave = onSave,
         saveLabel = "保存档案",
     ) {
-        item { EditorSectionHeading("车辆信息", "车牌、分类和启用状态") }
+        item { EditorSectionHeading("车辆信息", "车牌与分类") }
         item { EditorTextField("车牌号码", editor.plateNumber) { value -> onChanged { it.copy(plateNumber = value, error = null) } } }
         item {
             if (editor.id != null && !canChangeCategory) {
@@ -1088,7 +1151,6 @@ private fun VehicleEditorDialog(
                 ChoiceField("所属类别", editor.category, options) { value -> onChanged { it.copy(category = value, error = null) } }
             }
         }
-        item { ChoiceField("当前状态", editor.status, VEHICLE_STATUSES) { value -> onChanged { it.copy(status = value) } } }
         item { EditorTextField("车辆型号", editor.vehicleType) { value -> onChanged { it.copy(vehicleType = value) } } }
 
         if (editor.isResident) {
@@ -1361,11 +1423,25 @@ private fun VehicleEditorLoadingDialog() {
 }
 
 @Composable
-private fun VehicleDeactivationDialog(
-    vehicle: ManagedVehicleSummary,
+private fun VehicleStatusChangeDialog(
+    pendingChange: PendingVehicleStatusChange,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val vehicle = pendingChange.vehicle
+    val targetStatus = pendingChange.targetStatus
+    val title = when (targetStatus) {
+        "ACTIVE" -> "启用车辆档案"
+        "BLACKLISTED" -> "拉黑车辆档案"
+        "DELETED" -> "删除车辆档案"
+        else -> "更新车辆状态"
+    }
+    val description = when (targetStatus) {
+        "ACTIVE" -> "${vehicle.plateNumber} 将恢复为启用状态，可正常核验。"
+        "BLACKLISTED" -> "${vehicle.plateNumber} 仍可在首页查询，但会明确标注为已拉黑。"
+        "DELETED" -> "${vehicle.plateNumber} 将从首页查询、车辆目录和详情中隐藏，管理记录会保留。"
+        else -> "确认更新 ${vehicle.plateNumber} 的车辆状态。"
+    }
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -1375,32 +1451,46 @@ private fun VehicleDeactivationDialog(
         ) {
             Column(modifier = Modifier.padding(PlateViewDimensions.pageHorizontal)) {
                 Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
+                    color = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
                     shape = CircleShape,
                 ) {
                     Icon(
-                        Icons.Outlined.Block,
+                        when (targetStatus) {
+                            "ACTIVE" -> Icons.Outlined.CheckCircle
+                            "DELETED" -> Icons.Outlined.DeleteOutline
+                            else -> Icons.Outlined.Block
+                        },
                         contentDescription = null,
                         modifier = Modifier.padding(10.dp).size(22.dp),
-                        tint = MaterialTheme.colorScheme.error,
+                        tint = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     )
                 }
                 Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
-                Text("停用车辆档案", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(PlateViewDimensions.tinySpacing))
                 Text(
-                    "${vehicle.plateNumber} 仍可查询，但会以红色状态明确标注为已停用。",
+                    description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("保留档案") }
+                    TextButton(onClick = onDismiss) { Text("取消") }
                     Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
                     Button(
                         onClick = onConfirm,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    ) { Text("确认停用") }
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (targetStatus == "DELETED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        ),
+                    ) {
+                        Text(
+                            when (targetStatus) {
+                                "ACTIVE" -> "确认启用"
+                                "BLACKLISTED" -> "确认拉黑"
+                                else -> "确认删除"
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1882,7 +1972,21 @@ private fun AdminFailure.message(): String = when (this) {
     is AdminFailure.ServiceUnavailable -> "管理服务暂时不可用"
 }
 
-private fun ManagedVehicleSummary.statusLabel(): String = if (status == "ACTIVE") "已启用" else "停用中"
+private enum class AdminStatusTone { Positive, Warning, Neutral }
+
+private fun ManagedVehicleSummary.statusLabel(): String = when (status) {
+    "ACTIVE" -> "已启用"
+    "BLACKLISTED" -> "已拉黑"
+    "INACTIVE" -> "已停用（已失效）"
+    "DELETED" -> "已删除"
+    else -> status
+}
+
+private fun String.statusTone(): AdminStatusTone = when (this) {
+    "ACTIVE" -> AdminStatusTone.Positive
+    "BLACKLISTED", "INACTIVE" -> AdminStatusTone.Warning
+    else -> AdminStatusTone.Neutral
+}
 private fun ManagedUser.roleLabel(): String = if (role == "ADMIN") "管理员" else "核验员"
 private fun ManagedUser.statusLabel(): String = if (status == "ACTIVE") "正常" else "已禁用"
 private fun ManagedImportBatchSummary.importStatusLabel(): String = when (status) {
@@ -1907,7 +2011,6 @@ private val VEHICLE_CATEGORIES = listOf(
     ChoiceOption("KANAS_TOURISM_DEVELOPMENT", "喀旅公司车辆"),
     ChoiceOption("OTHER_LONG_TERM", "其他长期通行车辆"),
 )
-private val VEHICLE_STATUSES = listOf(ChoiceOption("ACTIVE", "启用"), ChoiceOption("INACTIVE", "停用"))
 private val USER_ROLES = listOf(ChoiceOption("USER", "普通用户"), ChoiceOption("ADMIN", "管理员"))
 private val USER_STATUSES = listOf(ChoiceOption("ACTIVE", "启用"), ChoiceOption("DISABLED", "停用"))
 

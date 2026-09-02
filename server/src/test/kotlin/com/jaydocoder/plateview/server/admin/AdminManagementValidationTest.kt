@@ -8,6 +8,19 @@ import kotlinx.serialization.json.JsonObject
 
 class AdminManagementValidationTest {
     @Test
+    fun `车辆状态区分人工拉黑、导入失效和逻辑删除`() {
+        assertEquals(
+            setOf(
+                AdminVehicleStatus.ACTIVE,
+                AdminVehicleStatus.BLACKLISTED,
+                AdminVehicleStatus.INACTIVE,
+                AdminVehicleStatus.DELETED,
+            ),
+            AdminVehicleStatus.entries.toSet(),
+        )
+    }
+
+    @Test
     fun `管理员修改任意用户资料字段都会触发会话失效`() {
         val existing = AdminUserRecord(
             id = 2,

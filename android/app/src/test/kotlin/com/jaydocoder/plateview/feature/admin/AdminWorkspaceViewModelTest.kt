@@ -204,6 +204,37 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `车辆状态筛选会重置分页并传递状态`() = runTest {
+        val repository = FakeAdminRepository()
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
+        viewModel.updateVehicleStatusFilter(VehicleStatusFilter.Deleted)
+        advanceUntilIdle()
+
+        assertEquals("DELETED", repository.vehicleStatuses.last())
+        assertEquals(0, repository.vehicleOffsets.last())
+    }
+
+    @Test
+    fun `车辆状态变更在确认后调用统一状态接口`() = runTest {
+        val repository = FakeAdminRepository()
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.requestVehicleStatusChange(
+            ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null),
+            "BLACKLISTED",
+        )
+        viewModel.confirmVehicleStatusChange()
+        advanceUntilIdle()
+
+        assertEquals(listOf("BLACKLISTED"), repository.updatedVehicleStatuses)
+    }
+
+    @Test
     fun `编辑车辆仅显示局部读取状态并保留管理页面`() = runTest {
         val detailGate = CompletableDeferred<ManagedVehicle>()
         val repository = FakeAdminRepository(vehicleDetailGate = detailGate)
@@ -351,6 +382,8 @@ private class FakeAdminRepository(
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
     val vehicleKeywords = mutableListOf<String?>()
+    val vehicleStatuses = mutableListOf<String?>()
+    val updatedVehicleStatuses = mutableListOf<String>()
     val importOffsets = mutableListOf<Int>()
     val importFilters = mutableListOf<ImportRowFilter>()
     val auditOffsets = mutableListOf<Int>()
@@ -365,11 +398,13 @@ private class FakeAdminRepository(
     override suspend fun listVehicles(
         accessToken: String,
         keyword: String?,
+        status: String?,
         limit: Int,
         offset: Int,
     ): ManagedVehiclePage {
         vehicleOffsets += offset
         vehicleKeywords += keyword
+        vehicleStatuses += status
         val page = vehiclePages.getOrElse(if (offset == 0) 0 else 1) { listOf(vehicle) }
         return ManagedVehiclePage(page, vehicleTotal)
     }
@@ -380,7 +415,22 @@ private class FakeAdminRepository(
         error("本测试不需要返回车辆")
     }
     override suspend fun updateVehicle(accessToken: String, vehicleId: Long, version: Int, command: VehicleWriteCommand): ManagedVehicle = error("本测试不更新车辆")
-    override suspend fun deactivateVehicle(accessToken: String, vehicleId: Long, version: Int): ManagedVehicle = error("本测试不停用车辆")
+    override suspend fun updateVehicleStatus(accessToken: String, vehicleId: Long, version: Int, status: String): ManagedVehicle {
+        updatedVehicleStatuses += status
+        return ManagedVehicle(
+            id = vehicleId,
+            plateNumber = vehicle.plateNumber,
+            normalizedPlate = vehicle.plateNumber,
+            category = vehicle.category,
+            categoryLabel = vehicle.categoryLabel,
+            status = status,
+            version = version + 1,
+            vehicleType = vehicle.vehicleType,
+            attributes = emptyMap(),
+            residentProfile = null,
+            longTermProfile = null,
+        )
+    }
     override suspend fun listUsers(accessToken: String): List<ManagedUser> = listOf(user)
     override suspend fun createUser(accessToken: String, command: UserCreateCommand): ManagedUser = error("本测试不创建账号")
     override suspend fun updateUser(accessToken: String, userId: Long, version: Int, command: UserUpdateCommand): ManagedUser {
