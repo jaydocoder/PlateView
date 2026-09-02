@@ -26,7 +26,6 @@ data class AdminUiState(
     val failure: AdminFailure? = null,
     val vehicles: List<ManagedVehicleSummary> = emptyList(),
     val vehicleSearchQuery: String = "",
-    val vehicleStatusFilter: VehicleStatusFilter = VehicleStatusFilter.All,
     val vehicleTotalCount: Int = 0,
     val creatableVehicleCategories: List<String> = emptyList(),
     val canChangeVehicleCategory: Boolean = false,
@@ -47,20 +46,7 @@ data class AdminUiState(
     val importRowFilter: ImportRowFilter = ImportRowFilter.REVIEW,
     val selectedImportRowDetail: ManagedImportRowDetail? = null,
     val isImportDetailLoading: Boolean = false,
-    val pendingVehicleStatusChange: PendingVehicleStatusChange? = null,
-)
-
-enum class VehicleStatusFilter(val requestValue: String?, val label: String) {
-    All(null, "全部档案"),
-    Active("ACTIVE", "已启用"),
-    Blacklisted("BLACKLISTED", "已拉黑"),
-    Inactive("INACTIVE", "已停用"),
-    Deleted("DELETED", "已删除"),
-}
-
-data class PendingVehicleStatusChange(
-    val vehicle: ManagedVehicleSummary,
-    val targetStatus: String,
+    val pendingVehicleDeactivation: ManagedVehicleSummary? = null,
 )
 
 enum class AdminTab {

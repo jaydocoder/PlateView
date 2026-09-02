@@ -2,6 +2,7 @@ package com.jaydocoder.plateview.data.admin
 
 import okhttp3.MultipartBody
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Multipart
@@ -22,7 +23,6 @@ interface AdminApi {
     suspend fun listVehicles(
         @Header("Authorization") authorization: String,
         @Query("keyword") keyword: String?,
-        @Query("status") status: String?,
         @Query("limit") limit: Int,
         @Query("offset") offset: Int,
     ): AdminVehicleListResponseDto
@@ -47,12 +47,11 @@ interface AdminApi {
         @Body request: AdminVehicleWriteRequestDto,
     ): AdminVehicleDto
 
-    @POST("admin/vehicles/{vehicleId}/status")
-    suspend fun updateVehicleStatus(
+    @DELETE("admin/vehicles/{vehicleId}")
+    suspend fun deactivateVehicle(
         @Header("Authorization") authorization: String,
         @Header("If-Match-Version") version: Int,
         @Path("vehicleId") vehicleId: Long,
-        @Body request: AdminVehicleStatusUpdateRequestDto,
     ): AdminVehicleDto
 
     @GET("admin/users")

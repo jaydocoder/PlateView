@@ -22,16 +22,14 @@ internal class AdminManagementService(
 ) {
     fun isPrimaryAdministrator(actorId: Long): Boolean = dataSource.connection.use { it.isPrimaryAdministrator(actorId) }
 
-    fun listVehicles(keyword: String?, status: AdminVehicleStatus?, limit: Int, offset: Int): AdminVehiclePage {
+    fun listVehicles(keyword: String?, limit: Int, offset: Int): AdminVehiclePage {
         val normalizedKeyword = keyword?.takeIf(String::isNotBlank)?.let(::normalizePlate)
         return dataSource.connection.use { connection ->
             val items = connection.prepareStatement(SELECT_VEHICLES).use { statement ->
                 statement.setString(1, normalizedKeyword?.let { "%$it%" })
                 statement.setString(2, normalizedKeyword?.let { "%$it%" })
-                statement.setString(3, status?.name)
-                statement.setString(4, status?.name)
-                statement.setInt(5, limit.coerceIn(1, MAX_PAGE_SIZE))
-                statement.setInt(6, offset.coerceAtLeast(0))
+                statement.setInt(3, limit.coerceIn(1, MAX_PAGE_SIZE))
+                statement.setInt(4, offset.coerceAtLeast(0))
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) add(result.toVehicleListItem())
@@ -41,8 +39,6 @@ internal class AdminManagementService(
             val total = connection.prepareStatement(COUNT_VEHICLES).use { statement ->
                 statement.setString(1, normalizedKeyword?.let { "%$it%" })
                 statement.setString(2, normalizedKeyword?.let { "%$it%" })
-                statement.setString(3, status?.name)
-                statement.setString(4, status?.name)
                 statement.executeQuery().use { result -> result.next(); result.getInt(1) }
             }
             AdminVehiclePage(items = items, total = total)
@@ -75,7 +71,7 @@ internal class AdminManagementService(
                     statement.setString(2, normalizePlate(command.plateNumber))
                     statement.setString(3, command.category.name)
                     statement.setNullableString(4, command.vehicleType.trimToNull())
-                    statement.setString(5, AdminVehicleStatus.ACTIVE.name)
+                    statement.setString(5, command.status.name)
                     statement.setString(6, Json.encodeToString(JsonObject.serializer(), command.attributes))
                     statement.setLong(7, actorId)
                     statement.setLong(8, actorId)
@@ -110,10 +106,11 @@ internal class AdminManagementService(
                     statement.setString(2, normalizePlate(command.plateNumber))
                     statement.setString(3, command.category.name)
                     statement.setNullableString(4, command.vehicleType.trimToNull())
-                    statement.setString(5, Json.encodeToString(JsonObject.serializer(), command.attributes))
-                    statement.setLong(6, actorId)
-                    statement.setLong(7, vehicleId)
-                    statement.setInt(8, expectedVersion)
+                    statement.setString(5, command.status.name)
+                    statement.setString(6, Json.encodeToString(JsonObject.serializer(), command.attributes))
+                    statement.setLong(7, actorId)
+                    statement.setLong(8, vehicleId)
+                    statement.setInt(9, expectedVersion)
                     statement.executeUpdate()
                 }
                 if (changed == 0) throw vehicleWriteFailure(connection, vehicleId)
@@ -125,23 +122,14 @@ internal class AdminManagementService(
         return getVehicle(vehicleId)
     }
 
-    fun updateVehicleStatus(
-        vehicleId: Long,
-        status: AdminVehicleStatus,
-        expectedVersion: Int,
-        actorId: Long,
-    ): AdminVehicleRecord {
+    fun deactivateVehicle(vehicleId: Long, expectedVersion: Int, actorId: Long): AdminVehicleRecord {
         vehicleId.requirePositive("车辆标识")
         expectedVersion.requireNonNegative("车辆版本")
-        if (status == AdminVehicleStatus.INACTIVE) {
-            throw AdminValidationException("已停用状态仅由导入流程在车辆缺失时设置")
-        }
         inTransaction { connection ->
-            val changed = connection.prepareStatement(UPDATE_VEHICLE_STATUS).use { statement ->
-                statement.setString(1, status.name)
-                statement.setLong(2, actorId)
-                statement.setLong(3, vehicleId)
-                statement.setInt(4, expectedVersion)
+            val changed = connection.prepareStatement(DEACTIVATE_VEHICLE).use { statement ->
+                statement.setLong(1, actorId)
+                statement.setLong(2, vehicleId)
+                statement.setInt(3, expectedVersion)
                 statement.executeUpdate()
             }
             if (changed == 0) throw vehicleWriteFailure(connection, vehicleId)
@@ -571,9 +559,7 @@ internal class AdminManagementService(
             SELECT id, plate_number, category, status, version, vehicle_type
             FROM vehicles
             WHERE (? IS NULL OR normalized_plate LIKE ?)
-              AND (? IS NULL OR status = ?)
-            ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'BLACKLISTED' THEN 1 WHEN 'INACTIVE' THEN 2 ELSE 3 END,
-                     normalized_plate, id
+            ORDER BY status, normalized_plate, id
             LIMIT ? OFFSET ?
         """
 
@@ -581,7 +567,6 @@ internal class AdminManagementService(
             SELECT COUNT(*)
             FROM vehicles
             WHERE (? IS NULL OR normalized_plate LIKE ?)
-              AND (? IS NULL OR status = ?)
         """
 
         const val SELECT_VEHICLE = """
@@ -605,14 +590,14 @@ internal class AdminManagementService(
 
         const val UPDATE_VEHICLE = """
             UPDATE vehicles
-            SET plate_number = ?, normalized_plate = ?, category = ?, vehicle_type = ?,
+            SET plate_number = ?, normalized_plate = ?, category = ?, vehicle_type = ?, status = ?,
                 attributes = CAST(? AS JSONB), version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
 
-        const val UPDATE_VEHICLE_STATUS = """
+        const val DEACTIVATE_VEHICLE = """
             UPDATE vehicles
-            SET status = ?, version = version + 1, updated_by = ?
+            SET status = 'INACTIVE', version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
 
@@ -825,7 +810,7 @@ internal data class AdminLongTermProfile(
     val remarks: String?,
 )
 
-internal enum class AdminVehicleStatus { ACTIVE, BLACKLISTED, INACTIVE, DELETED }
+internal enum class AdminVehicleStatus { ACTIVE, INACTIVE }
 internal enum class AdminRole { ADMIN, USER }
 internal enum class AdminUserStatus { ACTIVE, DISABLED }
 

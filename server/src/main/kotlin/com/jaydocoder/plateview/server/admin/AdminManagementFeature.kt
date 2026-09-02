@@ -41,9 +41,6 @@ internal fun Application.configureAdminManagementFeature() {
                         val actorId = call.requireAdministrator() ?: return@get
                         val page = service.listVehicles(
                             keyword = call.request.queryParameters["keyword"],
-                            status = call.request.queryParameters["status"]?.let { value ->
-                                parseEnum<AdminVehicleStatus>(value, "车辆状态") { AdminValidationException("车辆状态无效") }
-                            },
                             limit = call.pageLimit(),
                             offset = call.pageOffset(),
                         )
@@ -78,27 +75,10 @@ internal fun Application.configureAdminManagementFeature() {
                         call.auditAdmin(actorId, "VEHICLE_UPDATE", "VEHICLE", vehicle.id)
                         call.respond(vehicle.toResponse())
                     }
-                    post("/{vehicleId}/status") {
-                        val actorId = call.requireAdministrator() ?: return@post
-                        val status = call.receive<AdminVehicleStatusUpdateRequest>().toStatus()
-                        val vehicle = service.updateVehicleStatus(
-                            vehicleId = call.vehicleId(),
-                            status = status,
-                            expectedVersion = call.expectedVersion(),
-                            actorId = actorId,
-                        )
-                        call.auditAdmin(actorId, "VEHICLE_STATUS_${status.name}", "VEHICLE", vehicle.id)
-                        call.respond(vehicle.toResponse())
-                    }
                     delete("/{vehicleId}") {
                         val actorId = call.requireAdministrator() ?: return@delete
-                        val vehicle = service.updateVehicleStatus(
-                            vehicleId = call.vehicleId(),
-                            status = AdminVehicleStatus.BLACKLISTED,
-                            expectedVersion = call.expectedVersion(),
-                            actorId = actorId,
-                        )
-                        call.auditAdmin(actorId, "VEHICLE_STATUS_BLACKLISTED", "VEHICLE", vehicle.id)
+                        val vehicle = service.deactivateVehicle(call.vehicleId(), call.expectedVersion(), actorId)
+                        call.auditAdmin(actorId, "VEHICLE_DEACTIVATE", "VEHICLE", vehicle.id)
                         call.respond(vehicle.toResponse())
                     }
                 }
@@ -246,11 +226,6 @@ private data class AdminVehicleUpsertRequest(
         residentProfile = residentProfile?.toModel(),
         longTermProfile = longTermProfile?.toModel(),
     )
-}
-
-@Serializable
-private data class AdminVehicleStatusUpdateRequest(val status: String) {
-    fun toStatus(): AdminVehicleStatus = parseEnum(status, "车辆状态") { AdminValidationException("车辆状态无效") }
 }
 
 @Serializable

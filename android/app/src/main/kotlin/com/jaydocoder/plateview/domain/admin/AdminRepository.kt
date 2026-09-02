@@ -6,14 +6,13 @@ interface AdminRepository {
     suspend fun listVehicles(
         accessToken: String,
         keyword: String? = null,
-        status: String? = null,
         limit: Int = 100,
         offset: Int = 0,
     ): ManagedVehiclePage
     suspend fun getVehicle(accessToken: String, vehicleId: Long): ManagedVehicle
     suspend fun createVehicle(accessToken: String, command: VehicleWriteCommand): ManagedVehicle
     suspend fun updateVehicle(accessToken: String, vehicleId: Long, version: Int, command: VehicleWriteCommand): ManagedVehicle
-    suspend fun updateVehicleStatus(accessToken: String, vehicleId: Long, version: Int, status: String): ManagedVehicle
+    suspend fun deactivateVehicle(accessToken: String, vehicleId: Long, version: Int): ManagedVehicle
 
     suspend fun listUsers(accessToken: String): List<ManagedUser>
     suspend fun createUser(accessToken: String, command: UserCreateCommand): ManagedUser

@@ -12,7 +12,6 @@ data class AdminVehicleDto(val id: Long, val plateNumber: String, val normalized
 data class AdminResidentProfileDto(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)
 data class AdminLongTermProfileDto(val organizationName: String?, val passHolder: String?, val passageDetails: String?, val remarks: String?)
 data class AdminVehicleWriteRequestDto(val plateNumber: String, val category: String, val vehicleType: String?, val status: String, val attributes: Map<String, String>, val residentProfile: AdminResidentProfileDto?, val longTermProfile: AdminLongTermProfileDto?)
-data class AdminVehicleStatusUpdateRequestDto(val status: String)
 
 data class AdminUserListResponseDto(val items: List<AdminUserDto>)
 data class AdminUserDto(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String? = null, val scheduleAccessEnabled: Boolean = false)

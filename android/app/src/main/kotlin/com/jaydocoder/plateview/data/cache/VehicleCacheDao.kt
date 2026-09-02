@@ -13,7 +13,6 @@ interface VehicleCacheDao {
         SELECT * FROM vehicle_snapshot_cache
         WHERE generation = (SELECT activeGeneration FROM vehicle_catalog_state WHERE id = 1)
             AND searchableText LIKE '%' || :normalizedKeyword || '%'
-            AND status <> 'DELETED'
         ORDER BY
             CASE WHEN status = 'ACTIVE' THEN 0 ELSE 1 END,
             CASE WHEN category = 'RESIDENT' THEN 0 ELSE 1 END,
@@ -31,7 +30,6 @@ interface VehicleCacheDao {
         SELECT * FROM vehicle_snapshot_cache
         WHERE generation = (SELECT activeGeneration FROM vehicle_catalog_state WHERE id = 1)
             AND vehicleId = :vehicleId
-            AND status <> 'DELETED'
         """,
     )
     suspend fun getDetail(vehicleId: Long): VehicleSnapshotCacheEntity?

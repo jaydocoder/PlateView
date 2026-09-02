@@ -78,19 +78,6 @@ class AdminWorkspaceViewModel @Inject constructor(
         }
     }
 
-    fun updateVehicleStatusFilter(filter: VehicleStatusFilter) {
-        if (_uiState.value.vehicleStatusFilter == filter) return
-        _uiState.update {
-            it.copy(
-                vehicleStatusFilter = filter,
-                isVehiclePageLoading = false,
-                failure = null,
-            )
-        }
-        vehicleSearchJob?.cancel()
-        refreshVehicles()
-    }
-
     fun loadMoreVehicles() {
         if (_uiState.value.tab != AdminTab.Vehicles) return
         launchAdminAction { accessToken ->
@@ -159,28 +146,19 @@ class AdminWorkspaceViewModel @Inject constructor(
         }
     }
 
-    fun requestVehicleStatusChange(
-        vehicle: com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary,
-        targetStatus: String,
-    ) {
-        if (vehicle.status == targetStatus) return
-        _uiState.update { it.copy(pendingVehicleStatusChange = PendingVehicleStatusChange(vehicle, targetStatus)) }
+    fun requestVehicleDeactivation(vehicle: com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary) {
+        _uiState.update { it.copy(pendingVehicleDeactivation = vehicle) }
     }
 
-    fun dismissVehicleStatusChange() {
-        _uiState.update { it.copy(pendingVehicleStatusChange = null) }
+    fun dismissVehicleDeactivation() {
+        _uiState.update { it.copy(pendingVehicleDeactivation = null) }
     }
 
-    fun confirmVehicleStatusChange() {
-        val pendingChange = _uiState.value.pendingVehicleStatusChange ?: return
+    fun confirmVehicleDeactivation() {
+        val vehicle = _uiState.value.pendingVehicleDeactivation ?: return
         launchAdminAction { accessToken ->
-            _uiState.update { it.copy(isSaving = true, failure = null, pendingVehicleStatusChange = null) }
-            repository.updateVehicleStatus(
-                accessToken,
-                pendingChange.vehicle.id,
-                pendingChange.vehicle.version,
-                pendingChange.targetStatus,
-            )
+            _uiState.update { it.copy(isSaving = true, failure = null, pendingVehicleDeactivation = null) }
+            repository.deactivateVehicle(accessToken, vehicle.id, vehicle.version)
             _uiState.update { it.copy(isSaving = false) }
             loadVehicles(accessToken, reset = true)
         }
@@ -411,7 +389,6 @@ class AdminWorkspaceViewModel @Inject constructor(
             return
         }
         val query = previousState.vehicleSearchQuery
-        val statusFilter = previousState.vehicleStatusFilter
         val offset = if (reset) 0 else previousState.vehicles.size
         _uiState.update {
             it.copy(
@@ -423,11 +400,10 @@ class AdminWorkspaceViewModel @Inject constructor(
         val page = repository.listVehicles(
             accessToken = accessToken,
             keyword = query.trim().ifEmpty { null },
-            status = statusFilter.requestValue,
             limit = VEHICLE_PAGE_SIZE,
             offset = offset,
         )
-        if (_uiState.value.vehicleSearchQuery != query || _uiState.value.vehicleStatusFilter != statusFilter) return
+        if (_uiState.value.vehicleSearchQuery != query) return
         _uiState.update { state ->
             state.copy(
                 isLoading = false,

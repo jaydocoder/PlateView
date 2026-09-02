@@ -205,7 +205,7 @@ private fun VehicleDetailContent(
                 )
             }
         }
-        if (vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") {
+        if (vehicle.status == "INACTIVE") {
             item(key = "inactive_notice") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -214,12 +214,8 @@ private fun VehicleDetailContent(
                     shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        InactiveVehicleStatusBadge(vehicle.status)
-                        Text(
-                            if (vehicle.status == "BLACKLISTED") "该车辆档案已被管理员拉黑，不具备有效通行核验资格"
-                            else "该车辆档案已失效，不具备有效通行核验资格",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        InactiveVehicleStatusBadge()
+                        Text("该车辆档案已停用，不具备有效通行核验资格", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -301,9 +297,9 @@ private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (vehicle.status == "BLACKLISTED") "已拉黑" else if (vehicle.status == "INACTIVE") "已停用（已失效）" else "通行档案核验信息",
+                        text = if (vehicle.status == "INACTIVE") "已拉黑 / 已停用" else "通行档案核验信息",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") InactiveVehicleContentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (vehicle.status == "INACTIVE") InactiveVehicleContentColor else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
             }
         }

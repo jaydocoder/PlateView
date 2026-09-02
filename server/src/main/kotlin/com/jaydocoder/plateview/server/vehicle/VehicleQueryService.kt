@@ -73,7 +73,7 @@ internal class VehicleQueryService(
                 statement.setInt(2, offset.coerceAtLeast(0))
                 statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
             }
-            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED'").use { statement ->
+            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles").use { statement ->
                 statement.executeQuery().use { result -> result.next(); result.getInt(1) }
             }
             VehicleCatalogPage(revision, total, items)
@@ -174,7 +174,6 @@ internal class VehicleQueryService(
                 OR lp.remarks ILIKE ?
                 OR rp.remarks ILIKE ?
             )
-            AND v.status <> 'DELETED'
             ORDER BY
                 CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END,
                 CASE WHEN v.category = ? THEN 0 ELSE 1 END,
@@ -193,7 +192,6 @@ internal class VehicleQueryService(
             SELECT v.id, v.plate_number, v.category, v.status, lp.organization_name
             FROM vehicles v
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status <> 'DELETED'
             ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id LIMIT ? OFFSET ?
         """
         const val SELECT_VEHICLE_DETAIL = """
@@ -205,7 +203,7 @@ internal class VehicleQueryService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.id = ? AND v.status <> 'DELETED'
+            WHERE v.id = ?
         """
 
         const val SELECT_FULL_CATALOG = """
@@ -217,7 +215,6 @@ internal class VehicleQueryService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status <> 'DELETED'
             ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id
         """
     }
