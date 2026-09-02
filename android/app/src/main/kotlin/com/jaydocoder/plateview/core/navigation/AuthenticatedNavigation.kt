@@ -1,5 +1,6 @@
 package com.jaydocoder.plateview.core.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,14 @@ fun AuthenticatedNavigation(
     onCheckForUpdate: () -> Unit = {},
 ) {
     val navController = rememberNavController()
+    val navigateToHome: () -> Unit = remember(navController) {
+        {
+            navController.navigate(SearchDestination) {
+                popUpTo<SearchDestination> { inclusive = false }
+                launchSingleTop = true
+            }
+        }
+    }
     val isAdministrator = role == "ADMIN"
     val isPrimaryAdministrator = isAdministrator && username == "admin"
     val navigateToVehicle = remember(navController) {
@@ -59,11 +68,17 @@ fun AuthenticatedNavigation(
         add(ProfileDestination)
     }
     val showBottomNavigation = topLevelDestinations.any { destination?.hasRoute(it::class) == true }
+    val shouldReturnToHome = destination?.hasRoute<ScheduleDestination>() == true ||
+        destination?.hasRoute<StatisticsDestination>() == true ||
+        destination?.hasRoute<ProfileDestination>() == true
+    BackHandler(enabled = shouldReturnToHome) {
+        navigateToHome()
+    }
     Scaffold(
         bottomBar = {
             if (showBottomNavigation) {
                 NavigationBar {
-                    BottomNavigationItem("首页", Icons.Outlined.Home, destination?.hasRoute<SearchDestination>() == true) { navController.navigate(SearchDestination) { launchSingleTop = true } }
+                    BottomNavigationItem("首页", Icons.Outlined.Home, destination?.hasRoute<SearchDestination>() == true, navigateToHome)
                     if (scheduleEnabled) BottomNavigationItem("排班", Icons.Outlined.CalendarMonth, destination?.hasRoute<ScheduleDestination>() == true) { navController.navigate(ScheduleDestination) { launchSingleTop = true } }
                     BottomNavigationItem("统计", Icons.Outlined.QueryStats, destination?.hasRoute<StatisticsDestination>() == true) { navController.navigate(StatisticsDestination) { launchSingleTop = true } }
                     BottomNavigationItem("我的", Icons.Outlined.Person, destination?.hasRoute<ProfileDestination>() == true) { navController.navigate(ProfileDestination) { launchSingleTop = true } }
@@ -83,7 +98,7 @@ fun AuthenticatedNavigation(
             composable<StatisticsDestination> { StatisticsRoute(onNavigateToVehicle = navigateToVehicle) }
             composable<ProfileDestination> {
                 ProfileRoute(
-                    onNavigateUp = { navController.navigate(SearchDestination) { launchSingleTop = true } },
+                    onNavigateUp = navigateToHome,
                     onOpenAdmin = navigateToAdmin,
                     onCheckForUpdate = onCheckForUpdate,
                     onLogout = onLogout,

@@ -26,6 +26,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.admin.AdminTab
 import com.jaydocoder.plateview.feature.admin.AdminUiState
 import com.jaydocoder.plateview.feature.admin.VehicleEditorState
+import com.jaydocoder.plateview.feature.admin.VehicleStatusFilter
 import com.jaydocoder.plateview.feature.admin.AdminWorkspaceScreen
 import com.jaydocoder.plateview.feature.admin.toEditor
 import org.junit.Assert.assertEquals
@@ -84,6 +85,57 @@ class AdminWorkspaceScreenTest {
 
         composeRule.runOnIdle {
             assertEquals("新A1", query)
+        }
+    }
+
+    @Test
+    fun 车辆档案状态筛选使用不遮挡列表的标签行() {
+        var selected by mutableStateOf(VehicleStatusFilter.All)
+        val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, "小型汽车")
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Vehicles,
+                        vehicles = listOf(vehicle),
+                        vehicleStatusFilter = selected,
+                        isLoading = false,
+                    ),
+                    onNavigateUp = {},
+                    onTabSelected = {},
+                    onRefresh = {},
+                    onVehicleStatusFilterChanged = { selected = it },
+                    onCreateVehicle = {},
+                    onEditVehicle = {},
+                    onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {},
+                    onSaveVehicle = {},
+                    onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {},
+                    onConfirmVehicleDeactivation = {},
+                    onCreateUser = {},
+                    onEditUser = {},
+                    onUserEditorChanged = {},
+                    onDismissUserEditor = {},
+                    onSaveUser = {},
+                    onChooseImport = {},
+                    onOpenImportBatch = {},
+                    onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> },
+                    onPublishImport = {},
+                    onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("admin_vehicle_status_filter").assertIsDisplayed()
+        composeRule.onNodeWithText("全部").assertIsDisplayed()
+        composeRule.onNodeWithText("删除").assertIsDisplayed()
+        composeRule.onNodeWithText("拉黑").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(VehicleStatusFilter.Blacklisted, selected)
         }
     }
 

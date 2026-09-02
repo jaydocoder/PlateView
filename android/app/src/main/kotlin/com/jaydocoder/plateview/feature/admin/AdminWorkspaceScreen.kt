@@ -44,8 +44,8 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Search
@@ -657,6 +657,7 @@ private fun AdminVehicleItem(
     onStatusChange: (ManagedVehicleSummary, String) -> Unit,
     isSaving: Boolean
 ) {
+    var showActions by rememberSaveable(item.id) { androidx.compose.runtime.mutableStateOf(false) }
     ElevatedCard(
         onClick = { onEdit(item.id) },
         modifier = Modifier.fillMaxWidth(),
@@ -669,7 +670,12 @@ private fun AdminVehicleItem(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(item.plateNumber, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        item.plateNumber,
+                        modifier = Modifier.weight(1f, fill = false),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
                     Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
                     AdminStatusBadge(item.statusLabel(), item.status.statusTone())
                 }
@@ -679,17 +685,58 @@ private fun AdminVehicleItem(
                     Text(type, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
                 }
             }
-            IconButton(onClick = { onEdit(item.id) }) {
-                Icon(Icons.Outlined.Edit, contentDescription = "编辑 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            }
-            IconButton(onClick = { onStatusChange(item, "ACTIVE") }, enabled = item.status != "ACTIVE" && !isSaving) {
-                Icon(Icons.Outlined.CheckCircle, contentDescription = "启用 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            }
-            IconButton(onClick = { onStatusChange(item, "BLACKLISTED") }, enabled = item.status != "BLACKLISTED" && !isSaving) {
-                Icon(Icons.Outlined.Block, contentDescription = "拉黑 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
-            }
-            IconButton(onClick = { onStatusChange(item, "DELETED") }, enabled = item.status != "DELETED" && !isSaving) {
-                Icon(Icons.Outlined.DeleteOutline, contentDescription = "删除 ${item.plateNumber}", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+            Box {
+                IconButton(onClick = { showActions = true }) {
+                    Icon(
+                        Icons.Outlined.MoreVert,
+                        contentDescription = "更多操作 ${item.plateNumber}",
+                        modifier = Modifier.size(22.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
+                    DropdownMenuItem(
+                        text = { Text("编辑档案") },
+                        leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+                        onClick = {
+                            showActions = false
+                            onEdit(item.id)
+                        },
+                    )
+                    if (item.status != "ACTIVE") {
+                        DropdownMenuItem(
+                            text = { Text("启用档案") },
+                            leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null) },
+                            enabled = !isSaving,
+                            onClick = {
+                                showActions = false
+                                onStatusChange(item, "ACTIVE")
+                            },
+                        )
+                    }
+                    if (item.status != "BLACKLISTED") {
+                        DropdownMenuItem(
+                            text = { Text("拉黑档案", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = { Icon(Icons.Outlined.Block, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                            enabled = !isSaving,
+                            onClick = {
+                                showActions = false
+                                onStatusChange(item, "BLACKLISTED")
+                            },
+                        )
+                    }
+                    if (item.status != "DELETED") {
+                        DropdownMenuItem(
+                            text = { Text("删除档案", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                            enabled = !isSaving,
+                            onClick = {
+                                showActions = false
+                                onStatusChange(item, "DELETED")
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -700,25 +747,22 @@ private fun VehicleStatusFilterSelector(
     selected: VehicleStatusFilter,
     onSelected: (VehicleStatusFilter) -> Unit,
 ) {
-    var expanded by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(
-            onClick = { expanded = true },
+    Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing)) {
+        Text(
+            "档案状态",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        LazyRow(
             modifier = Modifier.fillMaxWidth().testTag("admin_vehicle_status_filter"),
-            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+            horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
         ) {
-            Icon(Icons.Outlined.FilterList, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("筛选：${selected.label}")
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            VehicleStatusFilter.entries.forEach { filter ->
-                DropdownMenuItem(
-                    text = { Text(filter.label) },
-                    onClick = {
-                        expanded = false
-                        onSelected(filter)
-                    },
+            items(VehicleStatusFilter.entries, key = VehicleStatusFilter::name) { filter ->
+                FilterChip(
+                    selected = filter == selected,
+                    onClick = { onSelected(filter) },
+                    label = { Text(filter.label) },
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                 )
             }
         }
@@ -1084,8 +1128,8 @@ private fun AdminPaneHeading(
         }
         Surface(
             modifier = metricModifier,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
         ) {
             Text(metric, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium)
@@ -1096,12 +1140,12 @@ private fun AdminPaneHeading(
 @Composable
 private fun AdminStatusBadge(label: String, tone: AdminStatusTone) {
     val containerColor = when (tone) {
-        AdminStatusTone.Positive -> MaterialTheme.colorScheme.secondaryContainer
+        AdminStatusTone.Positive -> MaterialTheme.colorScheme.primaryContainer
         AdminStatusTone.Warning -> MaterialTheme.colorScheme.errorContainer
         AdminStatusTone.Neutral -> MaterialTheme.colorScheme.surfaceVariant
     }
     val contentColor = when (tone) {
-        AdminStatusTone.Positive -> MaterialTheme.colorScheme.onSecondaryContainer
+        AdminStatusTone.Positive -> MaterialTheme.colorScheme.onPrimaryContainer
         AdminStatusTone.Warning -> MaterialTheme.colorScheme.onErrorContainer
         AdminStatusTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
     }

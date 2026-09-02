@@ -51,11 +51,11 @@ data class AdminUiState(
 )
 
 enum class VehicleStatusFilter(val requestValue: String?, val label: String) {
-    All(null, "全部档案"),
-    Active("ACTIVE", "已启用"),
-    Blacklisted("BLACKLISTED", "已拉黑"),
-    Inactive("INACTIVE", "已停用"),
-    Deleted("DELETED", "已删除"),
+    All(null, "全部"),
+    Active("ACTIVE", "启用"),
+    Blacklisted("BLACKLISTED", "拉黑"),
+    Inactive("INACTIVE", "失效"),
+    Deleted("DELETED", "删除"),
 }
 
 data class PendingVehicleStatusChange(
