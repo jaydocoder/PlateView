@@ -64,15 +64,26 @@ git_source checkout --detach --force "$target_commit"
 resolved_commit=$(git_source rev-parse HEAD)
 short_commit=${resolved_commit:0:12}
 
-if git_source rev-parse "$resolved_commit^" >/dev/null 2>&1; then
-    has_server_change=0
-    while IFS= read -r changed_path; do
-        case "$changed_path" in
-            server/*|compose.production.yaml|deploy/*|infra/*) has_server_change=1 ;;
-        esac
-    done < <(git_source diff-tree --no-commit-id --name-only -r "$resolved_commit")
-    [[ "$has_server_change" == 1 ]] || { log "提交没有服务端路径变化，跳过部署"; exit 0; }
-fi
+active_commit=$(tr -d '[:space:]' < "$RUNTIME_DIR/active-commit" 2>/dev/null || true)
+needs_server_deploy() {
+    local current_commit="$1"
+    if [[ -z "$current_commit" ]]; then
+        log "服务器没有记录活动提交，将执行部署"
+        return 0
+    fi
+    if ! git_source cat-file -e "$current_commit^{commit}" >/dev/null 2>&1; then
+        log "服务器活动提交不可解析：$current_commit，将执行部署"
+        return 0
+    fi
+    if ! git_source diff --quiet "$current_commit" "$resolved_commit" -- server compose.production.yaml deploy infra; then
+        log "检测到活动提交与目标提交之间存在服务端路径差异，将执行部署"
+        return 0
+    fi
+    log "活动提交与目标提交的服务端路径一致，跳过部署"
+    return 1
+}
+
+needs_server_deploy "$active_commit" || exit 0
 
 if [[ ! -s "$RUNTIME_DIR/Caddyfile" ]]; then
     printf 'reverse_proxy api:8080\n' > "$RUNTIME_DIR/Caddyfile"
