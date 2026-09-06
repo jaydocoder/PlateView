@@ -28,12 +28,14 @@ import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.feature.search.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -219,6 +221,79 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `车辆筛选只展示最新请求结果且刷新期间不分页`() = runTest {
+        val oldPage = CompletableDeferred<ManagedVehiclePage>()
+        val filteredPage = CompletableDeferred<ManagedVehiclePage>()
+        val initialVehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
+        val blacklistedVehicle = ManagedVehicleSummary(202, "新A00001", "RESIDENT", "村民车辆", "BLACKLISTED", 0, null)
+        var allRequestCount = 0
+        val repository = FakeAdminRepository(
+            vehiclePageProvider = { _, status, _ ->
+                when (status) {
+                    null -> {
+                        allRequestCount += 1
+                        if (allRequestCount == 1) {
+                            ManagedVehiclePage(listOf(initialVehicle), 1)
+                        } else {
+                            withContext(NonCancellable) { oldPage.await() }
+                        }
+                    }
+                    "BLACKLISTED" -> filteredPage.await()
+                    else -> error("本测试不应请求该状态")
+                }
+            },
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.Vehicles)
+        runCurrent()
+        viewModel.updateVehicleStatusFilter(VehicleStatusFilter.Blacklisted)
+        runCurrent()
+
+        assertTrue(viewModel.uiState.value.vehicles.isEmpty())
+        assertTrue(viewModel.uiState.value.isVehiclePageLoading)
+        viewModel.loadMoreVehicles()
+        assertEquals(listOf(0, 0, 0), repository.vehicleOffsets)
+
+        filteredPage.complete(ManagedVehiclePage(listOf(blacklistedVehicle), 1))
+        advanceUntilIdle()
+        oldPage.complete(ManagedVehiclePage(listOf(initialVehicle), 1))
+        advanceUntilIdle()
+
+        assertEquals(listOf(blacklistedVehicle), viewModel.uiState.value.vehicles)
+        assertEquals(1, viewModel.uiState.value.vehicleTotalCount)
+        assertTrue(!viewModel.uiState.value.isVehiclePageLoading)
+    }
+
+    @Test
+    fun `切入车辆页后概览的旧列表结果不会覆盖当前数据`() = runTest {
+        val dashboardPage = CompletableDeferred<ManagedVehiclePage>()
+        val dashboardVehicle = ManagedVehicleSummary(101, "新A11111", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
+        val vehiclePage = ManagedVehiclePage(
+            listOf(ManagedVehicleSummary(202, "新A22222", "RESIDENT", "村民车辆", "BLACKLISTED", 0, null)),
+            1,
+        )
+        var requestCount = 0
+        val repository = FakeAdminRepository(
+            vehiclePageProvider = { _, _, _ ->
+                requestCount += 1
+                if (requestCount == 1) dashboardPage.await() else vehiclePage
+            },
+        )
+        val viewModel = createViewModel(repository = repository)
+        runCurrent()
+
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
+        dashboardPage.complete(ManagedVehiclePage(listOf(dashboardVehicle), 1))
+        advanceUntilIdle()
+
+        assertEquals(vehiclePage.items, viewModel.uiState.value.vehicles)
+        assertEquals(vehiclePage.total, viewModel.uiState.value.vehicleTotalCount)
+    }
+
+    @Test
     fun `车辆状态变更在确认后调用统一状态接口`() = runTest {
         val repository = FakeAdminRepository()
         val viewModel = createViewModel(repository = repository)
@@ -367,6 +442,7 @@ private class FakeAdminRepository(
     private val updateUserFailure: Throwable? = null,
     private val vehiclePages: List<List<ManagedVehicleSummary>> = emptyList(),
     private val vehicleTotal: Int = 1,
+    private val vehiclePageProvider: (suspend (String?, String?, Int) -> ManagedVehiclePage)? = null,
     private val importPages: List<List<ManagedImportRow>> = emptyList(),
     private val importPagesByFilter: Map<ImportRowFilter, List<List<ManagedImportRow>>> = emptyMap(),
     private val importTotal: Int = 0,
@@ -405,6 +481,7 @@ private class FakeAdminRepository(
         vehicleOffsets += offset
         vehicleKeywords += keyword
         vehicleStatuses += status
+        vehiclePageProvider?.let { return it(keyword, status, offset) }
         val page = vehiclePages.getOrElse(if (offset == 0) 0 else 1) { listOf(vehicle) }
         return ManagedVehiclePage(page, vehicleTotal)
     }

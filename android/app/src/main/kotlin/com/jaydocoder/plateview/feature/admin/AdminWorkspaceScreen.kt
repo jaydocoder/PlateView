@@ -548,6 +548,10 @@ private fun VehiclesPane(
             .collect { nearEnd -> if (nearEnd) onLoadMore() }
     }
 
+    LaunchedEffect(searchQuery, statusFilter) {
+        listState.scrollToItem(0)
+    }
+
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag("admin_vehicle_archive"),

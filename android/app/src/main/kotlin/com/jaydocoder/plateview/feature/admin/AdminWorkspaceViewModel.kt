@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -33,6 +34,8 @@ class AdminWorkspaceViewModel @Inject constructor(
     private val userAvatarRepository: AdminUserAvatarRepository? = null,
 ) : ViewModel() {
     private var vehicleSearchJob: Job? = null
+    private var vehicleLoadJob: Job? = null
+    private var vehicleRequestVersion = 0L
     private val _uiState = MutableStateFlow(AdminUiState())
     val uiState: StateFlow<AdminUiState> = _uiState.asStateFlow()
 
@@ -67,15 +70,10 @@ class AdminWorkspaceViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 vehicleSearchQuery = query,
-                isVehiclePageLoading = false,
                 failure = null,
             )
         }
-        vehicleSearchJob?.cancel()
-        vehicleSearchJob = viewModelScope.launch {
-            delay(VEHICLE_SEARCH_DEBOUNCE_MILLIS)
-            refreshVehicles()
-        }
+        refreshVehicles(delayMillis = VEHICLE_SEARCH_DEBOUNCE_MILLIS)
     }
 
     fun updateVehicleStatusFilter(filter: VehicleStatusFilter) {
@@ -83,18 +81,30 @@ class AdminWorkspaceViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 vehicleStatusFilter = filter,
-                isVehiclePageLoading = false,
                 failure = null,
             )
         }
-        vehicleSearchJob?.cancel()
         refreshVehicles()
     }
 
     fun loadMoreVehicles() {
         if (_uiState.value.tab != AdminTab.Vehicles) return
-        launchAdminAction { accessToken ->
-            loadVehicles(accessToken, reset = false)
+        val state = _uiState.value
+        if (state.isVehiclePageLoading || state.vehicles.size >= state.vehicleTotalCount) return
+        val requestVersion = vehicleRequestVersion
+        val query = state.vehicleSearchQuery
+        val statusFilter = state.vehicleStatusFilter
+        val offset = state.vehicles.size
+        _uiState.update { it.copy(isVehiclePageLoading = true, failure = null) }
+        vehicleLoadJob = launchAdminAction(shouldHandleFailure = { requestVersion == vehicleRequestVersion }) { accessToken ->
+            loadVehicles(
+                accessToken = accessToken,
+                reset = false,
+                requestVersion = requestVersion,
+                query = query,
+                statusFilter = statusFilter,
+                offset = offset,
+            )
         }
     }
 
@@ -155,7 +165,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 repository.updateVehicle(accessToken, editor.id, editor.version, editor.toCommand())
             }
             _uiState.update { it.copy(isSaving = false, vehicleEditor = null) }
-            loadVehicles(accessToken, reset = true)
+            refreshVehicles()
         }
     }
 
@@ -182,7 +192,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 pendingChange.targetStatus,
             )
             _uiState.update { it.copy(isSaving = false) }
-            loadVehicles(accessToken, reset = true)
+            refreshVehicles()
         }
     }
 
@@ -373,6 +383,7 @@ class AdminWorkspaceViewModel @Inject constructor(
         val vehiclePage = repository.listVehicles(accessToken)
         val users = repository.listUsers(accessToken)
         val batches = repository.listImportBatches(accessToken)
+        if (_uiState.value.tab != AdminTab.Dashboard) return
         _uiState.update {
             it.copy(
                 vehicles = vehiclePage.items,
@@ -386,9 +397,42 @@ class AdminWorkspaceViewModel @Inject constructor(
         }
     }
 
-    private fun refreshVehicles() = launchAdminAction { accessToken ->
-        loadVehicleCreationCapabilities(accessToken)
-        loadVehicles(accessToken, reset = true)
+    private fun refreshVehicles(delayMillis: Long = 0L) {
+        vehicleSearchJob?.cancel()
+        vehicleLoadJob?.cancel()
+        val requestVersion = ++vehicleRequestVersion
+        val state = _uiState.value
+        val query = state.vehicleSearchQuery
+        val statusFilter = state.vehicleStatusFilter
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                isVehiclePageLoading = true,
+                vehicles = emptyList(),
+                vehicleTotalCount = 0,
+                failure = null,
+            )
+        }
+        val load = {
+            vehicleLoadJob = launchAdminAction(shouldHandleFailure = { requestVersion == vehicleRequestVersion }) { accessToken ->
+                loadVehicles(
+                    accessToken = accessToken,
+                    reset = true,
+                    requestVersion = requestVersion,
+                    query = query,
+                    statusFilter = statusFilter,
+                    offset = 0,
+                )
+            }
+        }
+        if (delayMillis == 0L) {
+            load()
+        } else {
+            vehicleSearchJob = viewModelScope.launch {
+                delay(delayMillis)
+                load()
+            }
+        }
     }
 
     private suspend fun loadVehicleCreationCapabilities(accessToken: String) {
@@ -401,25 +445,14 @@ class AdminWorkspaceViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadVehicles(accessToken: String, reset: Boolean) {
-        val previousState = _uiState.value
-        if (!reset && (
-                previousState.isVehiclePageLoading ||
-                    previousState.vehicles.size >= previousState.vehicleTotalCount
-                )
-        ) {
-            return
-        }
-        val query = previousState.vehicleSearchQuery
-        val statusFilter = previousState.vehicleStatusFilter
-        val offset = if (reset) 0 else previousState.vehicles.size
-        _uiState.update {
-            it.copy(
-                isLoading = reset && it.vehicles.isEmpty(),
-                isVehiclePageLoading = true,
-                failure = null,
-            )
-        }
+    private suspend fun loadVehicles(
+        accessToken: String,
+        reset: Boolean,
+        requestVersion: Long,
+        query: String,
+        statusFilter: VehicleStatusFilter,
+        offset: Int,
+    ) {
         val page = repository.listVehicles(
             accessToken = accessToken,
             keyword = query.trim().ifEmpty { null },
@@ -427,8 +460,9 @@ class AdminWorkspaceViewModel @Inject constructor(
             limit = VEHICLE_PAGE_SIZE,
             offset = offset,
         )
-        if (_uiState.value.vehicleSearchQuery != query || _uiState.value.vehicleStatusFilter != statusFilter) return
+        if (requestVersion != vehicleRequestVersion) return
         _uiState.update { state ->
+            if (requestVersion != vehicleRequestVersion) return@update state
             state.copy(
                 isLoading = false,
                 isVehiclePageLoading = false,
@@ -553,16 +587,25 @@ class AdminWorkspaceViewModel @Inject constructor(
         }
     }
 
-    private fun launchAdminAction(action: suspend (String) -> Unit) {
-        viewModelScope.launch {
+    private fun launchAdminAction(
+        shouldHandleFailure: () -> Boolean = { true },
+        action: suspend (String) -> Unit,
+    ): Job = viewModelScope.launch {
             try {
                 val session = sessionProvider.session.first()
                 when {
-                    session == null -> _uiState.update { it.copy(isLoading = false, isSaving = false, failure = AdminFailure.SessionExpired) }
-                    session.role != "ADMIN" -> _uiState.update { it.copy(isLoading = false, isSaving = false, failure = AdminFailure.PermissionDenied) }
+                    session == null -> if (shouldHandleFailure()) {
+                        _uiState.update { it.copy(isLoading = false, isSaving = false, failure = AdminFailure.SessionExpired) }
+                    }
+                    session.role != "ADMIN" -> if (shouldHandleFailure()) {
+                        _uiState.update { it.copy(isLoading = false, isSaving = false, failure = AdminFailure.PermissionDenied) }
+                    }
                     else -> action(session.accessToken)
                 }
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (throwable: Throwable) {
+                if (!shouldHandleFailure()) return@launch
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -580,7 +623,6 @@ class AdminWorkspaceViewModel @Inject constructor(
                 }
             }
         }
-    }
 
     private companion object {
         const val VEHICLE_PAGE_SIZE = 100
