@@ -81,7 +81,7 @@ class AppUpdateViewModelTest {
 
         val state = viewModel.uiState.value.downloadState
         assertTrue(state is UpdateDownloadState.Failed)
-        assertEquals("网络不可用", (state as UpdateDownloadState.Failed).message)
+        assertTrue((state as UpdateDownloadState.Failed).message.matchesDiagnosticMessage())
     }
 
     @Test
@@ -119,12 +119,14 @@ class AppUpdateViewModelTest {
         advanceUntilIdle()
 
         assertEquals(true, viewModel.uiState.value.isManualCheckDialogVisible)
-        assertEquals(
-            ManualUpdateCheckState.Failed("更新服务不可用"),
-            viewModel.uiState.value.manualCheckState,
-        )
+        val state = viewModel.uiState.value.manualCheckState
+        assertTrue(state is ManualUpdateCheckState.Failed)
+        assertTrue((state as ManualUpdateCheckState.Failed).message.matchesDiagnosticMessage())
     }
 }
+
+private fun String.matchesDiagnosticMessage(): Boolean =
+    startsWith("操作未完成\n诊断编号：")
 
 private class FakeAppUpdateRepository(
     private val update: AppUpdate? = null,

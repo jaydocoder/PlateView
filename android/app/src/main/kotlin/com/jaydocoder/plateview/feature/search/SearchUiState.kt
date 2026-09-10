@@ -2,6 +2,7 @@ package com.jaydocoder.plateview.feature.search
 
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
+import com.jaydocoder.plateview.data.network.AppError
 
 data class SearchUiState(
     val query: String = "",
@@ -19,12 +20,7 @@ sealed interface SearchResultState {
 
     data object Empty : SearchResultState
 
-    data class Error(val reason: SearchFailure) : SearchResultState
-}
-
-enum class SearchFailure {
-    SessionExpired,
-    ServiceUnavailable,
+    data class Error(val error: AppError) : SearchResultState
 }
 
 sealed interface SearchEvent {

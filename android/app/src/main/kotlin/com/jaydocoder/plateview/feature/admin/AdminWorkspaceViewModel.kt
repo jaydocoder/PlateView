@@ -5,6 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jaydocoder.plateview.data.admin.AdminImportFileReader
 import com.jaydocoder.plateview.data.admin.AdminUserAvatarRepository
+import com.jaydocoder.plateview.data.network.AppError
+import com.jaydocoder.plateview.data.network.AppErrorKind
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
 import com.jaydocoder.plateview.domain.admin.AdminRepository
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.AuditRange
@@ -23,6 +27,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
@@ -96,7 +102,10 @@ class AdminWorkspaceViewModel @Inject constructor(
         val statusFilter = state.vehicleStatusFilter
         val offset = state.vehicles.size
         _uiState.update { it.copy(isVehiclePageLoading = true, failure = null) }
-        vehicleLoadJob = launchAdminAction(shouldHandleFailure = { requestVersion == vehicleRequestVersion }) { accessToken ->
+        vehicleLoadJob = launchAdminAction(
+            operation = "加载更多车辆档案",
+            shouldHandleFailure = { requestVersion == vehicleRequestVersion },
+        ) { accessToken ->
             loadVehicles(
                 accessToken = accessToken,
                 reset = false,
@@ -124,7 +133,15 @@ class AdminWorkspaceViewModel @Inject constructor(
     fun createVehicle() {
         val category = _uiState.value.creatableVehicleCategories.firstOrNull()
         if (category == null) {
-            _uiState.update { it.copy(failure = AdminFailure.ServiceUnavailable("正在获取车辆建档权限")) }
+            _uiState.update {
+                it.copy(
+                    failure = adminError(
+                        operation = "新建车辆档案",
+                        kind = AppErrorKind.Validation,
+                        message = "当前账号没有可用的车辆建档权限",
+                    ),
+                )
+            }
             return
         }
         _uiState.update {
@@ -414,7 +431,10 @@ class AdminWorkspaceViewModel @Inject constructor(
             )
         }
         val load = {
-            vehicleLoadJob = launchAdminAction(shouldHandleFailure = { requestVersion == vehicleRequestVersion }) { accessToken ->
+            vehicleLoadJob = launchAdminAction(
+                operation = "筛选车辆档案",
+                shouldHandleFailure = { requestVersion == vehicleRequestVersion },
+            ) { accessToken ->
                 loadVehicles(
                     accessToken = accessToken,
                     reset = true,
@@ -453,12 +473,12 @@ class AdminWorkspaceViewModel @Inject constructor(
         statusFilter: VehicleStatusFilter,
         offset: Int,
     ) {
-        val page = repository.listVehicles(
+        val page = loadVehiclePageWithRetry(
             accessToken = accessToken,
-            keyword = query.trim().ifEmpty { null },
-            status = statusFilter.requestValue,
-            limit = VEHICLE_PAGE_SIZE,
+            query = query,
+            statusFilter = statusFilter,
             offset = offset,
+            requestVersion = requestVersion,
         )
         if (requestVersion != vehicleRequestVersion) return
         _uiState.update { state ->
@@ -470,6 +490,35 @@ class AdminWorkspaceViewModel @Inject constructor(
                 vehicleTotalCount = page.total,
             )
         }
+    }
+
+    private suspend fun loadVehiclePageWithRetry(
+        accessToken: String,
+        query: String,
+        statusFilter: VehicleStatusFilter,
+        offset: Int,
+        requestVersion: Long,
+    ) = run {
+        var lastFailure: Throwable? = null
+        for (attempt in 0 until VEHICLE_READ_ATTEMPTS) {
+            currentCoroutineContext().ensureActive()
+            if (requestVersion != vehicleRequestVersion) throw CancellationException()
+            try {
+                return@run repository.listVehicles(
+                    accessToken = accessToken,
+                    keyword = query.trim().ifEmpty { null },
+                    status = statusFilter.requestValue,
+                    limit = VEHICLE_PAGE_SIZE,
+                    offset = offset,
+                )
+            } catch (failure: Throwable) {
+                lastFailure = failure
+                val hasNextAttempt = attempt < VEHICLE_READ_ATTEMPTS - 1
+                if (!hasNextAttempt || !AppErrorMapper.isRetryableReadFailure(failure)) throw failure
+                delay(VEHICLE_READ_RETRY_DELAYS[attempt])
+            }
+        }
+        throw requireNotNull(lastFailure)
     }
 
     private suspend fun loadUsers(accessToken: String) {
@@ -588,6 +637,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private fun launchAdminAction(
+        operation: String = "管理操作",
         shouldHandleFailure: () -> Boolean = { true },
         action: suspend (String) -> Unit,
     ): Job = viewModelScope.launch {
@@ -595,10 +645,22 @@ class AdminWorkspaceViewModel @Inject constructor(
                 val session = sessionProvider.session.first()
                 when {
                     session == null -> if (shouldHandleFailure()) {
-                        _uiState.update { it.copy(isLoading = false, isSaving = false, failure = AdminFailure.SessionExpired) }
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                isSaving = false,
+                                failure = adminError(operation, AppErrorKind.SessionExpired, "登录已失效，请重新登录"),
+                            )
+                        }
                     }
                     session.role != "ADMIN" -> if (shouldHandleFailure()) {
-                        _uiState.update { it.copy(isLoading = false, isSaving = false, failure = AdminFailure.PermissionDenied) }
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                isSaving = false,
+                                failure = adminError(operation, AppErrorKind.PermissionDenied, "当前账号没有执行此操作的权限"),
+                            )
+                        }
                     }
                     else -> action(session.accessToken)
                 }
@@ -615,7 +677,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         isImportPageLoading = false,
                         isImportDetailLoading = false,
                         isAuditPageLoading = false,
-                        failure = throwable.toAdminFailure(),
+                        failure = AppErrorMapper.map(operation, throwable).also(AppErrorTelemetry::report),
                     )
                 }
                 if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
@@ -629,15 +691,16 @@ class AdminWorkspaceViewModel @Inject constructor(
         const val IMPORT_PAGE_SIZE = 100
         const val AUDIT_PAGE_SIZE = 50
         const val VEHICLE_SEARCH_DEBOUNCE_MILLIS = 250L
+        const val VEHICLE_READ_ATTEMPTS = 3
         const val HTTP_UNAUTHORIZED = 401
+        val VEHICLE_READ_RETRY_DELAYS = longArrayOf(300L, 900L)
     }
 }
 
-private fun Throwable.toAdminFailure(): AdminFailure = when {
-    this is HttpException && code() == 401 -> AdminFailure.SessionExpired
-    this is HttpException && code() == 403 -> AdminFailure.PermissionDenied
-    this is HttpException && code() == 409 -> AdminFailure.Conflict
-    this is HttpException && code() == 400 -> AdminFailure.Validation(message())
-    this is IllegalArgumentException -> AdminFailure.Validation(message)
-    else -> AdminFailure.ServiceUnavailable(message)
-}
+private fun adminError(operation: String, kind: AppErrorKind, message: String) = AppError(
+    operation = operation,
+    kind = kind,
+    requestId = java.util.UUID.randomUUID().toString(),
+    message = message,
+    retryable = false,
+)

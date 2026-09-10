@@ -85,9 +85,13 @@ jobs:
           } > keystore.properties
 
       - name: 构建正式 APK
+        env:
+          PLATEVIEW_SENTRY_DSN: ${{ secrets.PLATEVIEW_SENTRY_DSN }}
         run: >-
           ./gradlew :app:assembleRelease
           -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/
+          -PplateviewSentryDsn=$PLATEVIEW_SENTRY_DSN
+          -PplateviewSentryEnvironment=production
 
       - name: 上传正式 APK 工件
         uses: actions/upload-artifact@v4

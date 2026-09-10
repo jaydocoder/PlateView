@@ -121,7 +121,7 @@ fun VehicleDetailScreen(
             when (val content = uiState.content) {
                 VehicleDetailContent.Loading -> LoadingContent()
                 is VehicleDetailContent.Error -> ErrorContent(
-                    failure = content.reason,
+                    error = content.error,
                     onRetry = onRetry,
                 )
 
@@ -153,7 +153,7 @@ private fun LoadingContent() {
 
 @Composable
 private fun ErrorContent(
-    failure: VehicleDetailFailure,
+    error: com.jaydocoder.plateview.data.network.AppError,
     onRetry: () -> Unit,
 ) {
     Column(
@@ -169,11 +169,16 @@ private fun ErrorContent(
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = stringResource(failure.messageResource()),
+            text = error.message,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
-        if (failure == VehicleDetailFailure.ServiceUnavailable) {
+        Text(
+            text = "诊断编号：${error.requestId}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+        if (error.retryable) {
             Spacer(modifier = Modifier.height(24.dp))
             TextButton(onClick = onRetry) {
                 Text(stringResource(R.string.detail_retry))
@@ -461,9 +466,3 @@ private fun LongTermProfile.toFields(): List<DetailField> = listOfNotNull(
     passageDetails?.let { DetailField(stringResource(R.string.detail_passage_details), it) },
     remarks?.let { DetailField(stringResource(R.string.detail_remarks), it) },
 )
-
-private fun VehicleDetailFailure.messageResource(): Int = when (this) {
-    VehicleDetailFailure.SessionExpired -> R.string.detail_session_expired
-    VehicleDetailFailure.VehicleNotFound -> R.string.detail_not_found
-    VehicleDetailFailure.ServiceUnavailable -> R.string.detail_service_unavailable
-}

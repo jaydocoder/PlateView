@@ -3,6 +3,11 @@ package com.jaydocoder.plateview.feature.vehicle
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jaydocoder.plateview.data.network.AppError
+import com.jaydocoder.plateview.data.network.AppErrorKind
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import androidx.navigation.toRoute
 import com.jaydocoder.plateview.core.navigation.VehicleDetailDestination
 import com.jaydocoder.plateview.data.statistics.QueryEventSyncScheduler
@@ -20,7 +25,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import retrofit2.HttpException
 
 @HiltViewModel
 class VehicleDetailViewModel @Inject constructor(
@@ -46,7 +50,7 @@ class VehicleDetailViewModel @Inject constructor(
             val session = sessionProvider.session.first()
             if (session == null) {
                 _uiState.update {
-                    it.copy(content = VehicleDetailContent.Error(VehicleDetailFailure.SessionExpired))
+                    it.copy(content = VehicleDetailContent.Error(detailError(AppErrorKind.SessionExpired, "登录已失效，请重新登录")))
                 }
                 return@launch
             }
@@ -66,19 +70,11 @@ class VehicleDetailViewModel @Inject constructor(
                 recordQueryOnce(session, vehicle)
                 _uiState.update { it.copy(content = VehicleDetailContent.Data(vehicle)) }
             } catch (throwable: Throwable) {
-                val failure = when {
-                    throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED -> {
-                        sessionProvider.logout()
-                        VehicleDetailFailure.SessionExpired
-                    }
-
-                    throwable is HttpException && throwable.code() == HTTP_NOT_FOUND -> {
-                        VehicleDetailFailure.VehicleNotFound
-                    }
-
-                    else -> VehicleDetailFailure.ServiceUnavailable
-                }
-                _uiState.update { it.copy(content = VehicleDetailContent.Error(failure)) }
+                throwable.rethrowIfCancellation()
+                val error = AppErrorMapper.map("查看车辆详情", throwable)
+                if (error.kind == AppErrorKind.SessionExpired) sessionProvider.logout()
+                AppErrorTelemetry.report(error)
+                _uiState.update { it.copy(content = VehicleDetailContent.Error(error)) }
             }
         }
     }
@@ -91,7 +87,13 @@ class VehicleDetailViewModel @Inject constructor(
     }
 
     private companion object {
-        const val HTTP_UNAUTHORIZED = 401
-        const val HTTP_NOT_FOUND = 404
     }
 }
+
+private fun detailError(kind: AppErrorKind, message: String) = AppError(
+    operation = "查看车辆详情",
+    kind = kind,
+    requestId = java.util.UUID.randomUUID().toString(),
+    message = message,
+    retryable = false,
+)

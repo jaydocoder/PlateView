@@ -13,6 +13,7 @@ import dagger.hilt.components.SingletonComponent
 class PlateViewApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        configureSentry(this)
         EntryPointAccessors.fromApplication(
             this,
             VehicleCacheSchedulerEntryPoint::class.java,

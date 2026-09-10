@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.jaydocoder.plateview.domain.update.AppUpdate
 import com.jaydocoder.plateview.domain.update.AppUpdateRepository
 import com.jaydocoder.plateview.domain.update.UpdateDownloadProgress
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.displayText
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -75,13 +79,16 @@ class AppUpdateViewModel @Inject constructor(
                     }
                 }
                 .onFailure { throwable ->
+                    throwable.rethrowIfCancellation()
+                    val appError = AppErrorMapper.map("检查更新", throwable)
+                    AppErrorTelemetry.report(appError)
                     _uiState.update { current ->
                         val shouldShowManualResult = current.isManualCheckDialogVisible
                         current.copy(
                             isChecking = false,
                             isManualCheckDialogVisible = shouldShowManualResult,
                             manualCheckState = if (shouldShowManualResult) {
-                                ManualUpdateCheckState.Failed(throwable.message ?: "检查更新失败，请稍后重试")
+                                ManualUpdateCheckState.Failed(appError.displayText())
                             } else {
                                 ManualUpdateCheckState.Idle
                             },
@@ -121,8 +128,11 @@ class AppUpdateViewModel @Inject constructor(
             }.onSuccess { apkFile ->
                 _uiState.update { it.copy(downloadState = UpdateDownloadState.ReadyToInstall(apkFile)) }
             }.onFailure { throwable ->
+                throwable.rethrowIfCancellation()
+                val appError = AppErrorMapper.map("下载更新", throwable)
+                AppErrorTelemetry.report(appError)
                 _uiState.update {
-                    it.copy(downloadState = UpdateDownloadState.Failed(throwable.message ?: "下载更新失败，请稍后重试"))
+                    it.copy(downloadState = UpdateDownloadState.Failed(appError.displayText()))
                 }
             }
         }

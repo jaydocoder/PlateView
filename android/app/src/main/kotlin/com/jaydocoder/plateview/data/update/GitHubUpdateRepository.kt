@@ -18,6 +18,7 @@ import javax.inject.Qualifier
 import javax.inject.Singleton
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import com.jaydocoder.plateview.data.network.RequestIdInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
@@ -113,6 +114,11 @@ object AppUpdateNetworkModule {
     @Singleton
     @UpdateHttpClient
     fun provideUpdateHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .addInterceptor(RequestIdInterceptor())
         .addInterceptor(Interceptor { chain ->
             chain.proceed(
                 chain.request().newBuilder()

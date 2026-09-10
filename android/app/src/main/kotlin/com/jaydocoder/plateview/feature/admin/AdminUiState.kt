@@ -14,6 +14,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
+import com.jaydocoder.plateview.data.network.AppError
 
 data class AdminUiState(
     val tab: AdminTab = AdminTab.Dashboard,
@@ -23,7 +24,7 @@ data class AdminUiState(
     val isVehiclePageLoading: Boolean = false,
     val isImportPageLoading: Boolean = false,
     val isAuditPageLoading: Boolean = false,
-    val failure: AdminFailure? = null,
+    val failure: AppError? = null,
     val vehicles: List<ManagedVehicleSummary> = emptyList(),
     val vehicleSearchQuery: String = "",
     val vehicleStatusFilter: VehicleStatusFilter = VehicleStatusFilter.All,
@@ -69,14 +70,6 @@ enum class AdminTab {
     Users,
     Imports,
     Audit,
-}
-
-sealed interface AdminFailure {
-    data object SessionExpired : AdminFailure
-    data object PermissionDenied : AdminFailure
-    data object Conflict : AdminFailure
-    data class Validation(val message: String?) : AdminFailure
-    data class ServiceUnavailable(val message: String?) : AdminFailure
 }
 
 data class VehicleEditorState(

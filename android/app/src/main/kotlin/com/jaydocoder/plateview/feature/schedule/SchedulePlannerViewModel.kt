@@ -10,6 +10,10 @@ import com.jaydocoder.plateview.domain.schedule.ScheduleShiftType
 import com.jaydocoder.plateview.domain.schedule.ScheduleTemplateCommand
 import com.jaydocoder.plateview.domain.schedule.ScheduleTemplateSummary
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.displayText
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.format.DateTimeFormatter
 import java.time.LocalDate
@@ -112,7 +116,12 @@ class SchedulePlannerViewModel @Inject constructor(private val repository: Sched
     private fun action(block: suspend (String) -> Unit) = viewModelScope.launch {
         val session = sessionProvider.session.first()
         if (session == null || session.username != "admin" || session.role != "ADMIN") { _uiState.update { it.copy(loading = false, error = "仅admin账号可以管理排班") }; return@launch }
-        runCatching { block(session.accessToken) }.onFailure { error -> _uiState.update { it.copy(loading = false, saving = false, error = error.message ?: "排班操作失败") } }
+        runCatching { block(session.accessToken) }.onFailure { error ->
+            error.rethrowIfCancellation()
+            val appError = AppErrorMapper.map("管理排班", error)
+            AppErrorTelemetry.report(appError)
+            _uiState.update { it.copy(loading = false, saving = false, error = appError.displayText()) }
+        }
     }
 
     private companion object {

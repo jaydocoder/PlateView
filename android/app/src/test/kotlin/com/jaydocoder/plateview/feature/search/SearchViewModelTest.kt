@@ -12,6 +12,7 @@ import com.jaydocoder.plateview.domain.vehicle.VehicleFullCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.data.network.AppErrorKind
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -98,8 +99,8 @@ class SearchViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            SearchResultState.Error(SearchFailure.ServiceUnavailable),
-            viewModel.uiState.value.resultState,
+            AppErrorKind.Unexpected,
+            (viewModel.uiState.value.resultState as SearchResultState.Error).error.kind,
         )
     }
 

@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.jaydocoder.plateview.data.statistics.StatisticsRepository
 import com.jaydocoder.plateview.data.statistics.VehicleQueryHistoryItem
 import com.jaydocoder.plateview.data.statistics.VehicleStatistics
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.displayText
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -82,10 +86,13 @@ class StatisticsViewModel @Inject constructor(
                 loading = false,
             )
         }.onFailure { error ->
+            error.rethrowIfCancellation()
+            val appError = AppErrorMapper.map("加载查询统计", error)
+            AppErrorTelemetry.report(appError)
             _uiState.value = _uiState.value.copy(
                 history = emptyList(),
                 loading = false,
-                error = error.message ?: "统计数据加载失败",
+                error = appError.displayText(),
             )
         }
     }

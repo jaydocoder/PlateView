@@ -41,8 +41,8 @@ android {
         applicationId = "com.jaydocoder.plateview"
         minSdk = 31
         targetSdk = 36
-        versionCode = 28
-        versionName = "0.3.24"
+        versionCode = 29
+        versionName = "0.3.25"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiBaseUrl = providers.gradleProperty("plateviewApiBaseUrl")
             .orElse(
@@ -54,6 +54,12 @@ android {
             )
             .get()
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        val sentryDsn = providers.gradleProperty("plateviewSentryDsn").orElse("").get()
+        val sentryEnvironment = providers.gradleProperty("plateviewSentryEnvironment")
+            .orElse("production")
+            .get()
+        buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
+        buildConfigField("String", "SENTRY_ENVIRONMENT", "\"$sentryEnvironment\"")
     }
 
     buildFeatures {
@@ -94,6 +100,8 @@ android {
         getByName("debug") {
             applicationIdSuffix = ".debug"
             resValue("string", "app_name", "PlateView 测试")
+            buildConfigField("String", "SENTRY_DSN", "\"\"")
+            buildConfigField("String", "SENTRY_ENVIRONMENT", "\"debug\"")
         }
 
         getByName("release") {
@@ -137,6 +145,9 @@ dependencies {
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
+    implementation(libs.sentry.android) {
+        exclude(group = "io.sentry", module = "sentry-android-replay")
+    }
     implementation(libs.kotlinx.serialization.json)
     kapt(libs.hilt.compiler)
     kapt(libs.androidx.room.compiler)

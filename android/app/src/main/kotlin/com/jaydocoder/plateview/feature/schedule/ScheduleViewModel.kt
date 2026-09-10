@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.jaydocoder.plateview.domain.schedule.ScheduleRepository
 import com.jaydocoder.plateview.domain.schedule.ScheduleMonth
 import com.jaydocoder.plateview.domain.schedule.ScheduleWeek
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.displayText
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.DayOfWeek
@@ -49,7 +53,12 @@ class ScheduleViewModel @Inject constructor(private val repository: ScheduleRepo
         }
         runCatching { repository.getMonth(session.accessToken, month) }
             .onSuccess { value -> _uiState.update { it.copy(month = value, monthLoading = false, monthError = null, currentUserId = session.userId) } }
-            .onFailure { error -> _uiState.update { it.copy(monthLoading = false, monthError = error.message ?: "月历读取失败") } }
+            .onFailure { error ->
+                error.rethrowIfCancellation()
+                val appError = AppErrorMapper.map("读取排班月历", error)
+                AppErrorTelemetry.report(appError)
+                _uiState.update { it.copy(monthLoading = false, monthError = appError.displayText()) }
+            }
     }
     private fun load() = viewModelScope.launch {
         val session = sessionProvider.session.first()
@@ -57,9 +66,12 @@ class ScheduleViewModel @Inject constructor(private val repository: ScheduleRepo
         _uiState.update { it.copy(loading = true, error = null, currentUserId = session.userId) }
         runCatching { repository.getWeek(session.accessToken, weekStart) }
             .onSuccess { _uiState.value = ScheduleUiState(week = it, loading = false, currentUserId = session.userId) }
-            .onFailure {
+            .onFailure { error ->
+                error.rethrowIfCancellation()
+                val appError = AppErrorMapper.map("读取排班", error)
+                AppErrorTelemetry.report(appError)
                 _uiState.value = ScheduleUiState(
-                    error = it.message ?: "排班读取失败",
+                    error = appError.displayText(),
                     loading = false,
                     currentUserId = session.userId,
                 )

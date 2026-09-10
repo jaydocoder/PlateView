@@ -1,6 +1,7 @@
 package com.jaydocoder.plateview.feature.vehicle
 
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
+import com.jaydocoder.plateview.data.network.AppError
 
 data class VehicleDetailUiState(
     val content: VehicleDetailContent = VehicleDetailContent.Loading,
@@ -14,11 +15,5 @@ sealed interface VehicleDetailContent {
         val isCached: Boolean = false,
     ) : VehicleDetailContent
 
-    data class Error(val reason: VehicleDetailFailure) : VehicleDetailContent
-}
-
-enum class VehicleDetailFailure {
-    SessionExpired,
-    VehicleNotFound,
-    ServiceUnavailable,
+    data class Error(val error: AppError) : VehicleDetailContent
 }

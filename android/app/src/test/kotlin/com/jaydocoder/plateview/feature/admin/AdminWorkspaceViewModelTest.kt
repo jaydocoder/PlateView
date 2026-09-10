@@ -3,6 +3,7 @@ package com.jaydocoder.plateview.feature.admin
 import android.net.Uri
 import com.jaydocoder.plateview.data.admin.AdminImportFileReader
 import com.jaydocoder.plateview.data.admin.SelectedAdminImportFile
+import com.jaydocoder.plateview.data.network.AppErrorKind
 import com.jaydocoder.plateview.domain.admin.AdminRepository
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.AuditRange
@@ -43,6 +44,7 @@ import org.junit.Test
 import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.HttpException
 import retrofit2.Response
+import java.net.SocketTimeoutException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminWorkspaceViewModelTest {
@@ -108,7 +110,7 @@ class AdminWorkspaceViewModelTest {
 
         advanceUntilIdle()
 
-        assertEquals(AdminFailure.PermissionDenied, viewModel.uiState.value.failure)
+        assertEquals(AppErrorKind.PermissionDenied, viewModel.uiState.value.failure?.kind)
     }
 
     @Test
@@ -165,7 +167,7 @@ class AdminWorkspaceViewModelTest {
         viewModel.saveUser()
         advanceUntilIdle()
 
-        assertEquals(AdminFailure.Conflict, viewModel.uiState.value.failure)
+        assertEquals(AppErrorKind.Conflict, viewModel.uiState.value.failure?.kind)
     }
 
     @Test
@@ -218,6 +220,28 @@ class AdminWorkspaceViewModelTest {
 
         assertEquals("DELETED", repository.vehicleStatuses.last())
         assertEquals(0, repository.vehicleOffsets.last())
+    }
+
+    @Test
+    fun `车辆筛选遇到瞬时超时会重试并保留正常结果`() = runTest {
+        val expected = ManagedVehicleSummary(301, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
+        var requests = 0
+        val repository = FakeAdminRepository(
+            vehiclePageProvider = { _, _, _ ->
+                requests += 1
+                if (requests == 2) throw SocketTimeoutException("首次筛选失败")
+                ManagedVehiclePage(listOf(expected), 1)
+            },
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
+
+        assertEquals(3, requests)
+        assertEquals(listOf(expected), viewModel.uiState.value.vehicles)
+        assertEquals(null, viewModel.uiState.value.failure)
     }
 
     @Test

@@ -2,6 +2,10 @@ package com.jaydocoder.plateview.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.displayText
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +36,14 @@ class LoginViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = true, message = null) }
         runCatching { authRepository.login(state.username, state.password) }
             .onSuccess { _uiState.update { it.copy(isLoading = false, password = "", message = "登录成功") } }
-            .onFailure { _uiState.update { it.copy(isLoading = false, message = "账号或密码错误，或无法连接服务") } }
+            .onFailure { throwable ->
+                throwable.rethrowIfCancellation()
+                val message = if (throwable is retrofit2.HttpException && throwable.code() == 401) {
+                    "账号或密码不正确"
+                } else {
+                    AppErrorMapper.map("登录", throwable).also(AppErrorTelemetry::report).displayText()
+                }
+                _uiState.update { it.copy(isLoading = false, message = message) }
+            }
     }
 }

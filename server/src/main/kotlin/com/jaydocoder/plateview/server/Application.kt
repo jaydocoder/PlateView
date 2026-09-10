@@ -6,6 +6,8 @@ import com.jaydocoder.plateview.server.admin.configureAdminManagementFeature
 import com.jaydocoder.plateview.server.auth.configureAuthenticationFeature
 import com.jaydocoder.plateview.server.infrastructure.web.configureErrorHandling
 import com.jaydocoder.plateview.server.infrastructure.web.configureRequestContext
+import com.jaydocoder.plateview.server.infrastructure.web.configureRequestObservability
+import com.jaydocoder.plateview.server.infrastructure.web.configureSentry
 import com.jaydocoder.plateview.server.imports.configureImportPreviewFeature
 import com.jaydocoder.plateview.server.vehicle.configureVehicleQueryFeature
 import com.jaydocoder.plateview.server.statistics.configureVehicleStatisticsFeature
@@ -23,7 +25,9 @@ import kotlinx.serialization.Serializable
 fun Application.module() {
     configureDatabaseMigration()
     configureDatabaseRuntime()
+    configureSentry()
     configureRequestContext()
+    configureRequestObservability()
     configureErrorHandling()
 
     install(ContentNegotiation) {

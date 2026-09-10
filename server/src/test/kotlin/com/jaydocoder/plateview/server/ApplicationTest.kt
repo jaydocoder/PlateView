@@ -1,6 +1,7 @@
 package com.jaydocoder.plateview.server
 
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.routing.get
@@ -39,5 +40,46 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertTrue(response.bodyAsText().contains("INVALID_REQUEST"))
         assertTrue(response.headers.contains("X-Request-ID"))
+    }
+
+    @Test
+    fun `客户端请求标识会原样回传到统一错误响应`() = testApplication {
+        application {
+            module()
+            routing {
+                get("/test-request-id") {
+                    throw IllegalArgumentException("测试参数无效")
+                }
+            }
+        }
+
+        val response = client.get("/test-request-id") {
+            header("X-Request-ID", "client-request-123")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals("client-request-123", response.headers["X-Request-ID"])
+        assertTrue(response.bodyAsText().contains("client-request-123"))
+    }
+
+    @Test
+    fun `未处理异常返回统一内部错误和请求标识`() = testApplication {
+        application {
+            module()
+            routing {
+                get("/test-unexpected-error") {
+                    error("内部测试异常")
+                }
+            }
+        }
+
+        val response = client.get("/test-unexpected-error") {
+            header("X-Request-ID", "server-error-123")
+        }
+
+        assertEquals(HttpStatusCode.InternalServerError, response.status)
+        assertEquals("server-error-123", response.headers["X-Request-ID"])
+        assertTrue(response.bodyAsText().contains("INTERNAL_ERROR"))
+        assertTrue(response.bodyAsText().contains("server-error-123"))
     }
 }

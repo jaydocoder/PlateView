@@ -365,10 +365,15 @@ private fun SearchFeedback(
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
             ) {
                 StatusStrip(
-                    message = stringResource(resultState.reason.messageResource()),
+                    message = resultState.error.message,
                     isError = true,
                 )
-                if (resultState.reason == SearchFailure.ServiceUnavailable) {
+                Text(
+                    text = "诊断编号：${resultState.error.requestId}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                if (resultState.error.retryable) {
                     TextButton(
                         onClick = onRetry,
                         modifier = Modifier
@@ -583,9 +588,4 @@ private fun SearchHistoryRow(
 @Composable
 private fun formatSearchTime(timestamp: Long): String = androidx.compose.runtime.remember(timestamp) {
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timestamp))
-}
-
-private fun SearchFailure.messageResource(): Int = when (this) {
-    SearchFailure.SessionExpired -> R.string.search_session_expired
-    SearchFailure.ServiceUnavailable -> R.string.search_service_unavailable
 }

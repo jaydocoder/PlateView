@@ -2,6 +2,11 @@ package com.jaydocoder.plateview.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jaydocoder.plateview.data.network.AppError
+import com.jaydocoder.plateview.data.network.AppErrorKind
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.history.SearchHistoryRepository
 import com.jaydocoder.plateview.domain.vehicle.PlateQueryNormalizer
@@ -69,6 +74,7 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             sessionProvider.session.first()?.let { session ->
                 runCatching { historyRepository.save(session.username, candidate) }
+                    .onFailure(Throwable::rethrowIfCancellation)
             }
             _events.emit(SearchEvent.OpenVehicle(candidate.id))
         }
@@ -133,14 +139,17 @@ class SearchViewModel @Inject constructor(
         val session = sessionProvider.session.first()
         if (session == null) {
             _uiState.update {
-                it.copy(resultState = SearchResultState.Error(SearchFailure.SessionExpired))
+                it.copy(resultState = SearchResultState.Error(searchError(AppErrorKind.SessionExpired, "登录已失效，请重新登录")))
             }
             return
         }
 
         val localCandidates = runCatching {
             vehicleCacheRepository.search(normalizedQuery)
-        }.getOrDefault(emptyList())
+        }.getOrElse { error ->
+            error.rethrowIfCancellation()
+            emptyList()
+        }
         if (localCandidates.isNotEmpty()) {
             _uiState.update {
                 it.copy(
@@ -155,11 +164,15 @@ class SearchViewModel @Inject constructor(
             }.onSuccess {
                 val refreshedCandidates = runCatching {
                     vehicleCacheRepository.search(normalizedQuery)
-                }.getOrDefault(emptyList())
+                }.getOrElse { error ->
+                    error.rethrowIfCancellation()
+                    emptyList()
+                }
                 _uiState.update {
                     it.copy(candidates = refreshedCandidates)
                 }
             }.onFailure { throwable ->
+                throwable.rethrowIfCancellation()
                 if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
                     sessionProvider.logout()
                 }
@@ -171,6 +184,7 @@ class SearchViewModel @Inject constructor(
         val remoteResult = runCatching {
             vehicleRepository.search(session.accessToken, normalizedQuery)
         }
+        remoteResult.exceptionOrNull()?.rethrowIfCancellation()
         if (remoteResult.isSuccess) {
             val candidates = remoteResult.getOrThrow()
             _uiState.update {
@@ -185,9 +199,13 @@ class SearchViewModel @Inject constructor(
                 accessToken = session.accessToken,
             )
         }
+        synchronizationResult.exceptionOrNull()?.rethrowIfCancellation()
         val synchronizedCandidates = runCatching {
             vehicleCacheRepository.search(normalizedQuery)
-        }.getOrDefault(emptyList())
+        }.getOrElse { error ->
+            error.rethrowIfCancellation()
+            emptyList()
+        }
         when {
             synchronizedCandidates.isNotEmpty() -> _uiState.update {
                 it.copy(candidates = synchronizedCandidates, resultState = SearchResultState.Idle)
@@ -211,17 +229,18 @@ class SearchViewModel @Inject constructor(
                     accessToken = session.accessToken,
                     forceVersionCheck = forceVersionCheck,
                 )
-            }
+            }.onFailure(Throwable::rethrowIfCancellation)
         }
     }
 
     private suspend fun handleSearchFailure(throwable: Throwable?) {
-        if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
+        throwable?.rethrowIfCancellation()
+        val error = AppErrorMapper.map("查询车辆", throwable ?: IllegalStateException("查询未完成"))
+        if (error.kind == AppErrorKind.SessionExpired) {
             sessionProvider.logout()
-            _uiState.update { it.copy(resultState = SearchResultState.Error(SearchFailure.SessionExpired)) }
-        } else {
-            _uiState.update { it.copy(resultState = SearchResultState.Error(SearchFailure.ServiceUnavailable)) }
         }
+        AppErrorTelemetry.report(error)
+        _uiState.update { it.copy(resultState = SearchResultState.Error(error)) }
     }
 
     private companion object {
@@ -229,3 +248,11 @@ class SearchViewModel @Inject constructor(
         const val HTTP_UNAUTHORIZED = 401
     }
 }
+
+private fun searchError(kind: AppErrorKind, message: String) = AppError(
+    operation = "查询车辆",
+    kind = kind,
+    requestId = java.util.UUID.randomUUID().toString(),
+    message = message,
+    retryable = false,
+)

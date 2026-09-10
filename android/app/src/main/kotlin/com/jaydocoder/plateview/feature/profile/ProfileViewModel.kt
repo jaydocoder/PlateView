@@ -11,6 +11,10 @@ import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 import com.jaydocoder.plateview.feature.auth.AvatarRepository
 import com.jaydocoder.plateview.feature.auth.ProfileUpdateRequest
+import com.jaydocoder.plateview.data.network.AppErrorMapper
+import com.jaydocoder.plateview.data.network.AppErrorTelemetry
+import com.jaydocoder.plateview.data.network.displayText
+import com.jaydocoder.plateview.data.network.rethrowIfCancellation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -42,7 +46,10 @@ class ProfileViewModel @Inject constructor(
             authRepository.session.collectLatest { session ->
                 if (session == null) return@collectLatest
                 _uiState.value = _uiState.value.copy(username = session.username, roleLabel = if (session.role == "ADMIN") "管理员" else "普通用户")
-                launch { runCatching { avatarRepository.synchronize(session) } }
+                launch {
+                    runCatching { avatarRepository.synchronize(session) }
+                        .onFailure(Throwable::rethrowIfCancellation)
+                }
                 avatarRepository.observe(session.userId).collect { entry -> _uiState.value = _uiState.value.copy(avatar = entry) }
             }
         }
@@ -53,14 +60,24 @@ class ProfileViewModel @Inject constructor(
             val session = requireNotNull(authRepository.session.first())
             val upload = prepareAvatar(uri)
             avatarRepository.upload(session, upload.first, upload.second)
-        }.onFailure { _uiState.value = _uiState.value.copy(error = it.message ?: "上传头像失败") }
+        }.onFailure { error ->
+            error.rethrowIfCancellation()
+            val appError = AppErrorMapper.map("上传头像", error)
+            AppErrorTelemetry.report(appError)
+            _uiState.value = _uiState.value.copy(error = appError.displayText())
+        }
     }
 
     fun deleteAvatar() = viewModelScope.launch {
         runCatching {
             authRepository.session.first()?.let { session -> avatarRepository.delete(session) }
         }
-            .onFailure { _uiState.value = _uiState.value.copy(error = it.message ?: "移除头像失败") }
+            .onFailure { error ->
+                error.rethrowIfCancellation()
+                val appError = AppErrorMapper.map("移除头像", error)
+                AppErrorTelemetry.report(appError)
+                _uiState.value = _uiState.value.copy(error = appError.displayText())
+            }
     }
 
     fun updateProfile(username: String, currentPassword: String?, password: String?) = viewModelScope.launch {
@@ -68,7 +85,12 @@ class ProfileViewModel @Inject constructor(
             val session = requireNotNull(authRepository.session.first())
             authRepository.updateProfile(session.accessToken, ProfileUpdateRequest(username = username, currentPassword = currentPassword, password = password))
             authRepository.logout()
-        }.onFailure { _uiState.value = _uiState.value.copy(error = it.message ?: "更新账号资料失败") }
+        }.onFailure { error ->
+            error.rethrowIfCancellation()
+            val appError = AppErrorMapper.map("更新账号资料", error)
+            AppErrorTelemetry.report(appError)
+            _uiState.value = _uiState.value.copy(error = appError.displayText())
+        }
     }
 
     private fun prepareAvatar(uri: Uri): Pair<File, String> {

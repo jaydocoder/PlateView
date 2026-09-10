@@ -18,6 +18,8 @@ readonly RETENTION_DAYS="${PLATEVIEW_BACKUP_RETENTION_DAYS:-14}"
 
 mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR" "$LOG_DIR"
 readonly LOG_FILE="$LOG_DIR/deploy-$(date -u +%Y%m%dT%H%M%SZ)-${1:-manual}.log"
+readonly API_CONTAINER_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-containers.sh"
+readonly API_IMAGE_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-images.sh"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -205,4 +207,10 @@ printf '%s\n' "$candidate" > "$RUNTIME_DIR/active-container"
 printf '%s\n' "$next_slot" > "$RUNTIME_DIR/active-slot"
 printf '%s\n' "$resolved_commit" > "$RUNTIME_DIR/active-commit"
 trap - EXIT
+if ! bash "$API_CONTAINER_RETENTION_SCRIPT" "$candidate" "$active_container"; then
+    log "警告：API 容器保留清理未完整执行，当前部署仍可用"
+fi
+if ! bash "$API_IMAGE_RETENTION_SCRIPT" "$candidate" "$active_container"; then
+    log "警告：API 镜像保留清理未完整执行，当前部署仍可用"
+fi
 log "部署成功：提交 $resolved_commit，活动槽位 $next_slot，上游 $next_upstream"

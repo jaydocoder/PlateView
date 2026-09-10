@@ -1,5 +1,18 @@
 api.chenxiruyu.dpdns.org {
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>headers delete
+				request>uri delete
+				request>remote_ip delete
+				request>remote_port delete
+			}
+		}
+	}
 	encode zstd gzip
+	log_append request_id {http.request.header.X-Request-ID}
 	handle_path /updates/* {
 		root * /srv/updates
 		header Cache-Control "public, max-age=300"

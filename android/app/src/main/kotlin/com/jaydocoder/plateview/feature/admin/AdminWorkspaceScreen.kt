@@ -285,7 +285,7 @@ fun AdminWorkspaceScreen(
                 }
             }
             
-            uiState.failure?.let { AdminFailureStrip(it) }
+            uiState.failure?.let { AdminFailureStrip(it, onRefresh) }
             
             Box(modifier = Modifier.weight(1f)) {
                 if (uiState.isLoading) {
@@ -424,7 +424,10 @@ private fun LoadingPane() {
 }
 
 @Composable
-private fun AdminFailureStrip(failure: AdminFailure) {
+private fun AdminFailureStrip(
+    failure: com.jaydocoder.plateview.data.network.AppError,
+    onRetry: () -> Unit,
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -433,11 +436,14 @@ private fun AdminFailureStrip(failure: AdminFailure) {
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
     ) {
-        Text(
-            text = failure.message(),
-            modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Column(modifier = Modifier.padding(PlateViewDimensions.itemSpacing)) {
+            Text(failure.operation, style = MaterialTheme.typography.labelLarge)
+            Text(failure.message, style = MaterialTheme.typography.bodyMedium)
+            Text("诊断编号：${failure.requestId}", style = MaterialTheme.typography.labelSmall)
+            if (failure.retryable) {
+                TextButton(onClick = onRetry) { Text("重试") }
+            }
+        }
     }
 }
 
@@ -534,11 +540,13 @@ private fun VehiclesPane(
     onStatusChange: (ManagedVehicleSummary, String) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val shouldLoadMore by remember {
+    val hasMoreItems = items.size < totalCount
+    val shouldLoadMore by remember(listState, items.size, totalCount, isPageLoading) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            items.isNotEmpty() && lastVisibleIndex >= layoutInfo.totalItemsCount - LOAD_MORE_TRIGGER_DISTANCE
+            items.isNotEmpty() && hasMoreItems && !isPageLoading &&
+                lastVisibleIndex >= layoutInfo.totalItemsCount - LOAD_MORE_TRIGGER_DISTANCE
         }
     }
 
@@ -2012,14 +2020,6 @@ private fun AdminTab.label(): String = when (this) {
     AdminTab.Users -> "账号角色"
     AdminTab.Imports -> "数据导入"
     AdminTab.Audit -> "审计日志"
-}
-
-private fun AdminFailure.message(): String = when (this) {
-    AdminFailure.SessionExpired -> "登录已过期，请重新登录"
-    AdminFailure.PermissionDenied -> "权限不足，拒绝访问"
-    AdminFailure.Conflict -> "数据发生冲突，请尝试刷新"
-    is AdminFailure.Validation -> message ?: "输入验证失败"
-    is AdminFailure.ServiceUnavailable -> "管理服务暂时不可用"
 }
 
 private enum class AdminStatusTone { Positive, Warning, Neutral }

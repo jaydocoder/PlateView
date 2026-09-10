@@ -21,12 +21,13 @@ import io.ktor.server.application.install
 import io.ktor.server.plugins.callid.callId
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
+import io.ktor.util.AttributeKey
 import kotlinx.serialization.Serializable
 
 internal fun Application.configureErrorHandling() {
     install(StatusPages) {
         exception<VehicleCatalogVersionConflictException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.Conflict,
                 message = ApiErrorResponse(
                     code = "VEHICLE_CATALOG_VERSION_CONFLICT",
@@ -36,7 +37,7 @@ internal fun Application.configureErrorHandling() {
             )
         }
         exception<VehicleSearchKeywordException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.BadRequest,
                 message = ApiErrorResponse(
                     code = "SEARCH_KEYWORD_TOO_SHORT",
@@ -47,7 +48,7 @@ internal fun Application.configureErrorHandling() {
         }
 
         exception<VehicleNotFoundException> { call, _ ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.NotFound,
                 message = ApiErrorResponse(
                     code = "VEHICLE_NOT_FOUND",
@@ -58,7 +59,7 @@ internal fun Application.configureErrorHandling() {
         }
 
         exception<ImportFileInvalidException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.BadRequest,
                 message = ApiErrorResponse(
                     code = "IMPORT_FILE_INVALID",
@@ -69,7 +70,7 @@ internal fun Application.configureErrorHandling() {
         }
 
         exception<ImportBatchNotFoundException> { call, _ ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.NotFound,
                 message = ApiErrorResponse(
                     code = "IMPORT_BATCH_NOT_FOUND",
@@ -80,7 +81,7 @@ internal fun Application.configureErrorHandling() {
         }
 
         exception<ImportWorkflowConflictException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.Conflict,
                 message = ApiErrorResponse(
                     code = cause.errorCode,
@@ -91,50 +92,50 @@ internal fun Application.configureErrorHandling() {
         }
 
         exception<AdminResourceNotFoundException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.NotFound,
                 message = ApiErrorResponse("ADMIN_RESOURCE_NOT_FOUND", cause.message ?: "管理资源不存在", call.callId),
             )
         }
 
         exception<AdminPermissionException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.Forbidden,
                 message = ApiErrorResponse("ADMIN_PERMISSION_DENIED", cause.message ?: "没有此管理权限", call.callId),
             )
         }
 
         exception<AdminValidationException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.BadRequest,
                 message = ApiErrorResponse("ADMIN_VALIDATION_FAILED", cause.message ?: "管理请求无效", call.callId),
             )
         }
 
         exception<AdminConflictException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.Conflict,
                 message = ApiErrorResponse("ADMIN_CONFLICT", cause.message ?: "数据已被其他管理员修改", call.callId),
             )
         }
 
         exception<ProfileConflictException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.Conflict,
                 message = ApiErrorResponse("PROFILE_CONFLICT", cause.message ?: "账号资料冲突", call.callId),
             )
         }
 
         exception<ScheduleNotFoundException> { call, cause ->
-            call.respond(HttpStatusCode.NotFound, ApiErrorResponse("SCHEDULE_NOT_FOUND", cause.message ?: "排班模板不存在", call.callId))
+            call.respondApiError(HttpStatusCode.NotFound, ApiErrorResponse("SCHEDULE_NOT_FOUND", cause.message ?: "排班模板不存在", call.callId))
         }
 
         exception<SchedulePermissionException> { call, cause ->
-            call.respond(HttpStatusCode.Forbidden, ApiErrorResponse("SCHEDULE_PERMISSION_DENIED", cause.message ?: "没有排班权限", call.callId))
+            call.respondApiError(HttpStatusCode.Forbidden, ApiErrorResponse("SCHEDULE_PERMISSION_DENIED", cause.message ?: "没有排班权限", call.callId))
         }
 
         exception<IllegalArgumentException> { call, cause ->
-            call.respond(
+            call.respondApiError(
                 status = HttpStatusCode.BadRequest,
                 message = ApiErrorResponse(
                     code = "INVALID_REQUEST",
@@ -146,7 +147,8 @@ internal fun Application.configureErrorHandling() {
 
         exception<Throwable> { call, cause ->
             call.application.environment.log.error("请求处理失败，请求标识=${call.callId}", cause)
-            call.respond(
+            call.reportUnexpectedFailure(cause)
+            call.respondApiError(
                 status = HttpStatusCode.InternalServerError,
                 message = ApiErrorResponse(
                     code = "INTERNAL_ERROR",
@@ -157,6 +159,19 @@ internal fun Application.configureErrorHandling() {
         }
     }
 }
+
+internal val ErrorCodeAttributeKey = AttributeKey<String>("plateview.error-code")
+
+internal suspend fun io.ktor.server.application.ApplicationCall.respondApiError(
+    status: HttpStatusCode,
+    message: ApiErrorResponse,
+) {
+    attributes.put(ErrorCodeAttributeKey, message.code)
+    respond(status, message)
+}
+
+internal fun io.ktor.server.application.ApplicationCall.errorCodeOrNull(): String? =
+    attributes.getOrNull(ErrorCodeAttributeKey)
 
 @Serializable
 internal data class ApiErrorResponse(
