@@ -80,6 +80,7 @@ class AdminWorkspaceScreenTest {
             }
         }
 
+        composeRule.onNodeWithTag("admin_top_bar").assertIsDisplayed()
         composeRule.onNodeWithText("1165 条档案").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_vehicle_search").performTextInput("新A1")
 
@@ -518,7 +519,7 @@ class AdminWorkspaceScreenTest {
             targetType = "VEHICLE",
             targetId = 101,
             resultStatus = "FAILURE",
-            createdAt = "2026-08-09T10:00:00Z",
+            createdAt = "2026-09-11T16:03:19.230862Z",
         )
 
         composeRule.setContent {
@@ -557,8 +558,10 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("近30天").assertIsDisplayed()
+        composeRule.onNodeWithText("近24小时").assertIsDisplayed()
         composeRule.onNodeWithText("FAILURE").assertIsDisplayed()
+        composeRule.onNodeWithText("2026年09月12日 00:03:19").assertIsDisplayed()
+        composeRule.onAllNodesWithText("2026-09-11T16:03:19.230862Z").assertCountEquals(0)
     }
 
     @Test

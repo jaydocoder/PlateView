@@ -1,7 +1,6 @@
 package com.jaydocoder.plateview.feature.vehicle
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +40,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -56,6 +56,7 @@ import com.jaydocoder.plateview.component.InactiveVehicleContainerColor
 import com.jaydocoder.plateview.component.InactiveVehicleContentColor
 import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
 import com.jaydocoder.plateview.component.VehiclePlateBadge
+import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleAttribute
@@ -90,6 +91,7 @@ fun VehicleDetailScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
+                modifier = Modifier.testTag("vehicle_detail_top_bar"),
                 title = { Text(stringResource(R.string.detail_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
@@ -105,7 +107,7 @@ fun VehicleDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
                     navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
@@ -125,10 +127,7 @@ fun VehicleDetailScreen(
                     onRetry = onRetry,
                 )
 
-                is VehicleDetailContent.Data -> VehicleDetailContent(
-                    vehicle = content.vehicle,
-                    isCached = content.isCached,
-                )
+                is VehicleDetailContent.Data -> VehicleDetailContent(vehicle = content.vehicle)
             }
         }
     }
@@ -190,7 +189,6 @@ private fun ErrorContent(
 @Composable
 private fun VehicleDetailContent(
     vehicle: VehicleDetail,
-    isCached: Boolean,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -201,15 +199,6 @@ private fun VehicleDetailContent(
         ),
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
-        if (isCached) {
-            item(key = "cache_notice") {
-                Text(
-                    text = stringResource(R.string.detail_cached_notice),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-        }
         if (vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") {
             item(key = "inactive_notice") {
                 Surface(
@@ -274,11 +263,12 @@ private fun VehicleDetailContent(
 
 @Composable
 private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
+    GlassSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("vehicle_detail_identity_banner"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)),
+        elevated = true,
     ) {
         Box(modifier = Modifier.aspectRatio(2f)) {
             Image(
@@ -287,16 +277,20 @@ private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Column(
+            GlassSurface(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 18.dp, top = 18.dp),
+                    .padding(start = 14.dp, top = 14.dp)
+                    .testTag("vehicle_detail_identity_glass_panel"),
+                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                elevated = false,
             ) {
-                VehiclePlateBadge(
-                    plateNumber = vehicle.plateNumber,
-                    emphasized = true,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                    VehiclePlateBadge(
+                        plateNumber = vehicle.plateNumber,
+                        emphasized = true,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = vehicle.categoryLabel,
                         style = MaterialTheme.typography.titleMedium,
@@ -310,6 +304,7 @@ private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
                         style = MaterialTheme.typography.bodySmall,
                         color = if (vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") InactiveVehicleContentColor else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
             }
         }
     }
@@ -321,12 +316,12 @@ private fun DetailSection(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     fields: List<DetailField>,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
+    GlassSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("vehicle_detail_section_$title"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f)),
+        elevated = false,
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -373,7 +368,7 @@ private fun DetailInfoCell(
         (displayMode == DetailFieldDisplayMode.Auto && value.isShortDetailValue())
     Surface(
         modifier = modifier.testTag("vehicle_detail_field_$label"),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
     ) {
         if (isInline) {
@@ -389,8 +384,9 @@ private fun DetailInfoCell(
                     maxLines = 1,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = value,
+                DetailValue(
+                    label = label,
+                    value = value,
                     modifier = if (displayMode == DetailFieldDisplayMode.Inline) {
                         Modifier
                             .weight(1f)
@@ -398,11 +394,9 @@ private fun DetailInfoCell(
                     } else {
                         Modifier.weight(1f)
                     },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
                     overflow = if (displayMode == DetailFieldDisplayMode.Inline) TextOverflow.Clip else TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                 )
             }
         } else {
@@ -415,15 +409,76 @@ private fun DetailInfoCell(
                     color = MaterialTheme.colorScheme.outline,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = value,
+                DetailValue(
+                    label = label,
+                    value = value,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Medium,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun DetailValue(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge,
+    fontWeight: FontWeight? = null,
+    overflow: TextOverflow = TextOverflow.Ellipsis,
+) {
+    val plateColor = plateColorFor(label, value)
+    if (plateColor == null) {
+        Text(
+            text = value,
+            modifier = modifier,
+            style = style,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = fontWeight,
+            maxLines = 1,
+            overflow = overflow,
+        )
+    } else {
+        Row(
+            modifier = modifier,
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(width = 26.dp, height = 16.dp),
+                color = plateColor,
+                shape = RoundedCornerShape(4.dp),
+            ) {}
+            Text(
+                text = value,
+                style = style,
+                color = plateTextColorFor(plateColor),
+                fontWeight = fontWeight,
+                maxLines = 1,
+                overflow = overflow,
+            )
+        }
+    }
+}
+
+@Composable
+private fun plateColorFor(label: String, value: String): Color? {
+    if (!label.contains("号牌颜色") && !label.contains("车牌颜色")) return null
+    return when (value.trim().lowercase()) {
+        "黄色", "黄", "yellow" -> Color(0xFFFFC107)
+        "蓝色", "蓝", "blue" -> Color(0xFF1976D2)
+        "绿色", "绿", "green" -> Color(0xFF2E8B57)
+        "白色", "白", "white" -> Color(0xFFF5F5F5)
+        "黑色", "黑", "black" -> Color(0xFF263238)
+        else -> null
+    }
+}
+
+private fun plateTextColorFor(background: Color): Color = when {
+    background == Color(0xFFFFC107) || background == Color(0xFFF5F5F5) -> Color(0xFF263238)
+    else -> Color.White
 }
 
 private data class DetailField(

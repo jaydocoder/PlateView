@@ -195,7 +195,7 @@ data class ManagedAuditActor(
 )
 
 data class AuditFilter(
-    val range: AuditRange = AuditRange.THIRTY_DAYS,
+    val range: AuditRange = AuditRange.DAY,
     val actorId: Long? = null,
     val actionType: String? = null,
     val result: AuditResult = AuditResult.ALL,

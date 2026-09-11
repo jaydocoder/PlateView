@@ -8,16 +8,13 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.QueryStats
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.compose.material3.Scaffold
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -28,6 +25,9 @@ import com.jaydocoder.plateview.feature.schedule.SchedulePlannerRoute
 import com.jaydocoder.plateview.feature.statistics.StatisticsRoute
 import com.jaydocoder.plateview.feature.profile.ProfileRoute
 import com.jaydocoder.plateview.feature.vehicle.VehicleDetailRoute
+import com.jaydocoder.plateview.PlateViewDimensions
+import com.jaydocoder.plateview.component.glass.GlassNavigationBar
+import com.jaydocoder.plateview.component.glass.GlassNavigationItem
 
 @Composable
 fun AuthenticatedNavigation(
@@ -75,9 +75,15 @@ fun AuthenticatedNavigation(
         navigateToHome()
     }
     Scaffold(
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         bottomBar = {
             if (showBottomNavigation) {
-                NavigationBar {
+                GlassNavigationBar(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = PlateViewDimensions.pageHorizontal, vertical = PlateViewDimensions.compactSpacing)
+                        .navigationBarsPadding(),
+                ) {
                     BottomNavigationItem("首页", Icons.Outlined.Home, destination?.hasRoute<SearchDestination>() == true, navigateToHome)
                     if (scheduleEnabled) BottomNavigationItem("排班", Icons.Outlined.CalendarMonth, destination?.hasRoute<ScheduleDestination>() == true) { navController.navigate(ScheduleDestination) { launchSingleTop = true } }
                     BottomNavigationItem("统计", Icons.Outlined.QueryStats, destination?.hasRoute<StatisticsDestination>() == true) { navController.navigate(StatisticsDestination) { launchSingleTop = true } }
@@ -128,16 +134,9 @@ fun AuthenticatedNavigation(
 }
 
 @Composable
-private fun RowScope.BottomNavigationItem(
+private fun androidx.compose.foundation.layout.RowScope.BottomNavigationItem(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean,
     onClick: () -> Unit,
-) {
-    this.NavigationBarItem(
-        selected = selected,
-        onClick = onClick,
-        icon = { Icon(icon, contentDescription = label) },
-        label = { Text(label) },
-    )
-}
+) = GlassNavigationItem(label, icon, selected, onClick)

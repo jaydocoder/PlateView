@@ -74,14 +74,30 @@ interface QueryEventDao {
         "SELECT vehicleId, plateNumber, category, occurredAtEpochMillis FROM local_query_events " +
             "WHERE accountId = :accountId AND occurredAtEpochMillis >= :startAtEpochMillis " +
             "AND (:category IS NULL OR category = :category) " +
-            "ORDER BY occurredAtEpochMillis DESC, eventId DESC LIMIT :limit",
+            "AND (:query IS NULL OR REPLACE(plateNumber, '·', '') LIKE '%' || :query || '%') " +
+            "ORDER BY occurredAtEpochMillis DESC, eventId DESC LIMIT :limit OFFSET :offset",
     )
     suspend fun history(
         accountId: Long,
         startAtEpochMillis: Long,
         category: String?,
+        query: String?,
         limit: Int,
+        offset: Int,
     ): List<LocalQueryHistoryRow>
+
+    @Query(
+        "SELECT COUNT(*) FROM local_query_events " +
+            "WHERE accountId = :accountId AND occurredAtEpochMillis >= :startAtEpochMillis " +
+            "AND (:category IS NULL OR category = :category) " +
+            "AND (:query IS NULL OR REPLACE(plateNumber, '·', '') LIKE '%' || :query || '%')",
+    )
+    suspend fun historyCount(
+        accountId: Long,
+        startAtEpochMillis: Long,
+        category: String?,
+        query: String?,
+    ): Int
 
     @Query(
         "SELECT * FROM local_query_events WHERE accountId = :accountId AND syncedAtEpochMillis IS NULL " +

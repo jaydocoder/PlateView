@@ -65,10 +65,32 @@ class QueryEventDatabaseTest {
         dao.insert(event("event-2", accountId = 1, vehicleId = 102, category = "RESIDENT", occurredAt = 3_000L))
         dao.insert(event("event-3", accountId = 1, vehicleId = 103, category = "CADRE", occurredAt = 2_000L))
 
-        val history = dao.history(accountId = 1, startAtEpochMillis = 0L, category = "RESIDENT", limit = 10)
+        val history = dao.history(
+            accountId = 1,
+            startAtEpochMillis = 0L,
+            category = "RESIDENT",
+            query = null,
+            limit = 10,
+            offset = 0,
+        )
 
         assertEquals(listOf(102L, 101L), history.map(LocalQueryHistoryRow::vehicleId))
         assertEquals(listOf("新A102", "新A101"), history.map(LocalQueryHistoryRow::plateNumber))
+    }
+
+    @Test
+    fun 查询明细支持车牌模糊匹配与分页() = runBlocking {
+        dao.insert(event("event-1", accountId = 1, vehicleId = 101, category = "RESIDENT", occurredAt = 1_000L, plateNumber = "新A10001"))
+        dao.insert(event("event-2", accountId = 1, vehicleId = 102, category = "RESIDENT", occurredAt = 2_000L, plateNumber = "新A10002"))
+        dao.insert(event("event-3", accountId = 1, vehicleId = 103, category = "RESIDENT", occurredAt = 3_000L, plateNumber = "新A20001"))
+
+        val firstPage = dao.history(1, 0L, null, query = "新A1", limit = 1, offset = 0)
+        val secondPage = dao.history(1, 0L, null, query = "新A1", limit = 1, offset = 1)
+        val total = dao.historyCount(1, 0L, null, query = "新A1")
+
+        assertEquals(listOf(102L), firstPage.map(LocalQueryHistoryRow::vehicleId))
+        assertEquals(listOf(101L), secondPage.map(LocalQueryHistoryRow::vehicleId))
+        assertEquals(2, total)
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.jaydocoder.plateview
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -106,7 +107,9 @@ class ProfileScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("账号与安全").assertExists()
+        composeRule.onNodeWithTag("profile_top_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("profile_title").assertIsDisplayed()
+        composeRule.onNodeWithText("账号与安全").assertIsDisplayed()
         composeRule.onAllNodesWithText("账户操作").assertCountEquals(0)
         composeRule.onAllNodesWithText("检查并下载最新版本").assertCountEquals(0)
         composeRule.onAllNodesWithText("切换账号").assertCountEquals(0)

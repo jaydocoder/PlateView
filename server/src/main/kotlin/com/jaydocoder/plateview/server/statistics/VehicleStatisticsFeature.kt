@@ -55,7 +55,12 @@ internal fun Application.configureVehicleStatisticsFeature() {
                         actorId = actorId,
                         isPrimaryAdministrator = isPrimaryAdministrator,
                     )
-                    call.respond(service.queryHistory(filter))
+                    val page = StatisticsHistoryPage.fromRequest(
+                        query = call.request.queryParameters["query"],
+                        limit = call.request.queryParameters["limit"],
+                        offset = call.request.queryParameters["offset"],
+                    )
+                    call.respond(service.queryHistory(filter, page))
                 }
                 post("/events") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
@@ -169,20 +174,32 @@ private class VehicleStatisticsService(private val dataSource: DataSource) {
         return events.map(QueryEventUpload::eventId)
     }
 
-    fun queryHistory(filter: StatisticsFilter): StatisticsHistoryResponse = dataSource.connection.use { connection ->
+    fun queryHistory(filter: StatisticsFilter, page: StatisticsHistoryPage): StatisticsHistoryResponse = dataSource.connection.use { connection ->
         val criteria = filter.toCriteria(tableAlias = "event")
+        val plateCriteria = page.query?.let { " AND LOWER(vehicle.plate_number) LIKE LOWER(?)" }.orEmpty()
+        val total = connection.prepareStatement(
+            "SELECT COUNT(*) AS total FROM vehicle_query_events event JOIN vehicles vehicle ON vehicle.id = event.vehicle_id $criteria$plateCriteria",
+        ).use { statement ->
+            statement.bind(filter, page.query)
+            statement.executeQuery().use { result ->
+                result.next()
+                result.getInt("total")
+            }
+        }
         connection.prepareStatement(
             """
             SELECT event.vehicle_id, vehicle.plate_number, event.category,
                 CAST(EXTRACT(EPOCH FROM event.queried_at) * 1000 AS BIGINT) AS occurred_at_epoch_millis
             FROM vehicle_query_events event
             JOIN vehicles vehicle ON vehicle.id = event.vehicle_id
-            $criteria
+            $criteria$plateCriteria
             ORDER BY event.queried_at DESC, event.id DESC
-            LIMIT $HISTORY_LIMIT
+            LIMIT ? OFFSET ?
             """.trimIndent(),
         ).use { statement ->
-            statement.bind(filter)
+            var parameterIndex = statement.bind(filter, page.query)
+            statement.setInt(parameterIndex++, page.limit)
+            statement.setInt(parameterIndex, page.offset)
             statement.executeQuery().use { result ->
                 buildList {
                     while (result.next()) {
@@ -197,12 +214,11 @@ private class VehicleStatisticsService(private val dataSource: DataSource) {
                     }
                 }
             }
-        }.let(::StatisticsHistoryResponse)
+        }.let { StatisticsHistoryResponse(items = it, total = total) }
     }
 
     private companion object {
         const val MAX_SYNC_BATCH_SIZE = 200
-        const val HISTORY_LIMIT = 50
         const val TOP_PLATE_LIMIT = 5
     }
 }
@@ -239,11 +255,13 @@ internal data class StatisticsFilter(
     }
 }
 
-private fun PreparedStatement.bind(filter: StatisticsFilter) {
+private fun PreparedStatement.bind(filter: StatisticsFilter, plateQuery: String? = null): Int {
     var index = 1
     setTimestamp(index++, Timestamp.from(filter.range.startAt()))
     filter.category?.let { setString(index++, it) }
-    filter.actorId?.let { setLong(index, it) }
+    filter.actorId?.let { setLong(index++, it) }
+    plateQuery?.let { setString(index++, "%$it%") }
+    return index
 }
 
 internal enum class StatisticsRange {
@@ -275,7 +293,7 @@ internal enum class StatisticsRange {
 @Serializable private data class StatisticsTrendPoint(val bucket: String, val queryCount: Long)
 @Serializable private data class StatisticsCategoryPoint(val category: String, val queryCount: Long)
 @Serializable private data class StatisticsTopPlatePoint(val plateNumber: String, val queryCount: Long)
-@Serializable private data class StatisticsHistoryResponse(val items: List<StatisticsHistoryItem>)
+@Serializable private data class StatisticsHistoryResponse(val items: List<StatisticsHistoryItem>, val total: Int)
 @Serializable private data class StatisticsHistoryItem(
     val vehicleId: Long,
     val plateNumber: String,
@@ -285,3 +303,23 @@ internal enum class StatisticsRange {
 @Serializable private data class QueryEventSyncRequest(val events: List<QueryEventUpload>)
 @Serializable private data class QueryEventUpload(val eventId: String, val vehicleId: Long, val occurredAtEpochMillis: Long)
 @Serializable private data class QueryEventSyncResponse(val acceptedEventIds: List<String>)
+
+internal data class StatisticsHistoryPage(
+    val query: String?,
+    val limit: Int,
+    val offset: Int,
+) {
+    companion object {
+        fun fromRequest(query: String?, limit: String?, offset: String?): StatisticsHistoryPage {
+            val normalizedQuery = query?.filterNot { it.isWhitespace() || it == '·' }?.takeIf(String::isNotBlank)
+            val parsedLimit = limit?.toIntOrNull() ?: DEFAULT_LIMIT
+            val parsedOffset = offset?.toIntOrNull() ?: 0
+            require(parsedLimit in 1..MAX_LIMIT) { "查询记录分页大小无效" }
+            require(parsedOffset >= 0) { "查询记录分页偏移无效" }
+            return StatisticsHistoryPage(normalizedQuery, parsedLimit, parsedOffset)
+        }
+
+        private const val DEFAULT_LIMIT = 50
+        private const val MAX_LIMIT = 50
+    }
+}

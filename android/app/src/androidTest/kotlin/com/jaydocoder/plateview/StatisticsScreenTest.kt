@@ -31,6 +31,7 @@ class StatisticsScreenTest {
         var selected: String? = null
         var selectedRange: StatisticsRange? = null
         var openedVehicleId: Long? = null
+        var historyQuery: String? = null
         composeRule.setContent {
             PlateViewTheme {
                 StatisticsScreen(
@@ -38,6 +39,7 @@ class StatisticsScreenTest {
                     onRange = { selectedRange = it },
                     onCategory = { selected = it },
                     onScope = {},
+                    onHistoryQueryChanged = { historyQuery = it },
                     onNavigateToVehicle = { openedVehicleId = it },
                 )
             }
@@ -46,11 +48,14 @@ class StatisticsScreenTest {
         composeRule.onNodeWithTag("statistics_top_plate_ranking").assertIsDisplayed()
         composeRule.onNodeWithTag("statistics_top_plate_新A12345").assertIsDisplayed()
         composeRule.onNodeWithTag("statistics_category_count_chart").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics_category_value_RESIDENT").assertIsDisplayed()
+        composeRule.onNodeWithText("4").assertIsDisplayed()
         composeRule.onNodeWithTag("statistics_time_range_selector").assertIsDisplayed()
         composeRule.onNodeWithText("全部时间").assertIsDisplayed().performClick()
         composeRule.runOnIdle { org.junit.Assert.assertEquals(StatisticsRange.ALL_TIME, selectedRange) }
         composeRule.onAllNodesWithText("类别占比").assertCountEquals(0)
         composeRule.onNodeWithTag("statistics_history_search").performTextInput("12345")
+        composeRule.runOnIdle { org.junit.Assert.assertEquals("12345", historyQuery) }
         composeRule.onNodeWithTag("statistics_history_vehicle_1").performClick()
         composeRule.runOnIdle { org.junit.Assert.assertEquals(1L, openedVehicleId) }
         composeRule.onNodeWithTag("statistics_category_selector").performClick()
@@ -111,6 +116,24 @@ class StatisticsScreenTest {
         }
 
         composeRule.onNodeWithText("全员统计").assertIsDisplayed()
+    }
+
+    @Test
+    fun 历史记录超过首屏时显示继续加载提示() {
+        composeRule.setContent {
+            PlateViewTheme {
+                StatisticsScreen(
+                    state = state(category = null).copy(historyTotal = 2),
+                    onRange = {},
+                    onCategory = {},
+                    onScope = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("statistics_history_search").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics_filter_panel").assertIsDisplayed()
+        composeRule.onNodeWithText("继续下滑加载更早记录").assertIsDisplayed()
     }
 
     private fun state(

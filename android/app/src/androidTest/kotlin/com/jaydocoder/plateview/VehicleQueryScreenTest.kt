@@ -37,6 +37,7 @@ class VehicleQueryScreenTest {
 
     @Test
     fun 搜索框不显示占位说明文字() {
+        var profileOpenCalls = 0
         composeRule.setContent {
             PlateViewTheme {
                 SearchScreen(
@@ -48,12 +49,17 @@ class VehicleQueryScreenTest {
                     onClearHistory = {},
                     onRetry = {},
                     avatar = AvatarCacheEntry(null, null, 0L),
-                    onOpenProfile = {},
+                    onOpenProfile = { profileOpenCalls++ },
                 )
             }
         }
 
+        composeRule.onNodeWithTag("search_top_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("search_title_group").assertIsDisplayed()
+        composeRule.onNodeWithText("车辆核验").assertIsDisplayed()
         composeRule.onAllNodesWithText("车牌、姓名、单位或备注").assertCountEquals(0)
+        composeRule.onNodeWithTag("search_profile_avatar").performClick()
+        composeRule.runOnIdle { assertEquals(1, profileOpenCalls) }
     }
 
     @Test
@@ -167,7 +173,7 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onNodeWithTag("candidate_107").assertIsDisplayed()
-        composeRule.onNodeWithText("已拉黑 / 已停用").assertIsDisplayed()
+        composeRule.onNodeWithText("已停用（已失效）").assertIsDisplayed()
     }
 
     @Test
@@ -201,6 +207,9 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onNodeWithText("村民核验信息").assertIsDisplayed()
+        composeRule.onNodeWithTag("vehicle_detail_identity_banner").assertIsDisplayed()
+        composeRule.onNodeWithTag("vehicle_detail_identity_glass_panel").assertIsDisplayed()
+        composeRule.onNodeWithTag("vehicle_detail_section_村民核验信息").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("景区道路插画").assertIsDisplayed()
         composeRule.onAllNodesWithTag("vehicle_plate_badge", useUnmergedTree = true).assertCountEquals(1)
         composeRule.onNodeWithText("测试姓名").assertIsDisplayed()
@@ -339,7 +348,7 @@ class VehicleQueryScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("该车辆档案已停用，不具备有效通行核验资格").assertIsDisplayed()
+        composeRule.onNodeWithText("该车辆档案已失效，不具备有效通行核验资格").assertIsDisplayed()
     }
 
     @Test

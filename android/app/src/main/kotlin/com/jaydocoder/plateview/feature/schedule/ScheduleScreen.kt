@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.domain.schedule.ScheduleShift
 import com.jaydocoder.plateview.domain.schedule.ScheduleShiftType
 import com.jaydocoder.plateview.domain.schedule.ScheduleMonth
@@ -175,8 +176,11 @@ private fun ScheduleHeader(
     onOpenMonth: () -> Unit,
     onOpenSelector: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PlateViewDimensions.pageHorizontal, vertical = 10.dp),
+    ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("排班", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(8.dp))
@@ -222,7 +226,6 @@ private fun ScheduleHeader(
                 )
                 IconButton(onClick = onNextWeek, modifier = Modifier.testTag("schedule_next_week")) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "下一周") }
             }
-        }
     }
 }
 

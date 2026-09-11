@@ -116,6 +116,7 @@ fun SchedulePlannerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                modifier = Modifier.testTag("schedule_planner_top_bar"),
                 title = { Text(if (state.editor == null) "排班规划" else "编辑模板") },
                 navigationIcon = {
                     IconButton(onClick = if (state.editor == null) onNavigateUp else onDismiss) {
@@ -225,7 +226,7 @@ private fun TemplateList(
 private fun TemplateStatusBadge(status: String) {
     val active = status == "ACTIVE"
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
         color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Text(

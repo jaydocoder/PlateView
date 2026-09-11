@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -67,6 +68,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
@@ -113,8 +115,16 @@ import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
+import com.jaydocoder.plateview.component.glass.GlassSurface
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+private val auditTimeFormatter: DateTimeFormatter = DateTimeFormatter
+    .ofPattern("yyyy年MM月dd日 HH:mm:ss")
+    .withZone(ZoneId.of("Asia/Shanghai"))
 
 @Composable
 fun AdminWorkspaceRoute(
@@ -226,6 +236,7 @@ fun AdminWorkspaceScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
+                modifier = Modifier.testTag("admin_top_bar"),
                 title = { Text("管理员工作台", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
@@ -241,7 +252,7 @@ fun AdminWorkspaceScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
                     navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
                     actionIconContentColor = MaterialTheme.colorScheme.primary,
@@ -262,11 +273,21 @@ fun AdminWorkspaceScreen(
                 divider = {},
                 indicator = { tabPositions ->
                     Box(
-                        Modifier
-                            .padding(horizontal = 12.dp)
-                            .height(3.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                    )
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        val selectedPosition = tabPositions[uiState.tab.ordinal]
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .offset(x = selectedPosition.left)
+                                .width(selectedPosition.width)
+                                .height(3.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.primary,
+                                    RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp),
+                                ),
+                        )
+                    }
                 }
             ) {
                 AdminTab.entries.forEach { tab ->
@@ -588,30 +609,44 @@ private fun VehiclesPane(
             }
         }
         item {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChanged,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("admin_vehicle_search"),
-                label = { Text("按车牌号检索档案") },
-                placeholder = { Text("输入任意车牌字符") },
-                leadingIcon = {
-                    Icon(Icons.Outlined.Search, contentDescription = null)
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { onSearchQueryChanged("") },
-                            modifier = Modifier.testTag("admin_vehicle_search_clear"),
-                        ) {
-                            Icon(Icons.Outlined.Close, contentDescription = "清除车牌检索")
-                        }
-                    }
-                },
-                singleLine = true,
+            GlassSurface(
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-            )
+                elevated = true,
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChanged,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_vehicle_search"),
+                    label = { Text("按车牌号检索档案") },
+                    placeholder = { Text("输入任意车牌字符") },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.Search, contentDescription = null)
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { onSearchQueryChanged("") },
+                                modifier = Modifier.testTag("admin_vehicle_search_clear"),
+                            ) {
+                                Icon(Icons.Outlined.Close, contentDescription = "清除车牌检索")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        disabledBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                    ),
+                )
+            }
         }
         item {
             VehicleStatusFilterSelector(selected = statusFilter, onSelected = onStatusFilterChanged)
@@ -760,24 +795,32 @@ private fun VehicleStatusFilterSelector(
     selected: VehicleStatusFilter,
     onSelected: (VehicleStatusFilter) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing)) {
-        Text(
-            "档案状态",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().testTag("admin_vehicle_status_filter"),
-            horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+    ) {
+        Column(
+            modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
             verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing),
         ) {
-            VehicleStatusFilter.entries.forEach { filter ->
-                FilterChip(
-                    selected = filter == selected,
-                    onClick = { onSelected(filter) },
-                    label = { Text(filter.label) },
-                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-                )
+            Text(
+                "档案状态",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().testTag("admin_vehicle_status_filter"),
+                horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+                verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing),
+            ) {
+                VehicleStatusFilter.entries.forEach { filter ->
+                    FilterChip(
+                        selected = filter == selected,
+                        onClick = { onSelected(filter) },
+                        label = { Text(filter.label) },
+                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    )
+                }
             }
         }
     }
@@ -1091,7 +1134,11 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
                 }
             }
             Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-            Text(item.createdAt, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            Text(
+                formatAuditTime(item.createdAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
         }
         Spacer(Modifier.height(6.dp))
         Text(item.actionType, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -1103,6 +1150,10 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
         HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
 }
+
+private fun formatAuditTime(value: String): String = runCatching {
+    auditTimeFormatter.format(Instant.parse(value))
+}.getOrElse { value }
 
 @Composable
 private fun EmptyPane(message: String) {

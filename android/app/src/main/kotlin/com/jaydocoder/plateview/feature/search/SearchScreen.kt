@@ -70,10 +70,10 @@ import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
 import com.jaydocoder.plateview.component.VehiclePlateBadge
+import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.formatPlateForDisplay
-import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import com.jaydocoder.plateview.feature.auth.AvatarViewModel
 import com.jaydocoder.plateview.feature.profile.AvatarImage
 import java.text.DateFormat
@@ -136,29 +136,33 @@ fun SearchScreen(
         modifier = modifier,
         topBar = {
             CenterAlignedTopAppBar(
+                modifier = Modifier.testTag("search_top_bar"),
                 title = {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 64.dp)
-                            .clickable(onClick = onOpenProfile),
-                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.testTag("search_title_group"),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AvatarImage(avatar, Modifier.size(42.dp))
+                        IconButton(
+                            onClick = onOpenProfile,
+                            modifier = Modifier.testTag("search_profile_avatar"),
+                        ) {
+                            AvatarImage(
+                                avatar,
+                                Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape),
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
                         Text(
-                            text = stringResource(R.string.search_title),
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = 30.sp,
-                                lineHeight = 36.sp,
-                            ),
-                            color = MaterialTheme.colorScheme.onBackground,
+                            text = "车辆核验",
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
                 ),
             )
         },
@@ -272,18 +276,12 @@ private fun SearchBar(
     onQueryChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    GlassSurface(
         modifier = modifier
             .fillMaxWidth()
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
-                shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
-            )
             .testTag("search_input"),
-        color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
-        tonalElevation = 2.dp,
+        elevated = true,
     ) {
         TextField(
             value = query,

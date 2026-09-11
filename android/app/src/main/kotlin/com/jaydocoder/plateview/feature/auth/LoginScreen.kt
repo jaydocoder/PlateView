@@ -26,8 +26,8 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -37,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
+import com.jaydocoder.plateview.component.glass.GlassSurface
 
 @Composable
 fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
@@ -45,14 +46,7 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                        MaterialTheme.colorScheme.background
-                    )
-                )
-            )
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(
             modifier = Modifier
@@ -61,20 +55,7 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Brand Header
-            Surface(
-                modifier = Modifier.size(80.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Image(
-                        painter = painterResource(R.drawable.ic_plateview_launcher_foreground),
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                    )
-                }
-            }
+            LoginBrandMark()
             
             Spacer(modifier = Modifier.height(24.dp))
             
@@ -184,6 +165,31 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
                 text = "© 2026 PlateView Team",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
+@Composable
+internal fun LoginBrandMark() {
+    GlassSurface(
+        modifier = Modifier
+            .size(80.dp)
+            .testTag("login_brand_mark_container"),
+        shape = CircleShape,
+        elevated = true,
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_plateview_launcher_foreground),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(64.dp)
+                    .testTag("login_brand_logo"),
+                alignment = Alignment.Center,
             )
         }
     }

@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class StatisticsAccessPolicyTest {
     @Test
@@ -46,5 +47,21 @@ class StatisticsAccessPolicyTest {
         }
 
         assertEquals("仅admin账号可以查看全员统计", error.message)
+    }
+
+    @Test
+    fun `查询记录分页限制范围并规范化车牌关键字`() {
+        val page = StatisticsHistoryPage.fromRequest(
+            query = " 新A·12345 ",
+            limit = "20",
+            offset = "40",
+        )
+
+        assertEquals("新A12345", page.query)
+        assertEquals(20, page.limit)
+        assertEquals(40, page.offset)
+        assertTrue(assertFailsWith<IllegalArgumentException> {
+            StatisticsHistoryPage.fromRequest(null, limit = "51", offset = "0")
+        }.message!!.contains("分页大小"))
     }
 }

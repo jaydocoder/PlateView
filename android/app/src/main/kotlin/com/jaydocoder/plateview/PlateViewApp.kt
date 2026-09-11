@@ -1,16 +1,15 @@
 package com.jaydocoder.plateview
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
+import com.jaydocoder.plateview.component.glass.LiquidGlassScaffold
 import com.jaydocoder.plateview.core.navigation.AuthenticatedNavigation
 import com.jaydocoder.plateview.feature.auth.AppSessionViewModel
 import com.jaydocoder.plateview.feature.auth.LoginScreen
@@ -29,29 +28,27 @@ fun PlateViewApp(
     val session = viewModel.session.collectAsStateWithLifecycle().value
     val updateState = updateViewModel.uiState.collectAsStateWithLifecycle().value
     PlateViewTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (session == null) {
-                    LoginScreen()
-                    if (updateState.update != null) {
-                        UpdateAvailableAction(
-                            onClick = updateViewModel::openUpdateDialog,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .statusBarsPadding()
-                                .padding(PlateViewDimensions.compactSpacing),
-                        )
-                    }
-                } else {
-                    AuthenticatedNavigation(
-                        username = session.username,
-                        role = session.role,
-                        scheduleEnabled = session.scheduleEnabled,
-                        onLogout = viewModel::logout,
-                        onOpenUpdate = updateState.update?.let { updateViewModel::openUpdateDialog },
-                        onCheckForUpdate = updateViewModel::checkForUpdateFromUser,
+        LiquidGlassScaffold(modifier = Modifier.fillMaxSize()) {
+            if (session == null) {
+                LoginScreen()
+                if (updateState.update != null) {
+                    UpdateAvailableAction(
+                        onClick = updateViewModel::openUpdateDialog,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .padding(PlateViewDimensions.compactSpacing),
                     )
                 }
+            } else {
+                AuthenticatedNavigation(
+                    username = session.username,
+                    role = session.role,
+                    scheduleEnabled = session.scheduleEnabled,
+                    onLogout = viewModel::logout,
+                    onOpenUpdate = updateState.update?.let { updateViewModel::openUpdateDialog },
+                    onCheckForUpdate = updateViewModel::checkForUpdateFromUser,
+                )
             }
         }
         updateState.update?.takeIf { updateState.isUpdateDialogVisible }?.let { update ->

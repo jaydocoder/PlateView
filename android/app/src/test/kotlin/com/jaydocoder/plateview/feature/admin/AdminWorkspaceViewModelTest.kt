@@ -52,6 +52,11 @@ class AdminWorkspaceViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
+    fun `审计筛选默认范围为近24小时`() {
+        assertEquals(AuditRange.DAY, AuditFilter().range)
+    }
+
+    @Test
     fun `管理员打开工作台时加载概览数据`() = runTest {
         val repository = FakeAdminRepository()
         val viewModel = createViewModel(repository = repository)

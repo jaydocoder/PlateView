@@ -132,6 +132,7 @@ class ScheduleScreenTest {
         }
 
         composeRule.onNodeWithText("模板").assertIsDisplayed()
+        composeRule.onNodeWithTag("schedule_planner_top_bar").assertIsDisplayed()
         composeRule.onNodeWithText("停用").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("编辑模板").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("选择应用日期").assertIsDisplayed()

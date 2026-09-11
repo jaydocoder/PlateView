@@ -77,6 +77,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.R
+import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 import java.io.File
 
@@ -143,12 +144,13 @@ internal fun ProfileScreen(
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+        .background(MaterialTheme.colorScheme.background),
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("我的") },
+                modifier = Modifier.testTag("profile_top_bar"),
+                title = { Text("我的", modifier = Modifier.testTag("profile_title")) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                 ),
             )
         },
@@ -172,10 +174,10 @@ internal fun ProfileScreen(
                 )
             }
             item {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    tonalElevation = 1.dp,
+                    elevated = true,
                 ) {
                     Column {
                     ProfileActionRow(
@@ -251,12 +253,10 @@ private fun ProfileIdentityHeader(
     onDeleteAvatar: () -> Unit,
     onEditAccount: () -> Unit,
 ) {
-    Surface(
+    GlassSurface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(24.dp),
-        shadowElevation = 1.dp,
+        elevated = true,
     ) {
         Box {
             Box(
@@ -535,6 +535,7 @@ private fun AccountValueEditorScreen(
                     .navigationBarsPadding()
                     .imePadding(),
                 color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                 shadowElevation = 5.dp,
             ) {
                 Button(

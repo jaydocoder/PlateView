@@ -6,8 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,11 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -33,11 +32,16 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,21 +52,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.data.statistics.VehicleCategoryPoint
 import com.jaydocoder.plateview.data.statistics.VehicleQueryHistoryItem
 import com.jaydocoder.plateview.data.statistics.VehicleStatistics
 import com.jaydocoder.plateview.data.statistics.VehicleTopPlatePoint
 import com.jaydocoder.plateview.component.VehiclePlateBadge
+import com.jaydocoder.plateview.component.glass.GlassSurface
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.runtime.snapshotFlow
 
 private val CategoryLabels = mapOf(
     "RESIDENT" to "村民车辆",
@@ -93,6 +98,8 @@ fun StatisticsRoute(
         onRange = viewModel::selectRange,
         onCategory = viewModel::selectCategory,
         onScope = viewModel::selectScope,
+        onHistoryQueryChanged = viewModel::updateHistoryQuery,
+        onLoadMoreHistory = viewModel::loadMoreHistory,
         onNavigateToVehicle = onNavigateToVehicle,
     )
 }
@@ -103,53 +110,84 @@ internal fun StatisticsScreen(
     onRange: (StatisticsRange) -> Unit,
     onCategory: (String?) -> Unit,
     onScope: (StatisticsScope) -> Unit,
+    onHistoryQueryChanged: (String) -> Unit = {},
+    onLoadMoreHistory: () -> Unit = {},
     onNavigateToVehicle: (Long) -> Unit = {},
 ) {
-    var historyQuery by rememberSaveable { mutableStateOf("") }
-    var historySearchFocused by rememberSaveable { mutableStateOf(false) }
-    LazyColumn(
+    val listState = rememberLazyListState()
+    val hasMoreHistory = state.history.size < state.historyTotal
+    val shouldLoadMore by remember(listState, state.history.size, state.historyTotal, state.isHistoryPageLoading) {
+        derivedStateOf {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            state.history.isNotEmpty() && hasMoreHistory && !state.isHistoryPageLoading &&
+                lastVisibleIndex >= listState.layoutInfo.totalItemsCount - HISTORY_LOAD_TRIGGER_DISTANCE
+        }
+    }
+
+    LaunchedEffect(listState, shouldLoadMore) {
+        snapshotFlow { shouldLoadMore }
+            .distinctUntilChanged()
+            .collect { nearEnd -> if (nearEnd) onLoadMoreHistory() }
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("查询统计", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                TimeRangeSelector(selected = state.range, onSelected = onRange)
-                CategorySelector(selected = state.category, onSelected = onCategory)
-                if (state.isAdministrator) {
-                    val scopes = if (state.canViewAllStatistics) StatisticsScope.entries else listOf(StatisticsScope.ME)
-                    FilterRow(scopes, state.scope, StatisticsScope::label, onScope)
-                }
-                if (state.scope == StatisticsScope.ME && state.pendingSyncCount > 0) {
-                    Text(
-                        "有 ${state.pendingSyncCount} 条查询记录等待同步",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                HistorySearchField(
-                    query = historyQuery,
-                    onQueryChanged = { historyQuery = it },
-                    onFocusedChanged = { historySearchFocused = it },
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(
+                    start = PlateViewDimensions.pageHorizontal,
+                    end = PlateViewDimensions.pageHorizontal,
+                    top = PlateViewDimensions.pageVertical,
+                    bottom = PlateViewDimensions.compactSpacing,
+                ),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        ) {
+            Text("查询统计", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            HistorySearchField(
+                query = state.historyQuery,
+                onQueryChanged = onHistoryQueryChanged,
+            )
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(
+                start = PlateViewDimensions.pageHorizontal,
+                end = PlateViewDimensions.pageHorizontal,
+                bottom = PlateViewDimensions.pageVertical,
+            ),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
+        ) {
+            item(key = "statistics_filters") {
+                StatisticsFilterPanel(
+                    state = state,
+                    onRange = onRange,
+                    onCategory = onCategory,
+                    onScope = onScope,
                 )
             }
-        }
-        when {
-            state.loading -> item { LoadingState() }
-            state.error != null -> item { EmptyState(state.error) }
-            state.statistics == null || state.statistics.totalQueries == 0L -> item { EmptyState("当前条件下还没有查询记录") }
-            else -> statisticsContent(
-                statistics = state.statistics,
-                category = state.category,
-                history = state.history,
-                historyQuery = historyQuery,
-                showOverview = !historySearchFocused && historyQuery.isBlank(),
-                onNavigateToVehicle = onNavigateToVehicle,
-            )
+            when {
+                state.loading -> item { LoadingState() }
+                state.error != null -> item { EmptyState(state.error) }
+                state.statistics == null || state.statistics.totalQueries == 0L -> item { EmptyState("当前条件下还没有查询记录") }
+                else -> statisticsContent(
+                    statistics = state.statistics,
+                    category = state.category,
+                    history = state.history,
+                    historyQuery = state.historyQuery,
+                    showOverview = state.historyQuery.isBlank(),
+                    historyTotal = state.historyTotal,
+                    isHistoryPageLoading = state.isHistoryPageLoading,
+                    historyLoadError = state.historyLoadError,
+                    onNavigateToVehicle = onNavigateToVehicle,
+                )
+            }
         }
     }
 }
@@ -160,6 +198,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.statisticsContent(
     history: List<VehicleQueryHistoryItem>,
     historyQuery: String,
     showOverview: Boolean,
+    historyTotal: Int,
+    isHistoryPageLoading: Boolean,
+    historyLoadError: String?,
     onNavigateToVehicle: (Long) -> Unit,
 ) {
     if (category == null && showOverview) {
@@ -172,7 +213,71 @@ private fun androidx.compose.foundation.lazy.LazyListScope.statisticsContent(
             ChartCard("类别查询数量") { CategoryColumnChart(statistics.categories) }
         }
     }
-    item { QueryHistoryCard(history, historyQuery, onNavigateToVehicle) }
+    item(key = "statistics_history_heading") {
+        Text("查询记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
+    if (history.isEmpty()) {
+        item(key = "statistics_history_empty") {
+            EmptyState(if (historyQuery.isBlank()) "当前条件下还没有查询记录" else "未找到匹配的查询记录")
+        }
+    } else {
+        items(
+            items = history,
+            key = { item -> "${item.vehicleId}-${item.occurredAtEpochMillis}" },
+            contentType = { "statistics_history" },
+        ) { item ->
+            QueryHistoryRow(item, onNavigateToVehicle)
+        }
+    }
+    if (isHistoryPageLoading) {
+        item(key = "statistics_history_loading_more") { LoadingMoreHistory() }
+    } else if (historyLoadError != null) {
+        item(key = "statistics_history_load_error") { EmptyState(historyLoadError) }
+    } else if (history.isNotEmpty() && history.size < historyTotal) {
+        item(key = "statistics_history_load_hint") {
+            Text(
+                "继续下滑加载更早记录",
+                modifier = Modifier.fillMaxWidth().padding(vertical = PlateViewDimensions.compactSpacing),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun StatisticsFilterPanel(
+    state: StatisticsUiState,
+    onRange: (StatisticsRange) -> Unit,
+    onCategory: (String?) -> Unit,
+    onScope: (StatisticsScope) -> Unit,
+) {
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth().testTag("statistics_filter_panel"),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+    ) {
+        Column(
+            modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        ) {
+            Text("统计条件", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TimeRangeSelector(selected = state.range, onSelected = onRange)
+            CategorySelector(selected = state.category, onSelected = onCategory)
+            if (state.isAdministrator) {
+                val scopes = if (state.canViewAllStatistics) StatisticsScope.entries else listOf(StatisticsScope.ME)
+                FilterRow(scopes, state.scope, StatisticsScope::label, onScope)
+            }
+            if (state.scope == StatisticsScope.ME && state.pendingSyncCount > 0) {
+                Text(
+                    "有 ${state.pendingSyncCount} 条查询记录等待同步",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -247,47 +352,80 @@ private fun CategorySelector(selected: String?, onSelected: (String?) -> Unit) {
 private fun HistorySearchField(
     query: String,
     onQueryChanged: (String) -> Unit,
-    onFocusedChanged: (Boolean) -> Unit,
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChanged,
-        modifier = Modifier.fillMaxWidth().onFocusChanged { onFocusedChanged(it.isFocused) }.testTag("statistics_history_search"),
-        singleLine = true,
-        shape = RoundedCornerShape(14.dp),
-        leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.Search, contentDescription = "搜索历史") },
-        label = { Text("搜索历史车牌") },
-        placeholder = { Text("输入车牌号") },
-    )
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        elevated = true,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChanged,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("statistics_history_search"),
+            singleLine = true,
+            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+            leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.Search, contentDescription = "搜索历史") },
+            trailingIcon = {
+                if (query.isNotBlank()) {
+                    IconButton(onClick = { onQueryChanged("") }) {
+                        androidx.compose.material3.Icon(Icons.Outlined.Close, contentDescription = "清空历史车牌搜索")
+                    }
+                }
+            },
+            label = { Text("搜索历史车牌") },
+            placeholder = { Text("输入车牌号") },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                disabledBorderColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
+            ),
+        )
+    }
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun TimeRangeSelector(
     selected: StatisticsRange,
     onSelected: (StatisticsRange) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().testTag("statistics_time_range_selector"),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         StatisticsRange.entries.forEach { range ->
             val isSelected = range == selected
             Surface(
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).clickable { onSelected(range) },
-                shape = RoundedCornerShape(14.dp),
-                color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp)
+                    .clickable { onSelected(range) }
+                    .testTag("statistics_time_range_${range.name}"),
+                shape = RoundedCornerShape(12.dp),
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.86f)
+                } else {
+                    Color.Transparent
+                },
+                border = BorderStroke(
+                    1.dp,
+                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                ),
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         text = range.label,
-                        modifier = Modifier.padding(horizontal = 2.dp),
-                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
-                        color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Clip,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -296,9 +434,13 @@ private fun TimeRangeSelector(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun <T> FilterRow(values: List<T>, selected: T, label: (T) -> String, onSelected: (T) -> Unit) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(values, key = { label(it) }) { value ->
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing),
+    ) {
+        values.forEach { value ->
             FilterChip(selected = value == selected, onClick = { onSelected(value) }, label = { Text(label(value)) })
         }
     }
@@ -306,7 +448,10 @@ private fun <T> FilterRow(values: List<T>, selected: T, label: (T) -> String, on
 
 @Composable
 private fun ChartCard(title: String, content: @Composable () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth(),
+        elevated = true,
+    ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
@@ -359,11 +504,34 @@ private fun CategoryColumnChart(points: List<VehicleCategoryPoint>) {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxHeight(fraction.coerceIn(0f, 1f))
-                                .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
-                                .background(CategoryPalette[index % CategoryPalette.size])
+                                .fillMaxHeight()
                                 .testTag("statistics_category_count_${point.category}"),
-                        )
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(fraction.coerceIn(0.12f, 1f)),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Bottom,
+                            ) {
+                                Text(
+                                    text = point.queryCount.toString(),
+                                    modifier = Modifier.testTag("statistics_category_value_${point.category}"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Spacer(Modifier.height(3.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp))
+                                        .background(CategoryPalette[index % CategoryPalette.size]),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -380,47 +548,45 @@ private fun CategoryColumnChart(points: List<VehicleCategoryPoint>) {
 }
 
 @Composable
-private fun QueryHistoryCard(
-    items: List<VehicleQueryHistoryItem>,
-    query: String,
+private fun QueryHistoryRow(
+    item: VehicleQueryHistoryItem,
     onNavigateToVehicle: (Long) -> Unit,
 ) {
-    ChartCard("查询记录") {
-        val normalizedQuery = query.trim().filterNot { it.isWhitespace() || it == '·' }
-        val filteredItems = items.filter { item ->
-            normalizedQuery.isBlank() || item.plateNumber?.filterNot { it.isWhitespace() || it == '·' }?.contains(normalizedQuery, ignoreCase = true) == true
-        }
-        if (filteredItems.isEmpty()) {
-            Text("当前筛选条件下还没有查询记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                filteredItems.forEach { item ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onNavigateToVehicle(item.vehicleId) }
-                            .testTag("statistics_history_vehicle_${item.vehicleId}")
-                            .padding(horizontal = 4.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (item.plateNumber != null) {
-                            VehiclePlateBadge(plateNumber = item.plateNumber, compact = true)
-                        } else {
-                            Text("车辆档案 #${item.vehicleId}", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            text = formatQueryTime(item.occurredAtEpochMillis),
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+    GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(PlateViewDimensions.cornerMedium))
+                .clickable { onNavigateToVehicle(item.vehicleId) }
+                .testTag("statistics_history_vehicle_${item.vehicleId}")
+                .padding(PlateViewDimensions.compactSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (item.plateNumber != null) {
+                VehiclePlateBadge(plateNumber = item.plateNumber, compact = true)
+            } else {
+                Text("车辆档案 #${item.vehicleId}", style = MaterialTheme.typography.bodyMedium)
             }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = formatQueryTime(item.occurredAtEpochMillis),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
+}
+
+@Composable
+private fun LoadingMoreHistory() = Row(
+    modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.compactSpacing),
+    horizontalArrangement = Arrangement.Center,
+    verticalAlignment = Alignment.CenterVertically,
+) {
+    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+    Text("正在加载更早记录", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable
@@ -432,6 +598,11 @@ private fun formatQueryTime(value: Long): String = remember(value) {
 private fun LoadingState() = Row(Modifier.fillMaxWidth().padding(48.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
 
 @Composable
-private fun EmptyState(message: String) = Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+private fun EmptyState(message: String) = GlassSurface(
+    modifier = Modifier.fillMaxWidth(),
+    color = MaterialTheme.colorScheme.secondaryContainer,
+) {
     Text(message, modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
 }
+
+private const val HISTORY_LOAD_TRIGGER_DISTANCE = 3

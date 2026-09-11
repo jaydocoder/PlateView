@@ -27,7 +27,10 @@ data class StatisticsSummaryDto(val totalQueries: Long, val distinctPlates: Long
 data class StatisticsTrendPointDto(val bucket: String, val queryCount: Long)
 data class StatisticsCategoryPointDto(val category: String, val queryCount: Long)
 data class StatisticsTopPlatePointDto(val plateNumber: String, val queryCount: Long)
-data class StatisticsHistoryResponseDto(val items: List<StatisticsHistoryItemDto>)
+data class StatisticsHistoryResponseDto(
+    val items: List<StatisticsHistoryItemDto>,
+    val total: Int? = null,
+)
 data class StatisticsHistoryItemDto(
     val vehicleId: Long,
     val plateNumber: String,
@@ -53,6 +56,9 @@ interface StatisticsApi {
         @Query("range") range: String,
         @Query("category") category: String?,
         @Query("scope") scope: String,
+        @Query("query") query: String?,
+        @Query("limit") limit: Int,
+        @Query("offset") offset: Int,
     ): StatisticsHistoryResponseDto
 
     @POST("statistics/events")
@@ -79,6 +85,11 @@ data class VehicleQueryHistoryItem(
     val plateNumber: String?,
     val category: String,
     val occurredAtEpochMillis: Long,
+)
+
+data class VehicleQueryHistoryPage(
+    val items: List<VehicleQueryHistoryItem>,
+    val total: Int,
 )
 
 @Singleton
@@ -144,26 +155,53 @@ class StatisticsRepository @Inject constructor(
         )
     }
 
-    suspend fun localHistory(
+    suspend fun localHistoryPage(
         session: AuthSession,
         range: String,
         category: String?,
-    ): List<VehicleQueryHistoryItem> = queryEventDao.history(
-        accountId = session.userId,
-        startAtEpochMillis = rangeStartAtEpochMillis(range),
-        category = category,
-        limit = HISTORY_LIMIT,
-    ).map { item ->
-        VehicleQueryHistoryItem(item.vehicleId, item.plateNumber, item.category, item.occurredAtEpochMillis)
+        query: String?,
+        limit: Int,
+        offset: Int,
+    ): VehicleQueryHistoryPage {
+        val startAtEpochMillis = rangeStartAtEpochMillis(range)
+        val normalizedQuery = query.normalizedHistoryQuery()
+        val items = queryEventDao.history(
+            accountId = session.userId,
+            startAtEpochMillis = startAtEpochMillis,
+            category = category,
+            query = normalizedQuery,
+            limit = limit,
+            offset = offset,
+        ).map { item ->
+            VehicleQueryHistoryItem(item.vehicleId, item.plateNumber, item.category, item.occurredAtEpochMillis)
+        }
+        return VehicleQueryHistoryPage(
+            items = items,
+            total = queryEventDao.historyCount(session.userId, startAtEpochMillis, category, normalizedQuery),
+        )
     }
 
-    suspend fun serverHistory(
+    suspend fun serverHistoryPage(
         session: AuthSession,
         range: String,
         category: String?,
         scope: String,
-    ): List<VehicleQueryHistoryItem> = api.getHistory(bearer(session), range, category, scope).items.map { item ->
-        VehicleQueryHistoryItem(item.vehicleId, item.plateNumber, item.category, item.occurredAtEpochMillis)
+        query: String?,
+        limit: Int,
+        offset: Int,
+    ): VehicleQueryHistoryPage = api.getHistory(
+        bearer(session),
+        range,
+        category,
+        scope,
+        query.normalizedHistoryQuery(),
+        limit,
+        offset,
+    ).let { response ->
+        val items = response.items.map { item ->
+            VehicleQueryHistoryItem(item.vehicleId, item.plateNumber, item.category, item.occurredAtEpochMillis)
+        }
+        VehicleQueryHistoryPage(items, response.total ?: offset + items.size)
     }
 
     suspend fun synchronizePendingEvents(session: AuthSession) {
@@ -210,7 +248,10 @@ class StatisticsRepository @Inject constructor(
         const val THIRTY_DAYS_RANGE = "THIRTY_DAYS"
         const val ALL_TIME_RANGE = "ALL_TIME"
         const val SYNC_BATCH_SIZE = 200
-        const val HISTORY_LIMIT = 50
         const val TOP_PLATE_LIMIT = 5
     }
 }
+
+private fun String?.normalizedHistoryQuery(): String? = this
+    ?.filterNot { it.isWhitespace() || it == '·' }
+    ?.takeIf { it.isNotBlank() }
