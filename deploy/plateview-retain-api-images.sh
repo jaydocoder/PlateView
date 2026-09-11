@@ -21,14 +21,14 @@ for container in "$ACTIVE_CONTAINER" "$PREVIOUS_CONTAINER"; do
     retained_image_ids["$image_id"]=1
 done
 
-api_image_ids=$(docker image ls plateview-api --no-trunc --format '{{.ID}}' | sort -u)
-while IFS= read -r image_id; do
-    [[ -n "$image_id" ]] || continue
+api_image_tags=$(docker image ls plateview-api --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}')
+while read -r image_tag image_id; do
+    [[ -n "$image_tag" && -n "$image_id" ]] || continue
     [[ -n "${retained_image_ids[$image_id]:-}" ]] && continue
 
-    if docker image rm "$image_id" >/dev/null; then
-        log "已清理过期 API 镜像：$image_id"
+    if docker image rm "$image_tag" >/dev/null; then
+        log "已清理过期 API 镜像标签：$image_tag"
     else
-        log "警告：未能清理过期 API 镜像：$image_id" >&2
+        log "警告：未能清理过期 API 镜像标签：$image_tag" >&2
     fi
-done <<<"$api_image_ids"
+done <<<"$api_image_tags"

@@ -16,7 +16,11 @@ readonly RETENTION_SCRIPT="$PROJECT_ROOT/deploy/plateview-retain-api-images.sh"
                 esac
                 ;;
             'image ls')
-                printf '%s\n' sha256:current sha256:previous sha256:stale sha256:stale
+                printf '%s\n' \
+                    'plateview-api:current sha256:current' \
+                    'plateview-api:previous sha256:previous' \
+                    'plateview-api:stale-one sha256:stale' \
+                    'plateview-api:stale-two sha256:stale'
                 ;;
             'image rm')
                 removed_images+=("$3")
@@ -29,7 +33,7 @@ readonly RETENTION_SCRIPT="$PROJECT_ROOT/deploy/plateview-retain-api-images.sh"
     }
 
     source "$RETENTION_SCRIPT" plateview-api-current plateview-api-previous
-    [[ "${removed_images[*]}" == 'sha256:stale' ]]
+    [[ "${removed_images[*]}" == 'plateview-api:stale-one plateview-api:stale-two' ]]
 )
 
 (
@@ -39,10 +43,13 @@ readonly RETENTION_SCRIPT="$PROJECT_ROOT/deploy/plateview-retain-api-images.sh"
                 printf '%s\n' "sha256:${4#plateview-api-}"
                 ;;
             'image ls')
-                printf '%s\n' sha256:current sha256:previous sha256:stale
+                printf '%s\n' \
+                    'plateview-api:current sha256:current' \
+                    'plateview-api:previous sha256:previous' \
+                    'plateview-api:stale sha256:stale'
                 ;;
             'image rm')
-                [[ "$3" == sha256:stale ]]
+                [[ "$3" == plateview-api:stale ]]
                 return 1
                 ;;
             *)
