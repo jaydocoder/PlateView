@@ -35,7 +35,7 @@ internal fun Application.configureAdminManagementFeature() {
                 route("/vehicles") {
                     get("/creation-capabilities") {
                         val actorId = call.requireAdministrator() ?: return@get
-                        call.respond(service.vehicleCreationCapabilities(actorId).toResponse())
+                        call.respond(service.vehicleCreationCapabilities(actorId, service.vehicleAccessScope(actorId)).toResponse())
                     }
                     get {
                         val actorId = call.requireAdministrator() ?: return@get
@@ -46,6 +46,7 @@ internal fun Application.configureAdminManagementFeature() {
                             },
                             limit = call.pageLimit(),
                             offset = call.pageOffset(),
+                            accessScope = service.vehicleAccessScope(actorId),
                         )
                         call.auditAdmin(actorId, "VEHICLE_LIST", "VEHICLE", null)
                         call.respond(AdminVehicleListResponse(page.items.map(AdminVehicleListItem::toResponse), page.total))
@@ -53,7 +54,11 @@ internal fun Application.configureAdminManagementFeature() {
                     post {
                         val actorId = call.requireAdministrator() ?: return@post
                         val vehicle = try {
-                            service.createVehicle(call.receive<AdminVehicleUpsertRequest>().toCommand(), actorId)
+                            service.createVehicle(
+                                command = call.receive<AdminVehicleUpsertRequest>().toCommand(),
+                                actorId = actorId,
+                                accessScope = service.vehicleAccessScope(actorId),
+                            )
                         } catch (exception: AdminValidationException) {
                             call.auditAdmin(actorId, "VEHICLE_CREATE", "VEHICLE", null, resultStatus = "FAILURE")
                             throw exception
@@ -63,7 +68,7 @@ internal fun Application.configureAdminManagementFeature() {
                     }
                     get("/{vehicleId}") {
                         val actorId = call.requireAdministrator() ?: return@get
-                        val vehicle = service.getVehicle(call.vehicleId())
+                        val vehicle = service.getVehicle(call.vehicleId(), service.vehicleAccessScope(actorId))
                         call.auditAdmin(actorId, "VEHICLE_VIEW", "VEHICLE", vehicle.id)
                         call.respond(vehicle.toResponse())
                     }
@@ -74,6 +79,7 @@ internal fun Application.configureAdminManagementFeature() {
                             command = call.receive<AdminVehicleUpsertRequest>().toCommand(),
                             expectedVersion = call.expectedVersion(),
                             actorId = actorId,
+                            accessScope = service.vehicleAccessScope(actorId),
                         )
                         call.auditAdmin(actorId, "VEHICLE_UPDATE", "VEHICLE", vehicle.id)
                         call.respond(vehicle.toResponse())
@@ -86,6 +92,7 @@ internal fun Application.configureAdminManagementFeature() {
                             status = status,
                             expectedVersion = call.expectedVersion(),
                             actorId = actorId,
+                            accessScope = service.vehicleAccessScope(actorId),
                         )
                         call.auditAdmin(actorId, "VEHICLE_STATUS_${status.name}", "VEHICLE", vehicle.id)
                         call.respond(vehicle.toResponse())
@@ -97,6 +104,7 @@ internal fun Application.configureAdminManagementFeature() {
                             status = AdminVehicleStatus.BLACKLISTED,
                             expectedVersion = call.expectedVersion(),
                             actorId = actorId,
+                            accessScope = service.vehicleAccessScope(actorId),
                         )
                         call.auditAdmin(actorId, "VEHICLE_STATUS_BLACKLISTED", "VEHICLE", vehicle.id)
                         call.respond(vehicle.toResponse())
