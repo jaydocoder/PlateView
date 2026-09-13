@@ -8,12 +8,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.Density
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
@@ -23,8 +26,10 @@ import com.jaydocoder.plateview.domain.admin.ManagedImportRow
 import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
+import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
 import com.jaydocoder.plateview.feature.admin.AdminTab
 import com.jaydocoder.plateview.feature.admin.AdminUiState
+import com.jaydocoder.plateview.feature.admin.PendingVehicleStatusChange
 import com.jaydocoder.plateview.feature.admin.VehicleEditorState
 import com.jaydocoder.plateview.feature.admin.VehicleStatusFilter
 import com.jaydocoder.plateview.feature.admin.AdminWorkspaceScreen
@@ -228,6 +233,7 @@ class AdminWorkspaceScreenTest {
     @Test
     fun admin编辑账号时可显示资料与头像操作() {
         val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
+        var changedEditor: com.jaydocoder.plateview.feature.admin.UserEditorState? = null
 
         composeRule.setContent {
             PlateViewTheme {
@@ -241,7 +247,7 @@ class AdminWorkspaceScreenTest {
                     onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
                     onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
                     onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
-                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onUserEditorChanged = { transform -> changedEditor = transform(user.toEditor(canEditProfile = true)) }, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
                     onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
                     onPublishImport = {}, onRollbackImport = {},
                 )
@@ -253,6 +259,13 @@ class AdminWorkspaceScreenTest {
         composeRule.onNodeWithText("更换头像").assertIsDisplayed()
         composeRule.onNodeWithText("显示排班功能").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_schedule_access_switch").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_update_policy_switch").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertEquals(UserUpdatePolicy.FORCED, changedEditor?.updatePolicy) }
+        composeRule.onNodeWithTag("admin_editor_content").performTouchInput { swipeUp() }
+        composeRule.onAllNodesWithTag("admin_other_long_term_access_switch").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("admin_resident_remarks_access_switch").assertCountEquals(1)
+        composeRule.onNodeWithTag("admin_other_long_term_access_switch").performClick()
+        composeRule.runOnIdle { assertEquals(false, changedEditor?.otherLongTermAccessEnabled) }
     }
 
     @Test
@@ -282,6 +295,8 @@ class AdminWorkspaceScreenTest {
         composeRule.onAllNodesWithText("新登录密码").assertCountEquals(0)
         composeRule.onAllNodesWithText("更换头像").assertCountEquals(0)
         composeRule.onAllNodesWithText("显示排班功能").assertCountEquals(0)
+        composeRule.onAllNodesWithText("更新策略").assertCountEquals(0)
+        composeRule.onAllNodesWithText("车辆数据访问范围").assertCountEquals(0)
     }
 
     @Test
@@ -308,6 +323,8 @@ class AdminWorkspaceScreenTest {
         }
 
         composeRule.onAllNodesWithText("显示排班功能").assertCountEquals(0)
+        composeRule.onAllNodesWithText("更新策略").assertCountEquals(0)
+        composeRule.onAllNodesWithText("车辆数据访问范围").assertCountEquals(0)
     }
 
     @Test
@@ -585,5 +602,35 @@ class AdminWorkspaceScreenTest {
 
         composeRule.runOnUiThread { isPrimaryAdministrator = true }
         composeRule.onNodeWithText("排班规划").assertIsDisplayed()
+    }
+
+    @Test
+    fun 车辆状态变更确认弹层显示操作并保持确认回调() {
+        var confirmed = false
+        val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, "小型汽车")
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Vehicles,
+                        isLoading = false,
+                        pendingVehicleStatusChange = PendingVehicleStatusChange(vehicle, "BLACKLISTED"),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                    onConfirmVehicleStatusChange = { confirmed = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("拉黑车辆档案").assertIsDisplayed()
+        composeRule.onNodeWithText("新A12345 仍可在首页查询，但会明确标注为已拉黑。").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_confirm_vehicle_status").performClick()
+
+        composeRule.runOnIdle { assertTrue(confirmed) }
     }
 }

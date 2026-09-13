@@ -7,7 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import com.jaydocoder.plateview.component.CompatFlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -31,8 +31,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
@@ -63,7 +61,10 @@ import com.jaydocoder.plateview.data.statistics.VehicleQueryHistoryItem
 import com.jaydocoder.plateview.data.statistics.VehicleStatistics
 import com.jaydocoder.plateview.data.statistics.VehicleTopPlatePoint
 import com.jaydocoder.plateview.component.VehiclePlateBadge
+import com.jaydocoder.plateview.component.glass.GlassPill
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.LiquidGlassInput
+import com.jaydocoder.plateview.component.glass.LiquidGlassSegmentedControl
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -353,39 +354,23 @@ private fun HistorySearchField(
     query: String,
     onQueryChanged: (String) -> Unit,
 ) {
-    GlassSurface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        elevated = true,
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChanged,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("statistics_history_search"),
-            singleLine = true,
-            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-            leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.Search, contentDescription = "搜索历史") },
-            trailingIcon = {
-                if (query.isNotBlank()) {
-                    IconButton(onClick = { onQueryChanged("") }) {
-                        androidx.compose.material3.Icon(Icons.Outlined.Close, contentDescription = "清空历史车牌搜索")
-                    }
+    LiquidGlassInput(
+        value = query,
+        onValueChange = onQueryChanged,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("statistics_history_search"),
+        label = { Text("搜索历史车牌") },
+        placeholder = { Text("输入车牌号") },
+        leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.Search, contentDescription = "搜索历史") },
+        trailingIcon = {
+            if (query.isNotBlank()) {
+                IconButton(onClick = { onQueryChanged("") }) {
+                    androidx.compose.material3.Icon(Icons.Outlined.Close, contentDescription = "清空历史车牌搜索")
                 }
-            },
-            label = { Text("搜索历史车牌") },
-            placeholder = { Text("输入车牌号") },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent,
-                disabledBorderColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-            ),
-        )
-    }
+            }
+        },
+    )
 }
 
 @Composable
@@ -394,30 +379,18 @@ private fun TimeRangeSelector(
     selected: StatisticsRange,
     onSelected: (StatisticsRange) -> Unit,
 ) {
-    Row(
+    LiquidGlassSegmentedControl(
         modifier = Modifier.fillMaxWidth().testTag("statistics_time_range_selector"),
-        horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
         StatisticsRange.entries.forEach { range ->
             val isSelected = range == selected
-            Surface(
+            GlassPill(
+                selected = isSelected,
                 modifier = Modifier
                     .weight(1f)
                     .height(36.dp)
-                    .clickable { onSelected(range) }
                     .testTag("statistics_time_range_${range.name}"),
-                shape = RoundedCornerShape(12.dp),
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.86f)
-                } else {
-                    Color.Transparent
-                },
-                border = BorderStroke(
-                    1.dp,
-                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                ),
+                onClick = { onSelected(range) },
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
@@ -436,7 +409,7 @@ private fun TimeRangeSelector(
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun <T> FilterRow(values: List<T>, selected: T, label: (T) -> String, onSelected: (T) -> Unit) {
-    FlowRow(
+    CompatFlowRow(
         horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing),
     ) {

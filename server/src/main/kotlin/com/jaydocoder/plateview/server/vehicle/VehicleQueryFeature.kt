@@ -27,24 +27,31 @@ internal fun Application.configureVehicleQueryFeature() {
         authenticate("access-token") {
             route("/vehicles") {
                 get("/search") {
-                    val candidates = service.search(call.request.queryParameters["keyword"].orEmpty())
-                    call.respond(VehicleSearchResponse(service.catalogVersion(), candidates.map(VehicleSearchCandidate::toResponse)))
+                    val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    val accessScope = service.accessScope(actorId)
+                    val candidates = service.search(call.request.queryParameters["keyword"].orEmpty(), accessScope)
+                    call.respond(VehicleSearchResponse(service.catalogVersion(accessScope), candidates.map(VehicleSearchCandidate::toResponse)))
                 }
                 get("/catalog/version") {
-                    call.respond(VehicleCatalogVersionResponse(service.catalogVersion()))
+                    val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    call.respond(VehicleCatalogVersionResponse(service.catalogVersion(service.accessScope(actorId))))
                 }
                 get("/catalog") {
+                    val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    val accessScope = service.accessScope(actorId)
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 500
                     val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-                    val page = service.catalog(limit, offset)
+                    val page = service.catalog(accessScope, limit, offset)
                     call.respond(VehicleCatalogResponse(page.revision, page.total, page.items.map(VehicleSearchCandidate::toResponse)))
                 }
                 get("/catalog/full") {
+                    val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    val accessScope = service.accessScope(actorId)
                     val version = call.request.queryParameters["version"]?.toLongOrNull()
                         ?: throw IllegalArgumentException("缺少目录版本")
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
                     val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-                    val page = service.fullCatalog(version, limit, offset)
+                    val page = service.fullCatalog(accessScope, version, limit, offset)
                     call.respond(
                         VehicleFullCatalogResponse(
                             catalogVersion = page.revision,
@@ -56,7 +63,8 @@ internal fun Application.configureVehicleQueryFeature() {
                 get("/{vehicleId}") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
                     val vehicleId = call.vehicleId()
-                    val detail = service.findDetail(vehicleId)
+                    val accessScope = service.accessScope(actorId)
+                    val detail = service.findDetail(vehicleId, accessScope)
                     if (detail == null) {
                         call.auditVehicleDetail(actorId, vehicleId, null, "FAILURE")
                         throw VehicleNotFoundException()
@@ -65,7 +73,7 @@ internal fun Application.configureVehicleQueryFeature() {
                         service.recordQueryEvent(actorId, detail)
                     }
                     call.auditVehicleDetail(actorId, vehicleId, detail.normalizedPlate, "SUCCESS")
-                    call.respond(detail.toResponse(service.catalogVersion()))
+                    call.respond(detail.toResponse(service.catalogVersion(accessScope)))
                 }
             }
         }
@@ -112,6 +120,7 @@ private fun VehicleSearchCandidate.toResponse(): VehicleSearchCandidateResponse 
     category = category.name,
     categoryLabel = category.displayName,
     organizationName = organizationName,
+    plateColor = plateColor,
     status = status,
 )
 
@@ -169,6 +178,7 @@ private data class VehicleSearchCandidateResponse(
     val category: String,
     val categoryLabel: String,
     val organizationName: String?,
+    val plateColor: String?,
     val status: String,
 )
 

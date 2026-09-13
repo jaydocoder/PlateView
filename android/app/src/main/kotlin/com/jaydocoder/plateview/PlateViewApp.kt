@@ -15,6 +15,7 @@ import com.jaydocoder.plateview.feature.auth.AppSessionViewModel
 import com.jaydocoder.plateview.feature.auth.LoginScreen
 import com.jaydocoder.plateview.feature.update.AppUpdateDialog
 import com.jaydocoder.plateview.feature.update.AppUpdateViewModel
+import com.jaydocoder.plateview.feature.update.ForceUpdateUnavailableDialog
 import com.jaydocoder.plateview.feature.update.UpdateCheckDialog
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import java.io.File
@@ -48,6 +49,8 @@ fun PlateViewApp(
                     onLogout = viewModel::logout,
                     onOpenUpdate = updateState.update?.let { updateViewModel::openUpdateDialog },
                     onCheckForUpdate = updateViewModel::checkForUpdateFromUser,
+                    onQueryScreenVisible = updateViewModel::onQueryScreenVisible,
+                    onQueryScreenHidden = updateViewModel::onQueryScreenHidden,
                 )
             }
         }
@@ -58,7 +61,11 @@ fun PlateViewApp(
                 onDownload = updateViewModel::downloadUpdate,
                 onInstall = onInstallUpdate,
                 onDismiss = updateViewModel::dismissUpdateDialog,
+                forceUpdate = updateState.isForceUpdate,
             )
+        }
+        if (updateState.isForceUpdateUnavailable && updateState.isUpdateDialogVisible) {
+            ForceUpdateUnavailableDialog(onRetry = updateViewModel::retryForcedUpdateCheck)
         }
         if (updateState.isManualCheckDialogVisible) {
             UpdateCheckDialog(

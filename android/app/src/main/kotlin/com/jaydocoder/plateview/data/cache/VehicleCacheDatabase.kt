@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VehicleSnapshotCacheEntity::class,
         VehicleCatalogStateEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class VehicleCacheDatabase : RoomDatabase() {
@@ -51,6 +51,12 @@ abstract class VehicleCacheDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("DELETE FROM vehicle_snapshot_cache")
                 database.execSQL("DELETE FROM vehicle_catalog_state")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE vehicle_snapshot_cache ADD COLUMN plateColor TEXT")
             }
         }
     }

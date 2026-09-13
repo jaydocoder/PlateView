@@ -40,7 +40,6 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -76,8 +75,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.LiquidGlassIconButton
+import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 import java.io.File
 
@@ -288,26 +290,16 @@ private fun ProfileIdentityHeader(
                         .align(Alignment.TopStart)
                         .clickable(onClick = onChooseAvatar),
                 )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(44.dp)
-                        .clickable(onClick = onChooseAvatar),
-                    contentAlignment = Alignment.Center,
+                LiquidGlassIconButton(
+                    contentDescription = "更换头像",
+                    modifier = Modifier.align(Alignment.BottomEnd),
+                    onClick = onChooseAvatar,
                 ) {
-                    Surface(
-                        modifier = Modifier.size(30.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        shape = CircleShape,
-                        shadowElevation = 2.dp,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.CameraAlt,
-                            contentDescription = "更换头像",
-                            modifier = Modifier.padding(6.dp),
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Outlined.CameraAlt,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 }
                 Spacer(Modifier.width(14.dp))
@@ -328,17 +320,11 @@ private fun ProfileIdentityHeader(
                         }
                     }
                 }
-                Surface(
+                LiquidGlassIconButton(
+                    contentDescription = "编辑账号资料",
                     onClick = onEditAccount,
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ) {
-                    Icon(
-                        Icons.Outlined.Edit,
-                        contentDescription = "编辑账号资料",
-                        modifier = Modifier.padding(12.dp),
-                    )
+                    Icon(Icons.Outlined.Edit, contentDescription = null)
                 }
             }
         }
@@ -366,10 +352,10 @@ private fun ProfileActionRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
+        GlassSurface(
+            shape = RoundedCornerShape(16.dp),
             color = palette.container,
             contentColor = palette.content,
-            shape = RoundedCornerShape(16.dp),
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.padding(11.dp))
         }
@@ -414,20 +400,27 @@ private fun LogoutConfirmationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("退出当前账号？") },
-        text = { Text("退出后需要重新登录才能继续车辆核验。") },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                modifier = Modifier.testTag("profile_confirm_logout"),
+    LiquidGlassDialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        ) {
+            Text("退出当前账号？", style = MaterialTheme.typography.titleLarge)
+            Text("退出后需要重新登录才能继续车辆核验。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
             ) {
-                Text("退出登录")
+                TextButton(onClick = onDismiss) { Text("取消") }
+                TextButton(
+                    onClick = onConfirm,
+                    modifier = Modifier.testTag("profile_confirm_logout"),
+                ) {
+                    Text("退出登录")
+                }
             }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+        }
+    }
 }
 
 private enum class AccountEditTarget {
@@ -475,10 +468,10 @@ private fun AccountSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
-                    tonalElevation = 1.dp,
+                    elevated = true,
                 ) {
                     Column {
                     ProfileActionRow(
@@ -530,13 +523,12 @@ private fun AccountValueEditorScreen(
             )
         },
         bottomBar = {
-            Surface(
+            GlassSurface(
                 modifier = Modifier
                     .navigationBarsPadding()
                     .imePadding(),
-                color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-                shadowElevation = 5.dp,
+                elevated = true,
             ) {
                 Button(
                     onClick = {
@@ -570,14 +562,16 @@ private fun AccountValueEditorScreen(
             if (isUsername) {
                 item {
                     ProfileEditorField(label = "新用户名") {
-                        OutlinedTextField(
-                            value = editedUsername,
-                            onValueChange = { editedUsername = it },
-                            singleLine = true,
-                            shape = RoundedCornerShape(18.dp),
-                            colors = profileEditorTextFieldColors(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                            OutlinedTextField(
+                                value = editedUsername,
+                                onValueChange = { editedUsername = it },
+                                singleLine = true,
+                                shape = RoundedCornerShape(18.dp),
+                                colors = profileEditorTextFieldColors(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             } else {
@@ -607,31 +601,33 @@ private fun ProfileEditorField(label: String, content: @Composable () -> Unit) {
 @Composable
 private fun PasswordInput(value: String, onValueChange: (String) -> Unit) {
     var visible by remember { mutableStateOf(false) }
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = true,
-        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            IconButton(onClick = { visible = !visible }) {
-                Icon(
-                    imageVector = if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                    contentDescription = if (visible) "隐藏密码" else "显示密码",
-                )
-            }
-        },
-        shape = RoundedCornerShape(18.dp),
-        colors = profileEditorTextFieldColors(),
-        modifier = Modifier.fillMaxWidth(),
-    )
+    GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { visible = !visible }) {
+                    Icon(
+                        imageVector = if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        contentDescription = if (visible) "隐藏密码" else "显示密码",
+                    )
+                }
+            },
+            shape = RoundedCornerShape(18.dp),
+            colors = profileEditorTextFieldColors(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 @Composable
 private fun profileEditorTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = MaterialTheme.colorScheme.surface,
-    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-    focusedBorderColor = MaterialTheme.colorScheme.primary,
-    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+    focusedContainerColor = Color.Transparent,
+    unfocusedContainerColor = Color.Transparent,
+    focusedBorderColor = Color.Transparent,
+    unfocusedBorderColor = Color.Transparent,
 )
 
 @Composable

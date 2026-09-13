@@ -104,6 +104,15 @@ class VehicleCacheDatabaseTest {
         assertEquals(null, dao.getDetail(1))
     }
 
+    @Test
+    fun 本地快照会持久化档案中的号牌颜色() = runBlocking {
+        val dao = database.vehicleCacheDao()
+        dao.insertSnapshots(listOf(snapshot(11, 1, "新A12345", plateColor = "黄色")))
+        dao.promoteGeneration(11, 7, 100, 100)
+
+        assertEquals("黄色", dao.searchCandidates("A123", 20).single().plateColor)
+    }
+
     private fun snapshot(
         generation: Long,
         vehicleId: Long,
@@ -111,6 +120,7 @@ class VehicleCacheDatabaseTest {
         category: String = "RESIDENT",
         searchableText: String = plateNumber,
         status: String = "ACTIVE",
+        plateColor: String? = null,
     ): VehicleSnapshotCacheEntity =
         VehicleSnapshotCacheEntity(
             generation = generation,
@@ -120,6 +130,7 @@ class VehicleCacheDatabaseTest {
             category = category,
             categoryLabel = if (category == "RESIDENT") "村民车辆" else "驻景区单位车辆",
             organizationName = null,
+            plateColor = plateColor,
             status = status,
             searchableText = searchableText,
             detailJson = "{}",

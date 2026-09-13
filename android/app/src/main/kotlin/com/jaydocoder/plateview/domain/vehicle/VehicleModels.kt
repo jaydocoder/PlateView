@@ -9,6 +9,7 @@ data class VehicleCandidate(
     val category: String,
     val categoryLabel: String,
     val organizationName: String? = null,
+    val plateColor: String? = null,
     val status: String = "ACTIVE",
 )
 

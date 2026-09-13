@@ -23,6 +23,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedVehiclePage
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.VehicleCreationCapabilities
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
+import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
 import java.util.Locale
@@ -90,7 +91,7 @@ class NetworkAdminRepository @Inject constructor(
             bearer(accessToken),
             version,
             userId,
-            AdminUserUpdateRequestDto(command.role, command.status, command.username, command.password, command.realName, command.scheduleAccessEnabled),
+            AdminUserUpdateRequestDto(command.role, command.status, command.username, command.password, command.realName, command.scheduleAccessEnabled, command.updatePolicy?.name, command.otherLongTermAccessEnabled, command.residentRemarksAccessEnabled),
         )
         .toDomain()
 
@@ -226,6 +227,9 @@ private fun AdminUserDto.toDomain(): ManagedUser = ManagedUser(
     hasAvatar = hasAvatar,
     realName = realName,
     scheduleAccessEnabled = scheduleAccessEnabled,
+    updatePolicy = runCatching { UserUpdatePolicy.valueOf(updatePolicy) }.getOrDefault(UserUpdatePolicy.OPTIONAL),
+    otherLongTermAccessEnabled = otherLongTermAccessEnabled,
+    residentRemarksAccessEnabled = residentRemarksAccessEnabled,
 )
 
 private fun AdminImportBatchSummaryDto.toDomain(): ManagedImportBatchSummary = ManagedImportBatchSummary(

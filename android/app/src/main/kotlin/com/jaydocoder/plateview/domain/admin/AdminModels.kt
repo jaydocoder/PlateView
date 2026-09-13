@@ -70,7 +70,15 @@ data class ManagedUser(
     val hasAvatar: Boolean = false,
     val realName: String? = null,
     val scheduleAccessEnabled: Boolean = false,
+    val updatePolicy: UserUpdatePolicy = UserUpdatePolicy.OPTIONAL,
+    val otherLongTermAccessEnabled: Boolean = true,
+    val residentRemarksAccessEnabled: Boolean = true,
 )
+
+enum class UserUpdatePolicy(val label: String) {
+    OPTIONAL("用户自行选择更新"),
+    FORCED("强制更新"),
+}
 
 data class UserCreateCommand(
     val username: String,
@@ -87,6 +95,9 @@ data class UserUpdateCommand(
     val password: String? = null,
     val realName: String? = null,
     val scheduleAccessEnabled: Boolean? = null,
+    val updatePolicy: UserUpdatePolicy? = null,
+    val otherLongTermAccessEnabled: Boolean? = null,
+    val residentRemarksAccessEnabled: Boolean? = null,
 )
 
 data class ManagedImportBatchSummary(

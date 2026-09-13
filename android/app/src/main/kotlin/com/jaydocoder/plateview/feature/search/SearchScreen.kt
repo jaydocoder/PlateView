@@ -42,8 +42,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -71,6 +69,7 @@ import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
 import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.LiquidGlassInput
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.formatPlateForDisplay
@@ -83,12 +82,19 @@ import java.util.Date
 fun SearchRoute(
     onNavigateToVehicle: (Long) -> Unit,
     onNavigateToProfile: () -> Unit,
+    onScreenVisible: () -> Unit = {},
+    onScreenHidden: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel(),
     avatarViewModel: AvatarViewModel = hiltViewModel(),
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val avatarState = avatarViewModel.uiState.collectAsStateWithLifecycle().value
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(Unit) {
+        onScreenVisible()
+        onDispose(onScreenHidden)
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -276,50 +282,35 @@ private fun SearchBar(
     onQueryChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    GlassSurface(
+    LiquidGlassInput(
+        value = query,
+        onValueChange = onQueryChanged,
         modifier = modifier
             .fillMaxWidth()
             .testTag("search_input"),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
-        elevated = true,
-    ) {
-        TextField(
-            value = query,
-            onValueChange = onQueryChanged,
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Outlined.Search,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
-            trailingIcon = {
-                if (query.isNotBlank()) {
-                    IconButton(
-                        onClick = { onQueryChanged("") },
-                        modifier = Modifier.testTag("search_clear_action"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = "清空车牌输入",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-            singleLine = true,
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
             )
-        )
-    }
+        },
+        trailingIcon = {
+            if (query.isNotBlank()) {
+                IconButton(
+                    onClick = { onQueryChanged("") },
+                    modifier = Modifier.testTag("search_clear_action"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "清空车牌输入",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+    )
 }
 
 @Composable
@@ -463,6 +454,7 @@ private fun VehicleCandidateRow(
             VehiclePlateBadge(
                 plateNumber = candidate.plateNumber,
                 compact = true,
+                plateColor = candidate.plateColor,
             )
             
             Spacer(modifier = Modifier.width(8.dp))

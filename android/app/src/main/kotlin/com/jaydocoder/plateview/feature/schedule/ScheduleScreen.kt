@@ -1,10 +1,8 @@
 package com.jaydocoder.plateview.feature.schedule
 
 import android.view.HapticFeedbackConstants
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
@@ -66,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
+import com.jaydocoder.plateview.component.glass.GlassPill
 import com.jaydocoder.plateview.domain.schedule.ScheduleShift
 import com.jaydocoder.plateview.domain.schedule.ScheduleShiftType
 import com.jaydocoder.plateview.domain.schedule.ScheduleMonth
@@ -184,29 +183,23 @@ private fun ScheduleHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("排班", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(8.dp))
-                Surface(
+                Row(
                     modifier = Modifier.width(112.dp).height(44.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f)),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize().padding(3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ScheduleDisplaySegment(
-                            label = "我的",
-                            selected = !showAllSchedules,
-                            onClick = { onShowAllSchedulesChanged(false) },
-                            modifier = Modifier.weight(1f).testTag("schedule_display_mine"),
-                        )
-                        ScheduleDisplaySegment(
-                            label = "全部",
-                            selected = showAllSchedules,
-                            onClick = { onShowAllSchedulesChanged(true) },
-                            modifier = Modifier.weight(1f).testTag("schedule_display_all"),
-                        )
-                    }
+                    ScheduleDisplaySegment(
+                        label = "我的",
+                        selected = !showAllSchedules,
+                        onClick = { onShowAllSchedulesChanged(false) },
+                        modifier = Modifier.weight(1f).testTag("schedule_display_mine"),
+                    )
+                    ScheduleDisplaySegment(
+                        label = "全部",
+                        selected = showAllSchedules,
+                        onClick = { onShowAllSchedulesChanged(true) },
+                        modifier = Modifier.weight(1f).testTag("schedule_display_all"),
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onToday) { Icon(Icons.Outlined.Today, "回到本周") }
@@ -236,24 +229,19 @@ private fun ScheduleDisplaySegment(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    GlassPill(
+        selected = selected,
         modifier = modifier
             .fillMaxHeight()
-            .clip(RoundedCornerShape(11.dp))
-            .background(
-                if (selected) MaterialTheme.colorScheme.primary
-                else Color.Transparent,
-            )
-            .clickable(onClick = onClick)
             .semantics { this.selected = selected },
-        contentAlignment = Alignment.Center,
+        onClick = onClick,
     ) {
         Text(
             text = label,
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
         )
@@ -271,6 +259,7 @@ private fun MonthCalendarDialog(
 ) = AlertDialog(
     onDismissRequest = onDismiss,
     shape = RoundedCornerShape(24.dp),
+    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
     title = { Text("月历") },
     text = {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {

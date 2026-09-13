@@ -2,10 +2,9 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt)
-    alias(libs.plugins.kapt)
+    alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -35,12 +34,12 @@ if (releaseDistributionRequested && !hasReleaseSigning) {
 
 android {
     namespace = "com.jaydocoder.plateview"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.jaydocoder.plateview"
         minSdk = 31
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 30
         versionName = "0.3.26"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -65,6 +64,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     compileOptions {
@@ -116,10 +116,8 @@ kotlin {
     jvmToolchain(17)
 }
 
-kapt {
-    arguments {
-        arg("room.schemaLocation", "$projectDir/schemas")
-    }
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -148,9 +146,10 @@ dependencies {
     implementation(libs.sentry.android) {
         exclude(group = "io.sentry", module = "sentry-android-replay")
     }
+    implementation(libs.backdrop)
     implementation(libs.kotlinx.serialization.json)
-    kapt(libs.hilt.compiler)
-    kapt(libs.androidx.room.compiler)
+    ksp(libs.hilt.compiler)
+    ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

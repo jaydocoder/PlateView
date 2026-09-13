@@ -1,6 +1,7 @@
 package com.jaydocoder.plateview.feature.vehicle
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -282,13 +283,17 @@ private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
                     .align(Alignment.TopStart)
                     .padding(start = 14.dp, top = 14.dp)
                     .testTag("vehicle_detail_identity_glass_panel"),
-                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                shape = RoundedCornerShape(24.dp),
                 elevated = false,
+                color = Color.White,
+                opacity = 0.46f,
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                     VehiclePlateBadge(
                         plateNumber = vehicle.plateNumber,
                         emphasized = true,
+                        plateColor = vehicle.plateColor(),
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -321,7 +326,8 @@ private fun DetailSection(
             .fillMaxWidth()
             .testTag("vehicle_detail_section_$title"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        elevated = false,
+        elevated = true,
+        contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -329,17 +335,16 @@ private fun DetailSection(
                     imageVector = icon,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(14.dp))
 
             fields.forEachIndexed { index, field ->
@@ -369,7 +374,8 @@ private fun DetailInfoCell(
     Surface(
         modifier = modifier.testTag("vehicle_detail_field_$label"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         if (isInline) {
             Row(
@@ -385,7 +391,6 @@ private fun DetailInfoCell(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 DetailValue(
-                    label = label,
                     value = value,
                     modifier = if (displayMode == DetailFieldDisplayMode.Inline) {
                         Modifier
@@ -410,10 +415,11 @@ private fun DetailInfoCell(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 DetailValue(
-                    label = label,
                     value = value,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
+                    maxLines = Int.MAX_VALUE,
+                    overflow = TextOverflow.Clip,
                 )
             }
         }
@@ -422,64 +428,27 @@ private fun DetailInfoCell(
 
 @Composable
 private fun DetailValue(
-    label: String,
     value: String,
     modifier: Modifier = Modifier,
     style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge,
     fontWeight: FontWeight? = null,
+    maxLines: Int = 1,
     overflow: TextOverflow = TextOverflow.Ellipsis,
 ) {
-    val plateColor = plateColorFor(label, value)
-    if (plateColor == null) {
-        Text(
-            text = value,
-            modifier = modifier,
-            style = style,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = fontWeight,
-            maxLines = 1,
-            overflow = overflow,
-        )
-    } else {
-        Row(
-            modifier = modifier,
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Surface(
-                modifier = Modifier.size(width = 26.dp, height = 16.dp),
-                color = plateColor,
-                shape = RoundedCornerShape(4.dp),
-            ) {}
-            Text(
-                text = value,
-                style = style,
-                color = plateTextColorFor(plateColor),
-                fontWeight = fontWeight,
-                maxLines = 1,
-                overflow = overflow,
-            )
-        }
-    }
+    Text(
+        text = value,
+        modifier = modifier,
+        style = style,
+        color = MaterialTheme.colorScheme.onSurface,
+        fontWeight = fontWeight,
+        maxLines = maxLines,
+        overflow = overflow,
+    )
 }
 
-@Composable
-private fun plateColorFor(label: String, value: String): Color? {
-    if (!label.contains("号牌颜色") && !label.contains("车牌颜色")) return null
-    return when (value.trim().lowercase()) {
-        "黄色", "黄", "yellow" -> Color(0xFFFFC107)
-        "蓝色", "蓝", "blue" -> Color(0xFF1976D2)
-        "绿色", "绿", "green" -> Color(0xFF2E8B57)
-        "白色", "白", "white" -> Color(0xFFF5F5F5)
-        "黑色", "黑", "black" -> Color(0xFF263238)
-        else -> null
-    }
-}
-
-private fun plateTextColorFor(background: Color): Color = when {
-    background == Color(0xFFFFC107) || background == Color(0xFFF5F5F5) -> Color(0xFF263238)
-    else -> Color.White
-}
+private fun VehicleDetail.plateColor(): String? = attributes
+    .firstOrNull { it.label == "号牌颜色" || it.label == "车牌颜色" }
+    ?.value
 
 private data class DetailField(
     val label: String,

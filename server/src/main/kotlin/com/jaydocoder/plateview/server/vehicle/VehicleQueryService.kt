@@ -13,7 +13,26 @@ import kotlinx.serialization.json.jsonObject
 internal class VehicleQueryService(
     private val dataSource: DataSource,
 ) {
-    fun search(keyword: String): List<VehicleSearchCandidate> {
+    fun accessScope(userId: Long): VehicleAccessScope = dataSource.connection.use { connection ->
+        connection.prepareStatement(
+            "SELECT username, role, other_long_term_access_enabled, resident_remarks_access_enabled FROM users WHERE id = ?",
+        ).use { statement ->
+            statement.setLong(1, userId)
+            statement.executeQuery().use { result ->
+                check(result.next()) { "当前账号不存在" }
+                if (result.getString("username") == "admin" && result.getString("role") == "ADMIN") {
+                    VehicleAccessScope.fullAccess()
+                } else {
+                    VehicleAccessScope(
+                        otherLongTermAccessEnabled = result.getBoolean("other_long_term_access_enabled"),
+                        residentRemarksAccessEnabled = result.getBoolean("resident_remarks_access_enabled"),
+                    )
+                }
+            }
+        }
+    }
+
+    fun search(keyword: String, accessScope: VehicleAccessScope): List<VehicleSearchCandidate> {
         val normalizedKeyword = normalizeSearchKeyword(keyword)
         return dataSource.connection.use { connection ->
             connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
@@ -23,10 +42,11 @@ internal class VehicleQueryService(
                 statement.setString(4, "%$normalizedKeyword%")
                 statement.setString(5, "%$normalizedKeyword%")
                 statement.setString(6, "%$normalizedKeyword%")
-                statement.setString(7, VehicleCategory.RESIDENT.name)
-                statement.setString(8, normalizedKeyword)
-                statement.setString(9, "$normalizedKeyword%")
-                statement.setInt(10, MAXIMUM_SEARCH_RESULT_COUNT)
+                statement.setBoolean(7, accessScope.otherLongTermAccessEnabled)
+                statement.setString(8, VehicleCategory.RESIDENT.name)
+                statement.setString(9, normalizedKeyword)
+                statement.setString(10, "$normalizedKeyword%")
+                statement.setInt(11, MAXIMUM_SEARCH_RESULT_COUNT)
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) add(result.toSearchCandidate())
@@ -36,13 +56,14 @@ internal class VehicleQueryService(
         }
     }
 
-    fun findDetail(vehicleId: Long): VehicleDetail? {
+    fun findDetail(vehicleId: Long, accessScope: VehicleAccessScope): VehicleDetail? {
         require(vehicleId > 0) { "车辆标识无效" }
         return dataSource.connection.use { connection ->
             connection.prepareStatement(SELECT_VEHICLE_DETAIL).use { statement ->
                 statement.setLong(1, vehicleId)
+                statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
                 statement.executeQuery().use { result ->
-                    if (result.next()) result.toVehicleDetail() else null
+                    if (result.next()) result.toVehicleDetail().filteredFor(accessScope) else null
                 }
             }
         }
@@ -62,28 +83,30 @@ internal class VehicleQueryService(
         }
     }
 
-    fun catalogVersion(): Long = catalogRevision()
+    fun catalogVersion(accessScope: VehicleAccessScope): Long = catalogVersion(catalogRevision(), accessScope)
 
-    fun catalog(limit: Int, offset: Int): VehicleCatalogPage {
+    fun catalog(accessScope: VehicleAccessScope, limit: Int, offset: Int): VehicleCatalogPage {
         require(limit in 1..500) { "目录分页大小必须在1到500之间" }
-        val revision = catalogRevision()
+        val revision = catalogVersion(accessScope)
         return dataSource.connection.use { connection ->
             val items = connection.prepareStatement(CATALOG_VEHICLES).use { statement ->
-                statement.setInt(1, limit)
-                statement.setInt(2, offset.coerceAtLeast(0))
+                statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
+                statement.setInt(2, limit)
+                statement.setInt(3, offset.coerceAtLeast(0))
                 statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
             }
-            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED'").use { statement ->
+            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED' AND (? OR category <> 'OTHER_LONG_TERM')").use { statement ->
+                statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
                 statement.executeQuery().use { result -> result.next(); result.getInt(1) }
             }
             VehicleCatalogPage(revision, total, items)
         }
     }
 
-    fun fullCatalog(expectedRevision: Long, limit: Int, offset: Int): VehicleFullCatalogPage {
+    fun fullCatalog(accessScope: VehicleAccessScope, expectedRevision: Long, limit: Int, offset: Int): VehicleFullCatalogPage {
         require(expectedRevision >= 0) { "目录版本无效" }
         require(limit in 1..500) { "目录分页大小必须在1到500之间" }
-        val snapshot = loadFullCatalogSnapshot(expectedRevision)
+        val snapshot = loadFullCatalogSnapshot(accessScope, expectedRevision)
         val safeOffset = offset.coerceAtLeast(0)
         return VehicleFullCatalogPage(
             revision = snapshot.revision,
@@ -92,15 +115,16 @@ internal class VehicleQueryService(
         )
     }
 
-    private fun loadFullCatalogSnapshot(expectedRevision: Long): VehicleFullCatalogSnapshot = dataSource.connection.use { connection ->
+    private fun loadFullCatalogSnapshot(accessScope: VehicleAccessScope, expectedRevision: Long): VehicleFullCatalogSnapshot = dataSource.connection.use { connection ->
         connection.autoCommit = false
         connection.transactionIsolation = Connection.TRANSACTION_REPEATABLE_READ
         try {
-            val revision = catalogRevision(connection)
+            val revision = catalogVersion(catalogRevision(connection), accessScope)
             if (revision != expectedRevision) throw VehicleCatalogVersionConflictException()
             val items = connection.prepareStatement(SELECT_FULL_CATALOG).use { statement ->
+                statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
                 statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toVehicleDetail()) } }
-            }
+            }.map { it.filteredFor(accessScope) }
             connection.commit()
             VehicleFullCatalogSnapshot(revision, items)
         } catch (throwable: Throwable) {
@@ -115,6 +139,8 @@ internal class VehicleQueryService(
         connection.prepareStatement("SELECT revision FROM vehicle_catalog_state WHERE id = 1").use { statement ->
             statement.executeQuery().use { result -> result.next(); result.getLong(1) }
         }
+
+    private fun catalogVersion(revision: Long, accessScope: VehicleAccessScope): Long = revision * 4L + accessScope.versionBits
 
     private fun normalizeSearchKeyword(keyword: String): String {
         val normalizedKeyword = normalizePlate(keyword)
@@ -131,6 +157,7 @@ internal class VehicleQueryService(
             plateNumber = getString("plate_number"),
             category = category,
             organizationName = getString("organization_name"),
+            plateColor = getString("plate_color"),
             status = getString("status"),
         )
     }
@@ -162,7 +189,7 @@ internal class VehicleQueryService(
 
     private companion object {
         const val SEARCH_VEHICLES = """
-            SELECT v.id, v.plate_number, v.category, v.status, lp.organization_name
+            SELECT v.id, v.plate_number, v.category, v.status, v.attributes ->> 'plateColor' AS plate_color, lp.organization_name
             FROM vehicles v
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
@@ -175,6 +202,7 @@ internal class VehicleQueryService(
                 OR rp.remarks ILIKE ?
             )
             AND v.status <> 'DELETED'
+            AND (? OR v.category <> 'OTHER_LONG_TERM')
             ORDER BY
                 CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END,
                 CASE WHEN v.category = ? THEN 0 ELSE 1 END,
@@ -190,10 +218,10 @@ internal class VehicleQueryService(
         """
 
         const val CATALOG_VEHICLES = """
-            SELECT v.id, v.plate_number, v.category, v.status, lp.organization_name
+            SELECT v.id, v.plate_number, v.category, v.status, v.attributes ->> 'plateColor' AS plate_color, lp.organization_name
             FROM vehicles v
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status <> 'DELETED'
+            WHERE v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
             ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id LIMIT ? OFFSET ?
         """
         const val SELECT_VEHICLE_DETAIL = """
@@ -205,7 +233,7 @@ internal class VehicleQueryService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.id = ? AND v.status <> 'DELETED'
+            WHERE v.id = ? AND v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
         """
 
         const val SELECT_FULL_CATALOG = """
@@ -217,7 +245,7 @@ internal class VehicleQueryService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status <> 'DELETED'
+            WHERE v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
             ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id
         """
     }
@@ -229,6 +257,7 @@ internal data class VehicleSearchCandidate(
     val plateNumber: String,
     val category: VehicleCategory,
     val organizationName: String?,
+    val plateColor: String?,
     val status: String,
 )
 
@@ -268,6 +297,21 @@ internal data class VehicleCatalogPage(val revision: Long, val total: Int, val i
 internal data class VehicleFullCatalogSnapshot(val revision: Long, val items: List<VehicleDetail>)
 
 internal data class VehicleFullCatalogPage(val revision: Long, val total: Int, val items: List<VehicleDetail>)
+
+internal data class VehicleAccessScope(
+    val otherLongTermAccessEnabled: Boolean,
+    val residentRemarksAccessEnabled: Boolean,
+) {
+    val versionBits: Long
+        get() = (if (otherLongTermAccessEnabled) 2L else 0L) + (if (residentRemarksAccessEnabled) 1L else 0L)
+
+    companion object {
+        fun fullAccess() = VehicleAccessScope(otherLongTermAccessEnabled = true, residentRemarksAccessEnabled = true)
+    }
+}
+
+internal fun VehicleDetail.filteredFor(accessScope: VehicleAccessScope): VehicleDetail =
+    if (accessScope.residentRemarksAccessEnabled) this else copy(residentProfile = residentProfile?.copy(remarks = null))
 
 internal class VehicleSearchKeywordException : RuntimeException("请输入至少一个车牌、姓名或单位字符")
 

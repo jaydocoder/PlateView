@@ -86,6 +86,7 @@ private fun VehicleSnapshotCacheEntity.toCandidate(): VehicleCandidate = Vehicle
     category = category,
     categoryLabel = categoryLabel,
     organizationName = organizationName,
+    plateColor = plateColor,
     status = status,
 )
 
@@ -97,6 +98,7 @@ private fun VehicleDetail.toEntity(generation: Long, gson: Gson): VehicleSnapsho
     category = category,
     categoryLabel = categoryLabel,
     organizationName = longTermProfile?.organizationName,
+    plateColor = attributes.firstOrNull { it.label == "号牌颜色" || it.label == "车牌颜色" }?.value,
     status = status,
     searchableText = listOfNotNull(
         plateNumber,

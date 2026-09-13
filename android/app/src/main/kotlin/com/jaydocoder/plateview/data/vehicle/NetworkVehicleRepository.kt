@@ -66,6 +66,7 @@ private fun VehicleCandidateDto.toDomain(): VehicleCandidate = VehicleCandidate(
     category = category,
     categoryLabel = categoryLabel,
     organizationName = organizationName,
+    plateColor = plateColor,
     status = status,
 )
 

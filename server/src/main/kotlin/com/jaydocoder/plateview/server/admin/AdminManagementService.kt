@@ -196,19 +196,24 @@ internal class AdminManagementService(
             val existing = connection.findUserForUpdate(userId) ?: throw AdminResourceNotFoundException("账号不存在")
             val profileChangeRequested = command.username != null || command.password != null || command.realName != null
             val scheduleAccessChangeRequested = command.scheduleAccessEnabled != null
+            val updatePolicyChangeRequested = command.updatePolicy != null
+            val vehicleDataAccessChangeRequested = command.otherLongTermAccessEnabled != null || command.residentRemarksAccessEnabled != null
             val roleOrStatusChanged = command.role != existing.role || command.status != existing.status
             val userInfoChanged = hasUserInfoChanged(existing, command)
             AdminUserProfilePolicy.requireModificationAllowed(
                 canManageOtherUserProfiles = connection.isPrimaryAdministrator(actorId),
-                profileChangeRequested = profileChangeRequested || scheduleAccessChangeRequested,
+                profileChangeRequested = profileChangeRequested || scheduleAccessChangeRequested || updatePolicyChangeRequested || vehicleDataAccessChangeRequested,
             )
             AdminUserProfilePolicy.requireTargetModificationAllowed(
                 targetUsername = existing.username,
                 canManageOtherUserProfiles = connection.isPrimaryAdministrator(actorId),
-                modificationRequested = profileChangeRequested || scheduleAccessChangeRequested || roleOrStatusChanged,
+                modificationRequested = profileChangeRequested || scheduleAccessChangeRequested || updatePolicyChangeRequested || vehicleDataAccessChangeRequested || roleOrStatusChanged,
             )
             if (scheduleAccessChangeRequested && existing.username == "admin") {
                 throw AdminValidationException("admin账号的排班入口不能关闭")
+            }
+            if (updatePolicyChangeRequested && existing.username == "admin") {
+                throw AdminValidationException("admin账号不能设置强制更新策略")
             }
             command.username?.trim()?.let { username ->
                 connection.prepareStatement("SELECT 1 FROM users WHERE username = ? AND id <> ?").use { statement ->
@@ -235,10 +240,13 @@ internal class AdminManagementService(
                 statement.setString(4, command.role.name)
                 statement.setString(5, command.status.name)
                 statement.setNullableBoolean(6, command.scheduleAccessEnabled)
-                statement.setBoolean(7, userInfoChanged)
-                statement.setLong(8, actorId)
-                statement.setLong(9, userId)
-                statement.setInt(10, expectedVersion)
+                statement.setNullableString(7, command.updatePolicy?.name)
+                statement.setNullableBoolean(8, command.otherLongTermAccessEnabled)
+                statement.setNullableBoolean(9, command.residentRemarksAccessEnabled)
+                statement.setBoolean(10, userInfoChanged)
+                statement.setLong(11, actorId)
+                statement.setLong(12, userId)
+                statement.setInt(13, expectedVersion)
                 statement.executeUpdate()
             }
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
@@ -445,10 +453,13 @@ internal class AdminManagementService(
         hasAvatar = getBytes("avatar_content") != null,
         realName = getString("real_name"),
         scheduleAccessEnabled = getBoolean("schedule_access_enabled"),
+        updatePolicy = AdminUpdatePolicy.valueOf(getString("update_policy")),
+        otherLongTermAccessEnabled = getBoolean("other_long_term_access_enabled"),
+        residentRemarksAccessEnabled = getBoolean("resident_remarks_access_enabled"),
     )
 
     private fun Connection.findUserForUpdate(userId: Long): AdminUserRecord? = prepareStatement(
-        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled FROM users WHERE id = ? FOR UPDATE",
+        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled FROM users WHERE id = ? FOR UPDATE",
     ).use { statement ->
         statement.setLong(1, userId)
         statement.executeQuery().use { result -> if (result.next()) result.toUserRecord() else null }
@@ -646,26 +657,26 @@ internal class AdminManagementService(
         const val DELETE_LONG_TERM_PROFILE = "DELETE FROM long_term_profiles WHERE vehicle_id = ?"
 
         const val SELECT_USERS = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled
             FROM users
             ORDER BY username, id
             LIMIT ? OFFSET ?
         """
 
         const val SELECT_USER = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled
             FROM users WHERE id = ?
         """
 
         const val INSERT_USER = """
-            INSERT INTO users (username, password_hash, role, real_name, schedule_access_enabled, created_by, updated_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (username, password_hash, role, real_name, schedule_access_enabled, update_policy, created_by, updated_by)
+            VALUES (?, ?, ?, ?, ?, 'OPTIONAL', ?, ?)
         """
 
         const val UPDATE_USER = """
             UPDATE users
             SET username = COALESCE(?, username), password_hash = COALESCE(?, password_hash), real_name = COALESCE(?, real_name),
-                role = ?, status = ?, schedule_access_enabled = COALESCE(?, schedule_access_enabled), auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
+                role = ?, status = ?, schedule_access_enabled = COALESCE(?, schedule_access_enabled), update_policy = COALESCE(?, update_policy), other_long_term_access_enabled = COALESCE(?, other_long_term_access_enabled), resident_remarks_access_enabled = COALESCE(?, resident_remarks_access_enabled), auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
                 version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
@@ -724,7 +735,10 @@ internal fun hasUserInfoChanged(existing: AdminUserRecord, command: AdminUserUpd
     val realNameChanged = command.realName?.trim()?.let { it != existing.realName } == true
     val roleOrStatusChanged = command.role != existing.role || command.status != existing.status
     return usernameChanged || command.password != null || realNameChanged || roleOrStatusChanged ||
-        command.scheduleAccessEnabled?.let { it != existing.scheduleAccessEnabled } == true
+        command.scheduleAccessEnabled?.let { it != existing.scheduleAccessEnabled } == true ||
+        command.updatePolicy?.let { it != existing.updatePolicy } == true ||
+        command.otherLongTermAccessEnabled?.let { it != existing.otherLongTermAccessEnabled } == true ||
+        command.residentRemarksAccessEnabled?.let { it != existing.residentRemarksAccessEnabled } == true
 }
 
 internal data class AdminVehicleCommand(
@@ -829,6 +843,8 @@ internal enum class AdminVehicleStatus { ACTIVE, BLACKLISTED, INACTIVE, DELETED 
 internal enum class AdminRole { ADMIN, USER }
 internal enum class AdminUserStatus { ACTIVE, DISABLED }
 
+internal enum class AdminUpdatePolicy { OPTIONAL, FORCED }
+
 internal data class AdminUserCreateCommand(
     val username: String,
     val password: String,
@@ -844,6 +860,9 @@ internal data class AdminUserUpdateCommand(
     val password: String? = null,
     val realName: String? = null,
     val scheduleAccessEnabled: Boolean? = null,
+    val updatePolicy: AdminUpdatePolicy? = null,
+    val otherLongTermAccessEnabled: Boolean? = null,
+    val residentRemarksAccessEnabled: Boolean? = null,
 )
 
 internal data class AdminUserRecord(
@@ -858,6 +877,9 @@ internal data class AdminUserRecord(
     val hasAvatar: Boolean,
     val realName: String?,
     val scheduleAccessEnabled: Boolean,
+    val updatePolicy: AdminUpdatePolicy = AdminUpdatePolicy.OPTIONAL,
+    val otherLongTermAccessEnabled: Boolean = true,
+    val residentRemarksAccessEnabled: Boolean = true,
 )
 
 internal data class AdminAvatarContent(val content: ByteArray, val contentType: String)

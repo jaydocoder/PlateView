@@ -14,7 +14,6 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,8 +30,11 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.BuildConfig
+import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.domain.update.AppUpdate
 
 @Composable
@@ -42,15 +44,25 @@ fun AppUpdateDialog(
     onDownload: () -> Unit,
     onInstall: (java.io.File) -> Unit,
     onDismiss: () -> Unit,
+    forceUpdate: Boolean = false,
 ) {
     val isDownloading = downloadState is UpdateDownloadState.Downloading
-    AlertDialog(
-        onDismissRequest = { if (!isDownloading) onDismiss() },
-        shape = MaterialTheme.shapes.large,
-        icon = {
-            Surface(
+    LiquidGlassDialog(
+        onDismissRequest = { if (!isDownloading && !forceUpdate) onDismiss() },
+        properties = if (forceUpdate) {
+            DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+        } else {
+            DialogProperties()
+        },
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        ) {
+            GlassSurface(
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.primaryContainer,
+                elevated = true,
             ) {
                 Icon(
                     imageVector = Icons.Outlined.SystemUpdate,
@@ -59,56 +71,35 @@ fun AppUpdateDialog(
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
-        },
-        title = { Text("发现新版本", style = MaterialTheme.typography.titleLarge) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("PlateView", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                    ) {
-                        Text(
-                            text = "v${update.versionName}",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        )
-                    }
-                }
-                Text(
-                    text = "当前版本 v${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "最新版本 v${update.versionName}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (update.releaseNotes.isNotBlank()) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text(if (forceUpdate) "需要更新应用" else "发现新版本", style = MaterialTheme.typography.titleLarge)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("PlateView", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.tertiaryContainer) {
                     Text(
-                        text = update.releaseNotes,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 5,
-                        overflow = TextOverflow.Ellipsis,
+                        text = "v${update.versionName}",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
                 }
-                UpdateDownloadStatus(downloadState)
             }
-        },
-        confirmButton = {
+            Text("当前版本 v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("最新版本 v${update.versionName}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (update.releaseNotes.isNotBlank()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text(update.releaseNotes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 5, overflow = TextOverflow.Ellipsis)
+            }
+            UpdateDownloadStatus(downloadState)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (!isDownloading && !forceUpdate) TextButton(onClick = onDismiss) { Text("稍后处理") }
             when (downloadState) {
                 UpdateDownloadState.Idle,
                 is UpdateDownloadState.Failed,
                 -> Button(onClick = onDownload) {
                     Icon(Icons.Outlined.FileDownload, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (downloadState is UpdateDownloadState.Failed) "重新下载" else "立即更新")
+                    Text(if (downloadState is UpdateDownloadState.Failed) "重新下载" else "在线更新")
                 }
 
                 is UpdateDownloadState.Downloading -> Button(onClick = {}, enabled = false) {
@@ -119,13 +110,48 @@ fun AppUpdateDialog(
                     Text("立即安装")
                 }
             }
-        },
-        dismissButton = {
-            if (!isDownloading) {
-                TextButton(onClick = onDismiss) { Text("稍后处理") }
             }
-        },
-    )
+        }
+    }
+}
+
+@Composable
+fun ForceUpdateUnavailableDialog(onRetry: () -> Unit) {
+    LiquidGlassDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        ) {
+            GlassSurface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.errorContainer,
+                elevated = true,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    modifier = Modifier.padding(12.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+            Text("无法确认强制更新", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "当前账号需要更新后才能继续使用。请连接网络后重新检查。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Button(onClick = onRetry) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("重新检查")
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -141,16 +167,18 @@ fun UpdateCheckDialog(
         ManualUpdateCheckState.Latest -> Triple(Icons.Outlined.TaskAlt, "已是最新版本", "当前版本 v${BuildConfig.VERSION_NAME} 已是最新版本。")
         is ManualUpdateCheckState.Failed -> Triple(Icons.Outlined.ErrorOutline, "检查更新失败", state.message)
     }
-    AlertDialog(
-        onDismissRequest = { if (!isChecking) onDismiss() },
-        shape = MaterialTheme.shapes.large,
-        icon = {
-            Surface(
+    LiquidGlassDialog(onDismissRequest = { if (!isChecking) onDismiss() }) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        ) {
+            GlassSurface(
                 shape = MaterialTheme.shapes.medium,
                 color = when (state) {
                     is ManualUpdateCheckState.Failed -> MaterialTheme.colorScheme.errorContainer
                     else -> MaterialTheme.colorScheme.primaryContainer
                 },
+                elevated = true,
             ) {
                 Icon(
                     imageVector = icon,
@@ -162,31 +190,21 @@ fun UpdateCheckDialog(
                     },
                 )
             }
-        },
-        title = { Text(title, style = MaterialTheme.typography.titleLarge) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
-                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (isChecking) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (isChecking) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (!isChecking) TextButton(onClick = onDismiss) { Text("关闭") }
+                if (state is ManualUpdateCheckState.Failed) {
+                    Button(onClick = onRetry) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("重新检查")
+                    }
                 }
             }
-        },
-        confirmButton = {
-            if (state is ManualUpdateCheckState.Failed) {
-                Button(onClick = onRetry) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("重新检查")
-                }
-            }
-        },
-        dismissButton = {
-            if (!isChecking) {
-                TextButton(onClick = onDismiss) { Text("关闭") }
-            }
-        },
-    )
+        }
+    }
 }
 
 @Composable

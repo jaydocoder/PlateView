@@ -37,11 +37,12 @@ data class AuthSession(
     val userId: Long = 0L,
     val avatarVersion: Long = 0L,
     val scheduleEnabled: Boolean = false,
+    val updatePolicy: String = "OPTIONAL",
 )
 data class LoginRequest(val username: String, val password: String)
 data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto)
-data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false)
-data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false)
+data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL")
+data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL")
 data class ProfileUpdateRequest(
     val username: String? = null,
     val password: String? = null,
@@ -97,6 +98,7 @@ class AuthRepository @Inject constructor(
             userId = p[USER_ID] ?: return@map null,
             avatarVersion = p[AVATAR_VERSION] ?: 0L,
             scheduleEnabled = p[SCHEDULE_ENABLED] ?: false,
+            updatePolicy = p[UPDATE_POLICY] ?: "OPTIONAL",
         )
     }
 
@@ -110,6 +112,7 @@ class AuthRepository @Inject constructor(
             preferences[ROLE] = response.user.role
             preferences[AVATAR_VERSION] = response.user.avatarVersion
             preferences[SCHEDULE_ENABLED] = response.user.scheduleEnabled
+            preferences[UPDATE_POLICY] = response.user.updatePolicy
         }
     }
 
@@ -137,6 +140,7 @@ class AuthRepository @Inject constructor(
         val USER_ID = longPreferencesKey("user_id")
         val AVATAR_VERSION = longPreferencesKey("avatar_version")
         val SCHEDULE_ENABLED = androidx.datastore.preferences.core.booleanPreferencesKey("schedule_enabled")
+        val UPDATE_POLICY = stringPreferencesKey("update_policy")
     }
 }
 

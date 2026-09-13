@@ -34,4 +34,50 @@ class PlateViewThemeTest {
             assertEquals(Color(0xFF3B8878), secondary)
         }
     }
+
+    @Test
+    fun 浅色主题所有容器层与页面背景一致() {
+        var background: Color? = null
+        var surface: Color? = null
+        var surfaceBright: Color? = null
+        var surfaceDim: Color? = null
+        var surfaceContainerLowest: Color? = null
+        var surfaceContainerLow: Color? = null
+        var surfaceContainer: Color? = null
+        var surfaceContainerHigh: Color? = null
+        var surfaceContainerHighest: Color? = null
+        var surfaceTint: Color? = null
+
+        composeRule.setContent {
+            PlateViewTheme(useDarkTheme = false) {
+                val colors = MaterialTheme.colorScheme
+                SideEffect {
+                    background = colors.background
+                    surface = colors.surface
+                    surfaceBright = colors.surfaceBright
+                    surfaceDim = colors.surfaceDim
+                    surfaceContainerLowest = colors.surfaceContainerLowest
+                    surfaceContainerLow = colors.surfaceContainerLow
+                    surfaceContainer = colors.surfaceContainer
+                    surfaceContainerHigh = colors.surfaceContainerHigh
+                    surfaceContainerHighest = colors.surfaceContainerHighest
+                    surfaceTint = colors.surfaceTint
+                }
+            }
+        }
+
+        composeRule.runOnIdle {
+            val expected = Color(0xFFF4F7F5)
+            assertEquals(expected, background)
+            assertEquals(expected, surface)
+            assertEquals(expected, surfaceBright)
+            assertEquals(expected, surfaceDim)
+            assertEquals(expected, surfaceContainerLowest)
+            assertEquals(expected, surfaceContainerLow)
+            assertEquals(expected, surfaceContainer)
+            assertEquals(expected, surfaceContainerHigh)
+            assertEquals(expected, surfaceContainerHighest)
+            assertEquals(Color.Transparent, surfaceTint)
+        }
+    }
 }

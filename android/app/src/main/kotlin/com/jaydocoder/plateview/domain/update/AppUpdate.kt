@@ -30,12 +30,18 @@ data class UpdateDownloadProgress(
 }
 
 interface AppUpdateRepository {
-    suspend fun findAvailableUpdate(): AppUpdate?
+    suspend fun checkForUpdate(): UpdateCheckResult
 
     suspend fun download(
         update: AppUpdate,
         onProgress: (UpdateDownloadProgress) -> Unit,
     ): File
+}
+
+sealed interface UpdateCheckResult {
+    data class Available(val update: AppUpdate) : UpdateCheckResult
+    data object UpToDate : UpdateCheckResult
+    data object Unavailable : UpdateCheckResult
 }
 
 internal data class AppVersion(private val values: List<Int>) : Comparable<AppVersion> {

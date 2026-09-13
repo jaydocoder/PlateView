@@ -1,6 +1,8 @@
 package com.jaydocoder.plateview.feature.update
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -35,7 +37,7 @@ class AppUpdateDialogTest {
         composeRule.onNodeWithText("当前版本 v${BuildConfig.VERSION_NAME}").assertExists()
         composeRule.onNodeWithText("最新版本 v0.3.3").assertExists()
         composeRule.onNodeWithText("v0.3.3").assertExists()
-        composeRule.onNodeWithText("立即更新").performClick()
+        composeRule.onNodeWithText("在线更新").performClick()
 
         composeRule.runOnIdle { assertTrue(downloadRequested) }
     }
@@ -69,5 +71,25 @@ class AppUpdateDialogTest {
 
         composeRule.onNodeWithText("已是最新版本").assertExists()
         composeRule.onNodeWithText("当前版本 v${BuildConfig.VERSION_NAME} 已是最新版本。").assertExists()
+    }
+
+    @Test
+    fun 强制更新弹层不显示稍后处理入口() {
+        composeRule.setContent {
+            PlateViewTheme {
+                AppUpdateDialog(
+                    update = AppUpdate("0.3.27", "需要更新", "https://example.com/app-release.apk"),
+                    downloadState = UpdateDownloadState.Idle,
+                    onDownload = {},
+                    onInstall = {},
+                    onDismiss = {},
+                    forceUpdate = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("需要更新应用").assertExists()
+        composeRule.onNodeWithText("在线更新").assertExists()
+        composeRule.onAllNodesWithText("稍后处理").assertCountEquals(0)
     }
 }

@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import com.jaydocoder.plateview.component.CompatFlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +26,6 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditCalendar
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -66,6 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
+import com.jaydocoder.plateview.component.glass.GlassPill
+import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.LiquidGlassInput
+import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.domain.schedule.ScheduleParticipant
 import com.jaydocoder.plateview.domain.schedule.ScheduleShiftType
 import com.jaydocoder.plateview.domain.schedule.ScheduleTemplateSummary
@@ -205,9 +208,10 @@ private fun TemplateList(
     state.error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
     if (!state.loading && state.templates.isEmpty()) item { Text("暂无模板") }
     items(state.templates, key = { it.id }) { item ->
-        ElevatedCard(
+        GlassSurface(
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevated = true,
         ) {
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -261,17 +265,20 @@ private fun TemplateEditor(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            OutlinedTextField(
+            LiquidGlassInput(
                 value = editor.name,
                 onValueChange = { value -> onChanged { it.copy(name = value) } },
                 label = { Text("模板名称") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp),
             )
         }
         item {
-            ElevatedCard(shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)) {
+            GlassSurface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                elevated = true,
+            ) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("循环天数", fontWeight = FontWeight.SemiBold)
@@ -282,22 +289,25 @@ private fun TemplateEditor(
             }
         }
         item {
-            ElevatedCard(shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)) {
+            GlassSurface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                elevated = true,
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("排班成员", fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(
+                    LiquidGlassInput(
                         value = memberQuery,
                         onValueChange = { memberQuery = it },
                         label = { Text("搜索真实姓名") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("schedule_member_search"),
-                        shape = RoundedCornerShape(14.dp),
                     )
                     if (selectedPeople.isNotEmpty()) {
                         Text("已选择", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CompatFlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             selectedPeople.forEach { person ->
-                                FilterChip(
+                                GlassPill(
                                     selected = true,
                                     onClick = {
                                         onChanged { value ->
@@ -308,19 +318,17 @@ private fun TemplateEditor(
                                             )
                                         }
                                     },
-                                    label = { Text(person.realName) },
-                                )
+                                ) { Text(person.realName, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) }
                             }
                         }
                     }
                     Text("按真实姓名添加", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CompatFlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         matchingPeople.filter { it.id !in editor.participantIds }.forEach { person ->
-                            FilterChip(
+                            GlassPill(
                                 selected = false,
                                 onClick = { onChanged { value -> value.copy(participantIds = value.participantIds + person.id) } },
-                                label = { Text(person.realName) },
-                            )
+                            ) { Text(person.realName, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) }
                         }
                     }
                     if (matchingPeople.isEmpty()) Text("没有匹配的真实姓名", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -328,13 +336,12 @@ private fun TemplateEditor(
             }
         }
         item {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            CompatFlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 (1..editor.cycleDays).forEach { day ->
-                    FilterChip(
+                    GlassPill(
                         selected = editor.selectedDay == day,
                         onClick = { onChanged { it.copy(selectedDay = day) } },
-                        label = { Text("第${day}天") },
-                    )
+                    ) { Text("第${day}天", modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) }
                 }
             }
         }
@@ -373,11 +380,12 @@ private fun TemplateEditor(
 private fun CycleDayPickerDialog(current: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
     var selected by remember(current) { mutableIntStateOf(current) }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (current - 1).coerceIn(0, 14))
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(20.dp),
-        title = { Text("选择循环天数") },
-        text = {
+    LiquidGlassDialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
+        ) {
+            Text("选择循环天数", style = MaterialTheme.typography.titleLarge)
             ThreeItemWheel(
                 values = (1..15).toList(),
                 selected = selected,
@@ -386,10 +394,12 @@ private fun CycleDayPickerDialog(current: Int, onDismiss: () -> Unit, onConfirm:
                 modifier = Modifier.fillMaxWidth().testTag("schedule_cycle_day_wheel"),
                 onSelected = { selected = it },
             )
-        },
-        confirmButton = { Button(onClick = { onConfirm(selected) }, shape = RoundedCornerShape(14.dp)) { Text("确认") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("取消") }
+                Button(onClick = { onConfirm(selected) }, shape = RoundedCornerShape(14.dp)) { Text("确认") }
+            }
+        }
+    }
 }
 
 @Composable
@@ -484,7 +494,7 @@ private fun ShiftPeopleEditor(
         if (participants.isEmpty()) {
             Text("请先选择排班成员", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            CompatFlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 participants.forEach { person ->
                     val selected = person.id in editor.people(editor.selectedDay, type)
                     FilterChip(

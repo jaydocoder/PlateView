@@ -28,6 +28,7 @@ data class VehicleCandidateDto(
     val category: String,
     val categoryLabel: String,
     val organizationName: String?,
+    val plateColor: String?,
     val status: String,
 )
 

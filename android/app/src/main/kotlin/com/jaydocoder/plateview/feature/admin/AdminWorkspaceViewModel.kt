@@ -268,6 +268,9 @@ class AdminWorkspaceViewModel @Inject constructor(
                         password = editor.password.takeIf { editor.canEditProfile && it.isNotBlank() },
                         realName = editor.realName.trim().takeIf { editor.canEditProfile && it != editor.originalRealName },
                         scheduleAccessEnabled = editor.scheduleAccessEnabled.takeIf { editor.canEditProfile && it != editor.originalScheduleAccessEnabled },
+                        updatePolicy = editor.updatePolicy.takeIf { editor.canEditProfile && editor.originalUsername != "admin" && it != editor.originalUpdatePolicy },
+                        otherLongTermAccessEnabled = editor.otherLongTermAccessEnabled.takeIf { editor.canEditProfile && editor.originalUsername != "admin" && it != editor.originalOtherLongTermAccessEnabled },
+                        residentRemarksAccessEnabled = editor.residentRemarksAccessEnabled.takeIf { editor.canEditProfile && editor.originalUsername != "admin" && it != editor.originalResidentRemarksAccessEnabled },
                     ),
                 )
             }

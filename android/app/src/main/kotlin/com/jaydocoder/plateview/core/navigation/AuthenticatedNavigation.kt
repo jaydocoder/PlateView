@@ -37,6 +37,8 @@ fun AuthenticatedNavigation(
     onLogout: () -> Unit,
     onOpenUpdate: (() -> Unit)? = null,
     onCheckForUpdate: () -> Unit = {},
+    onQueryScreenVisible: () -> Unit = {},
+    onQueryScreenHidden: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val navigateToHome: () -> Unit = remember(navController) {
@@ -98,7 +100,12 @@ fun AuthenticatedNavigation(
             modifier = androidx.compose.ui.Modifier.padding(padding),
         ) {
             composable<SearchDestination> {
-                SearchRoute(onNavigateToVehicle = navigateToVehicle, onNavigateToProfile = { navController.navigate(ProfileDestination) })
+                SearchRoute(
+                    onNavigateToVehicle = navigateToVehicle,
+                    onNavigateToProfile = { navController.navigate(ProfileDestination) },
+                    onScreenVisible = onQueryScreenVisible,
+                    onScreenHidden = onQueryScreenHidden,
+                )
             }
             if (scheduleEnabled) composable<ScheduleDestination> { ScheduleScreen() }
             composable<StatisticsDestination> { StatisticsRoute(onNavigateToVehicle = navigateToVehicle) }

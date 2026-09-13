@@ -3,11 +3,12 @@ package com.jaydocoder.plateview.feature.admin
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import com.jaydocoder.plateview.component.CompatFlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -116,6 +117,10 @@ import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.GlassPill
+import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
+import com.jaydocoder.plateview.component.glass.LiquidGlassInput
+import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.Instant
@@ -512,11 +517,12 @@ private fun DashboardCard(
     color: Color,
     onClick: () -> Unit,
 ) {
-    ElevatedCard(
-        onClick = onClick,
-        modifier = Modifier.height(140.dp),
+    GlassSurface(
+        modifier = Modifier
+            .height(140.dp)
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+        elevated = true,
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -808,18 +814,23 @@ private fun VehicleStatusFilterSelector(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FlowRow(
+            CompatFlowRow(
                 modifier = Modifier.fillMaxWidth().testTag("admin_vehicle_status_filter"),
                 horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing),
             ) {
                 VehicleStatusFilter.entries.forEach { filter ->
-                    FilterChip(
+                    GlassPill(
                         selected = filter == selected,
                         onClick = { onSelected(filter) },
-                        label = { Text(filter.label) },
-                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-                    )
+                    ) {
+                        Text(
+                            text = filter.label,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (filter == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -1400,6 +1411,42 @@ private fun UserEditorDialog(
                         }
                     }
                 }
+                if (editor.id != null && editor.canEditProfile) {
+                    item {
+                        UserEditorSwitch(
+                            title = "更新策略",
+                            description = "关闭时用户自行选择更新；开启后必须在线更新",
+                            checked = editor.updatePolicy == UserUpdatePolicy.FORCED,
+                            enabled = !isSaving,
+                            testTag = "admin_update_policy_switch",
+                            onCheckedChange = { enabled ->
+                                onChanged { it.copy(updatePolicy = if (enabled) UserUpdatePolicy.FORCED else UserUpdatePolicy.OPTIONAL, error = null) }
+                            },
+                        )
+                    }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing)) {
+                            Text("车辆数据访问范围", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text("关闭后，目标账号重新登录并同步目录时不会再收到对应数据。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            UserEditorSwitch(
+                                title = "其他长期通行车辆",
+                                description = "允许查询和缓存其他长期通行车辆",
+                                checked = editor.otherLongTermAccessEnabled,
+                                enabled = !isSaving,
+                                testTag = "admin_other_long_term_access_switch",
+                                onCheckedChange = { enabled -> onChanged { it.copy(otherLongTermAccessEnabled = enabled, error = null) } },
+                            )
+                            UserEditorSwitch(
+                                title = "村民车辆备注",
+                                description = "允许查看和缓存村民车辆的备注内容",
+                                checked = editor.residentRemarksAccessEnabled,
+                                enabled = !isSaving,
+                                testTag = "admin_resident_remarks_access_switch",
+                                onCheckedChange = { enabled -> onChanged { it.copy(residentRemarksAccessEnabled = enabled, error = null) } },
+                            )
+                        }
+                    }
+                }
             }
         }
         item { EditorSectionHeading("访问权限", "决定可访问的管理范围") }
@@ -1415,6 +1462,38 @@ private fun UserEditorDialog(
             }
         }
         editor.error?.let { message -> item { EditorErrorMessage(message) } }
+    }
+}
+
+@Composable
+private fun UserEditorSwitch(
+    title: String,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean,
+    testTag: String,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled,
+                modifier = Modifier.testTag(testTag),
+            )
+        }
     }
 }
 
@@ -1466,7 +1545,8 @@ private fun AdminEditorDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = PlateViewDimensions.pageHorizontal),
+                .padding(horizontal = PlateViewDimensions.pageHorizontal)
+                .testTag("admin_editor_content"),
             contentPadding = PaddingValues(vertical = PlateViewDimensions.itemSpacing),
             verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
         ) {
@@ -1507,25 +1587,19 @@ private fun AdminEditorDialog(
 
 @Composable
 private fun VehicleEditorLoadingDialog() {
-    Dialog(
+    LiquidGlassDialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
     ) {
-        Surface(
-            shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+        Row(
+            modifier = Modifier.padding(PlateViewDimensions.itemSpacing * 1.5f),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.padding(PlateViewDimensions.itemSpacing * 1.5f),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
-                Spacer(Modifier.width(PlateViewDimensions.itemSpacing))
-                Column {
-                    Text("正在读取车辆档案", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("即将打开编辑页面", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+            Spacer(Modifier.width(PlateViewDimensions.itemSpacing))
+            Column {
+                Text("正在读取车辆档案", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("即将打开编辑页面", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1551,55 +1625,50 @@ private fun VehicleStatusChangeDialog(
         "DELETED" -> "${vehicle.plateNumber} 将从首页查询、车辆目录和详情中隐藏，管理记录会保留。"
         else -> "确认更新 ${vehicle.plateNumber} 的车辆状态。"
     }
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-        ) {
-            Column(modifier = Modifier.padding(PlateViewDimensions.pageHorizontal)) {
-                Surface(
-                    color = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
-                    shape = CircleShape,
-                ) {
-                    Icon(
-                        when (targetStatus) {
-                            "ACTIVE" -> Icons.Outlined.CheckCircle
-                            "DELETED" -> Icons.Outlined.DeleteOutline
-                            else -> Icons.Outlined.Block
-                        },
-                        contentDescription = null,
-                        modifier = Modifier.padding(10.dp).size(22.dp),
-                        tint = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    )
-                }
-                Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(PlateViewDimensions.tinySpacing))
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    LiquidGlassDialog(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.padding(PlateViewDimensions.pageHorizontal)) {
+            GlassSurface(
+                shape = CircleShape,
+                color = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
+                elevated = true,
+            ) {
+                Icon(
+                    when (targetStatus) {
+                        "ACTIVE" -> Icons.Outlined.CheckCircle
+                        "DELETED" -> Icons.Outlined.DeleteOutline
+                        else -> Icons.Outlined.Block
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.padding(10.dp).size(22.dp),
+                    tint = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 )
-                Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("取消") }
-                    Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-                    Button(
-                        onClick = onConfirm,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (targetStatus == "DELETED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        ),
-                    ) {
-                        Text(
-                            when (targetStatus) {
-                                "ACTIVE" -> "确认启用"
-                                "BLACKLISTED" -> "确认拉黑"
-                                else -> "确认删除"
-                            },
-                        )
-                    }
+            }
+            Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(PlateViewDimensions.tinySpacing))
+            Text(
+                description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("取消") }
+                Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier.testTag("admin_confirm_vehicle_status"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (targetStatus == "DELETED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Text(
+                        when (targetStatus) {
+                            "ACTIVE" -> "确认启用"
+                            "BLACKLISTED" -> "确认拉黑"
+                            else -> "确认删除"
+                        },
+                    )
                 }
             }
         }
@@ -1942,7 +2011,7 @@ private fun AdminFullScreenWorkspace(
                 bottomBar = {
                     Column {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        FlowRow(
+                        CompatFlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .imePadding()
@@ -2011,19 +2080,11 @@ private fun EditorTextField(
     singleLine: Boolean = true,
     onValueChange: (String) -> Unit,
 ) {
-    OutlinedTextField(
+    LiquidGlassInput(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = singleLine,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-            unfocusedIndicatorColor = MaterialTheme.colorScheme.outlineVariant
-        )
     )
 }
 
@@ -2038,7 +2099,7 @@ private fun ChoiceField(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        CompatFlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { option ->
                 FilterChip(
                     selected = selected == option.value,
@@ -2054,14 +2115,12 @@ private fun ChoiceField(
 
 @Composable
 private fun ReadOnlyChoiceField(label: String, value: String) {
-    OutlinedTextField(
+    LiquidGlassInput(
         value = value,
         onValueChange = {},
         label = { Text(label) },
         readOnly = true,
         enabled = false,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
     )
 }
 

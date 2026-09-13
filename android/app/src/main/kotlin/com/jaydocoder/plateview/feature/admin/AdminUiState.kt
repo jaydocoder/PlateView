@@ -13,6 +13,7 @@ import com.jaydocoder.plateview.domain.admin.ManagedResidentProfile
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicle
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
+import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 import com.jaydocoder.plateview.data.network.AppError
 
@@ -145,6 +146,12 @@ data class UserEditorState(
     val originalRealName: String = "",
     val scheduleAccessEnabled: Boolean = false,
     val originalScheduleAccessEnabled: Boolean = false,
+    val updatePolicy: UserUpdatePolicy = UserUpdatePolicy.OPTIONAL,
+    val originalUpdatePolicy: UserUpdatePolicy = UserUpdatePolicy.OPTIONAL,
+    val otherLongTermAccessEnabled: Boolean = true,
+    val originalOtherLongTermAccessEnabled: Boolean = true,
+    val residentRemarksAccessEnabled: Boolean = true,
+    val originalResidentRemarksAccessEnabled: Boolean = true,
     val canEditProfile: Boolean = false,
     val role: String = "USER",
     val status: String = "ACTIVE",
@@ -190,6 +197,12 @@ fun ManagedUser.toEditor(canEditProfile: Boolean): UserEditorState = UserEditorS
     originalRealName = realName.orEmpty(),
     scheduleAccessEnabled = scheduleAccessEnabled,
     originalScheduleAccessEnabled = scheduleAccessEnabled,
+    updatePolicy = updatePolicy,
+    originalUpdatePolicy = updatePolicy,
+    otherLongTermAccessEnabled = otherLongTermAccessEnabled,
+    originalOtherLongTermAccessEnabled = otherLongTermAccessEnabled,
+    residentRemarksAccessEnabled = residentRemarksAccessEnabled,
+    originalResidentRemarksAccessEnabled = residentRemarksAccessEnabled,
     role = role,
     status = status,
     canEditProfile = canEditProfile,

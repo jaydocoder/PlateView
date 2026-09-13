@@ -45,11 +45,24 @@ class AdminManagementValidationTest {
             realName = "新姓名",
             scheduleAccessEnabled = false,
         )
+        val updatePolicyChanged = AdminUserUpdateCommand(
+            AdminRole.USER,
+            AdminUserStatus.ACTIVE,
+            updatePolicy = AdminUpdatePolicy.FORCED,
+        )
+        val vehicleDataAccessChanged = AdminUserUpdateCommand(
+            AdminRole.USER,
+            AdminUserStatus.ACTIVE,
+            otherLongTermAccessEnabled = false,
+            residentRemarksAccessEnabled = false,
+        )
 
         assertEquals(false, hasUserInfoChanged(existing, unchanged))
         assertEquals(true, hasUserInfoChanged(existing, roleChanged))
         assertEquals(true, hasUserInfoChanged(existing, statusChanged))
         assertEquals(true, hasUserInfoChanged(existing, avatarIndependentProfileChanged))
+        assertEquals(true, hasUserInfoChanged(existing, updatePolicyChanged))
+        assertEquals(true, hasUserInfoChanged(existing, vehicleDataAccessChanged))
     }
 
     @Test

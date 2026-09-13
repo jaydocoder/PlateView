@@ -5,6 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -15,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
@@ -90,6 +92,35 @@ class VehicleQueryScreenTest {
         composeRule.onNodeWithTag("candidate_101").performClick()
 
         assertEquals(101L, selectedVehicleId)
+    }
+
+    @Test
+    fun 首页候选按档案号牌颜色展示黄色车牌() {
+        val candidate = VehicleCandidate(
+            id = 101,
+            plateNumber = "新A12345",
+            category = "RESIDENT",
+            categoryLabel = "村民车辆",
+            plateColor = "黄色",
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(candidates = listOf(candidate)),
+                    onQueryChanged = {},
+                    onCandidateSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("黄色号牌", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
@@ -217,6 +248,36 @@ class VehicleQueryScreenTest {
     }
 
     @Test
+    fun 详情横幅按档案号牌颜色展示黄色车牌() {
+        val vehicle = VehicleDetail(
+            id = 101,
+            plateNumber = "新A12345",
+            normalizedPlate = "新A12345",
+            category = "RESIDENT",
+            categoryLabel = "村民车辆",
+            vehicleType = "小型汽车",
+            status = "ACTIVE",
+            attributes = listOf(com.jaydocoder.plateview.domain.vehicle.VehicleAttribute("号牌颜色", "黄色")),
+            residentProfile = null,
+            longTermProfile = null,
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                VehicleDetailScreen(
+                    uiState = VehicleDetailUiState(VehicleDetailContent.Data(vehicle)),
+                    onNavigateUp = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("黄色号牌", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("vehicle_detail_field_号牌颜色").assertIsDisplayed()
+        composeRule.onAllNodesWithText("黄色").assertCountEquals(1)
+    }
+
+    @Test
     fun 详情页对缺失村民核验字段显示未填写() {
         val vehicle = VehicleDetail(
             id = 102,
@@ -321,6 +382,7 @@ class VehicleQueryScreenTest {
 
         composeRule.onNodeWithText(passageDetails).assertIsDisplayed()
         composeRule.onNodeWithText(longRemarks).assertIsDisplayed()
+        composeRule.onNodeWithTag("vehicle_detail_field_通行说明").assertHeightIsAtLeast(100.dp)
     }
 
     @Test

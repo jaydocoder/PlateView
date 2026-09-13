@@ -7,6 +7,7 @@ import com.jaydocoder.plateview.domain.update.AppUpdate
 import com.jaydocoder.plateview.domain.update.AppUpdateRepository
 import com.jaydocoder.plateview.domain.update.AppVersion
 import com.jaydocoder.plateview.domain.update.UpdateDownloadProgress
+import com.jaydocoder.plateview.domain.update.UpdateCheckResult
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -62,29 +63,15 @@ class GitHubUpdateRepository @Inject constructor(
     @UpdateHttpClient private val client: OkHttpClient,
     @ApplicationContext private val context: Context,
 ) : AppUpdateRepository {
-    override suspend fun findAvailableUpdate(): AppUpdate? {
-        val installedVersion = AppVersion.parse(BuildConfig.VERSION_NAME) ?: return null
-        val serverUpdate = runCatching { serverApi.latestUpdate() }.getOrNull()
-        val githubRelease = runCatching { api.latestRelease() }.getOrNull()
-        val githubUpdate = githubRelease?.let { release ->
-            val version = AppVersion.parse(release.tagName) ?: return@let null
-            val asset = release.assets.firstOrNull { it.name == RELEASE_ASSET_NAME } ?: return@let null
-            AvailableSource(version, release.tagName.removePrefix("v"), release.body.orEmpty().trim(), asset.browserDownloadUrl)
-        }
-        val serverSource = serverUpdate?.let { update ->
-            AppVersion.parse(update.versionName)?.let { version ->
-                AvailableSource(version, update.versionName.removePrefix("v"), update.releaseNotes.orEmpty().trim(), update.apkUrl)
-            }
-        }
-        val preferred = githubUpdate ?: serverSource ?: return null
-        if (preferred.version <= installedVersion) return null
-        val matchingServer = serverSource?.takeIf { it.version == preferred.version }
-        return AppUpdate(
-            versionName = preferred.versionName,
-            releaseNotes = preferred.releaseNotes.ifBlank { matchingServer?.releaseNotes.orEmpty() },
-            downloadUrls = listOfNotNull(preferred.downloadUrl, matchingServer?.downloadUrl).distinct(),
-            sha256 = serverUpdate?.takeIf { AppVersion.parse(it.versionName) == preferred.version }?.sha256,
-        )
+    override suspend fun checkForUpdate(): UpdateCheckResult {
+        val installedVersion = AppVersion.parse(BuildConfig.VERSION_NAME) ?: return UpdateCheckResult.UpToDate
+        val serverResult = runCatching { serverApi.latestUpdate() }
+        val githubResult = runCatching { api.latestRelease() }
+        if (serverResult.isFailure && githubResult.isFailure) return UpdateCheckResult.Unavailable
+        val serverUpdate = serverResult.getOrNull()
+        return resolveAvailableUpdate(installedVersion, githubResult.getOrNull(), serverUpdate)
+            ?.let(UpdateCheckResult::Available)
+            ?: UpdateCheckResult.UpToDate
     }
 
     override suspend fun download(
@@ -101,7 +88,38 @@ private data class AvailableSource(
     val versionName: String,
     val releaseNotes: String,
     val downloadUrl: String,
+    val sourcePriority: Int,
 )
+
+internal fun resolveAvailableUpdate(
+    installedVersion: AppVersion,
+    githubRelease: GitHubReleaseDto?,
+    serverUpdate: ServerUpdateDto?,
+): AppUpdate? {
+    val githubSource = githubRelease?.let { release ->
+        val version = AppVersion.parse(release.tagName) ?: return@let null
+        val asset = release.assets.firstOrNull { it.name == RELEASE_ASSET_NAME } ?: return@let null
+        AvailableSource(version, release.tagName.removePrefix("v"), release.body.orEmpty().trim(), asset.browserDownloadUrl, sourcePriority = 0)
+    }
+    val serverSource = serverUpdate?.let { update ->
+        AppVersion.parse(update.versionName)?.let { version ->
+            AvailableSource(version, update.versionName.removePrefix("v"), update.releaseNotes.orEmpty().trim(), update.apkUrl, sourcePriority = 1)
+        }
+    }
+    val preferred = listOfNotNull(githubSource, serverSource)
+        .filter { it.version > installedVersion }
+        .maxByOrNull { it.version }
+        ?: return null
+    val matchingSources = listOfNotNull(githubSource, serverSource)
+        .filter { it.version == preferred.version }
+        .sortedBy(AvailableSource::sourcePriority)
+    return AppUpdate(
+        versionName = preferred.versionName,
+        releaseNotes = matchingSources.firstNotNullOfOrNull { it.releaseNotes.takeIf(String::isNotBlank) }.orEmpty(),
+        downloadUrls = matchingSources.map(AvailableSource::downloadUrl).distinct(),
+        sha256 = serverUpdate?.takeIf { AppVersion.parse(it.versionName) == preferred.version }?.sha256,
+    )
+}
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
