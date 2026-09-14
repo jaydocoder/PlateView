@@ -52,6 +52,7 @@ printf '{"versionName":"%s","releaseNotes":"","apkUrl":"https://api.chenxiruyu.d
     "$tag" "$tag" "$sha256" > "${latest_file}.next"
 mv "${latest_file}.next" "$latest_file"
 
+declare -a expired_files=()
 mapfile -t expired_files < <(find "$UPDATES_DIR" -maxdepth 1 -type f -name 'PlateView-v*.apk' -printf '%T@ %p\n' \
     | sort -nr | tail -n +$((RETAIN_COUNT + 1)) | cut -d' ' -f2-)
 for expired_file in "${expired_files[@]}"; do
