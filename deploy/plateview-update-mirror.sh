@@ -55,7 +55,7 @@ mv "${latest_file}.next" "$latest_file"
 declare -a expired_files=()
 mapfile -t expired_files < <(find "$UPDATES_DIR" -maxdepth 1 -type f -name 'PlateView-v*.apk' -printf '%T@ %p\n' \
     | sort -nr | tail -n +$((RETAIN_COUNT + 1)) | cut -d' ' -f2-)
-for expired_file in "${expired_files[@]}"; do
+for expired_file in "${expired_files[@]-}"; do
     [[ -n "$expired_file" ]] && rm -f "$expired_file"
 done
 
