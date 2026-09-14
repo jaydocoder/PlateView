@@ -1,64 +1,12 @@
 package com.jaydocoder.plateview.server.admin
 
 import com.jaydocoder.plateview.server.vehicle.VehicleCategory
-import com.jaydocoder.plateview.server.vehicle.VehicleAccessScope
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.serialization.json.JsonObject
 
 class AdminManagementValidationTest {
-    @Test
-    fun `管理端禁止其他长期车辆访问时拒绝读取和操作该类别`() {
-        val restrictedScope = VehicleAccessScope(
-            otherLongTermAccessEnabled = false,
-            residentRemarksAccessEnabled = true,
-        )
-
-        assertFailsWith<AdminResourceNotFoundException> {
-            AdminVehicleAccessPolicy.requireCategoryAccess(VehicleCategory.OTHER_LONG_TERM, restrictedScope)
-        }
-        AdminVehicleAccessPolicy.requireCategoryAccess(VehicleCategory.RESIDENT, restrictedScope)
-    }
-
-    @Test
-    fun `管理端禁止村民备注访问时不回显且拒绝修改备注`() {
-        val restrictedScope = VehicleAccessScope(
-            otherLongTermAccessEnabled = true,
-            residentRemarksAccessEnabled = false,
-        )
-        val vehicle = AdminVehicleRecord(
-            id = 1,
-            plateNumber = "新A12345",
-            normalizedPlate = "新A12345",
-            category = VehicleCategory.RESIDENT,
-            status = AdminVehicleStatus.ACTIVE,
-            version = 1,
-            vehicleType = null,
-            attributes = JsonObject(emptyMap()),
-            residentProfile = AdminResidentProfile("测试姓名", "测试证件", null, "不应回显的备注"),
-            longTermProfile = null,
-        )
-        val unchangedRemarkCommand = AdminVehicleCommand(
-            plateNumber = "新A12345",
-            category = VehicleCategory.RESIDENT,
-            vehicleType = null,
-            status = AdminVehicleStatus.ACTIVE,
-            attributes = JsonObject(emptyMap()),
-            residentProfile = AdminResidentProfile("测试姓名", "测试证件", null, null),
-            longTermProfile = null,
-        )
-        val changedRemarkCommand = unchangedRemarkCommand.copy(
-            residentProfile = unchangedRemarkCommand.residentProfile?.copy(remarks = "尝试修改"),
-        )
-
-        assertEquals(null, vehicle.filteredFor(restrictedScope).residentProfile?.remarks)
-        AdminVehicleAccessPolicy.requireResidentRemarksUpdateAllowed(unchangedRemarkCommand, restrictedScope)
-        assertFailsWith<AdminPermissionException> {
-            AdminVehicleAccessPolicy.requireResidentRemarksUpdateAllowed(changedRemarkCommand, restrictedScope)
-        }
-    }
-
     @Test
     fun `车辆状态区分人工拉黑、导入失效和逻辑删除`() {
         assertEquals(
@@ -86,8 +34,6 @@ class AdminManagementValidationTest {
             hasAvatar = false,
             realName = "操作员",
             scheduleAccessEnabled = true,
-            otherLongTermAccessEnabled = true,
-            residentRemarksAccessEnabled = true,
         )
         val unchanged = AdminUserUpdateCommand(AdminRole.USER, AdminUserStatus.ACTIVE)
         val roleChanged = AdminUserUpdateCommand(AdminRole.ADMIN, AdminUserStatus.ACTIVE)
@@ -117,26 +63,6 @@ class AdminManagementValidationTest {
         assertEquals(true, hasUserInfoChanged(existing, avatarIndependentProfileChanged))
         assertEquals(true, hasUserInfoChanged(existing, updatePolicyChanged))
         assertEquals(true, hasUserInfoChanged(existing, vehicleDataAccessChanged))
-    }
-
-    @Test
-    fun `新建账号的数据访问默认关闭`() {
-        val account = AdminUserRecord(
-            id = 2,
-            username = "operator",
-            role = AdminRole.USER,
-            status = AdminUserStatus.ACTIVE,
-            version = 1,
-            createdAt = null,
-            updatedAt = null,
-            avatarVersion = 0,
-            hasAvatar = false,
-            realName = null,
-            scheduleAccessEnabled = false,
-        )
-
-        assertEquals(false, account.otherLongTermAccessEnabled)
-        assertEquals(false, account.residentRemarksAccessEnabled)
     }
 
     @Test

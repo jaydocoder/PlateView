@@ -3,8 +3,6 @@ package com.jaydocoder.plateview.server.admin
 import com.jaydocoder.plateview.server.auth.AvatarUpload
 import com.jaydocoder.plateview.server.auth.isPrimaryAdministrator
 import com.jaydocoder.plateview.server.vehicle.VehicleCategory
-import com.jaydocoder.plateview.server.vehicle.VehicleAccessScope
-import com.jaydocoder.plateview.server.vehicle.VehicleQueryService
 import com.jaydocoder.plateview.server.vehicle.normalizePlate
 import java.sql.Connection
 import java.sql.ResultSet
@@ -24,15 +22,7 @@ internal class AdminManagementService(
 ) {
     fun isPrimaryAdministrator(actorId: Long): Boolean = dataSource.connection.use { it.isPrimaryAdministrator(actorId) }
 
-    fun vehicleAccessScope(actorId: Long): VehicleAccessScope = VehicleQueryService(dataSource).accessScope(actorId)
-
-    fun listVehicles(
-        keyword: String?,
-        status: AdminVehicleStatus?,
-        limit: Int,
-        offset: Int,
-        accessScope: VehicleAccessScope,
-    ): AdminVehiclePage {
+    fun listVehicles(keyword: String?, status: AdminVehicleStatus?, limit: Int, offset: Int): AdminVehiclePage {
         val normalizedKeyword = keyword?.takeIf(String::isNotBlank)?.let(::normalizePlate)
         return dataSource.connection.use { connection ->
             val items = connection.prepareStatement(SELECT_VEHICLES).use { statement ->
@@ -40,9 +30,8 @@ internal class AdminManagementService(
                 statement.setString(2, normalizedKeyword?.let { "%$it%" })
                 statement.setString(3, status?.name)
                 statement.setString(4, status?.name)
-                statement.setBoolean(5, accessScope.otherLongTermAccessEnabled)
-                statement.setInt(6, limit.coerceIn(1, MAX_PAGE_SIZE))
-                statement.setInt(7, offset.coerceAtLeast(0))
+                statement.setInt(5, limit.coerceIn(1, MAX_PAGE_SIZE))
+                statement.setInt(6, offset.coerceAtLeast(0))
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) add(result.toVehicleListItem())
@@ -54,34 +43,27 @@ internal class AdminManagementService(
                 statement.setString(2, normalizedKeyword?.let { "%$it%" })
                 statement.setString(3, status?.name)
                 statement.setString(4, status?.name)
-                statement.setBoolean(5, accessScope.otherLongTermAccessEnabled)
                 statement.executeQuery().use { result -> result.next(); result.getInt(1) }
             }
             AdminVehiclePage(items = items, total = total)
         }
     }
 
-    fun getVehicle(vehicleId: Long, accessScope: VehicleAccessScope): AdminVehicleRecord = dataSource.connection.use { connection ->
+    fun getVehicle(vehicleId: Long): AdminVehicleRecord = dataSource.connection.use { connection ->
         connection.prepareStatement(SELECT_VEHICLE).use { statement ->
             statement.setLong(1, vehicleId.requirePositive("车辆标识"))
-            statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
             statement.executeQuery().use { result ->
-                if (result.next()) result.toVehicleRecord().filteredFor(accessScope) else throw AdminResourceNotFoundException("车辆不存在")
+                if (result.next()) result.toVehicleRecord() else throw AdminResourceNotFoundException("车辆不存在")
             }
         }
     }
 
-    fun vehicleCreationCapabilities(actorId: Long, accessScope: VehicleAccessScope): AdminVehicleCreationCapabilities = dataSource.connection.use { connection ->
-        AdminVehicleCreationPolicy.capabilities(connection.isPrimaryAdministrator(actorId)).filteredFor(accessScope)
+    fun vehicleCreationCapabilities(actorId: Long): AdminVehicleCreationCapabilities = dataSource.connection.use { connection ->
+        AdminVehicleCreationPolicy.capabilities(connection.isPrimaryAdministrator(actorId))
     }
 
-    fun createVehicle(
-        command: AdminVehicleCommand,
-        actorId: Long,
-        accessScope: VehicleAccessScope,
-    ): AdminVehicleRecord {
+    fun createVehicle(command: AdminVehicleCommand, actorId: Long): AdminVehicleRecord {
         command.validate()
-        AdminVehicleAccessPolicy.requireCategoryAccess(command.category, accessScope)
         val vehicleId = try {
             inTransaction { connection ->
                 AdminVehicleCreationPolicy.requireCreationAllowed(
@@ -102,21 +84,15 @@ internal class AdminManagementService(
                         if (!keys.next()) error("创建车辆后未返回标识")
                         keys.getLong(1)
                     }
-                }.also { vehicleId -> upsertProfiles(connection, vehicleId, command, actorId, accessScope) }
+                }.also { vehicleId -> upsertProfiles(connection, vehicleId, command, actorId) }
             }
         } catch (exception: SQLException) {
             throw exception.toAdminException()
         }
-        return getVehicle(vehicleId, accessScope)
+        return getVehicle(vehicleId)
     }
 
-    fun updateVehicle(
-        vehicleId: Long,
-        command: AdminVehicleCommand,
-        expectedVersion: Int,
-        actorId: Long,
-        accessScope: VehicleAccessScope,
-    ): AdminVehicleRecord {
+    fun updateVehicle(vehicleId: Long, command: AdminVehicleCommand, expectedVersion: Int, actorId: Long): AdminVehicleRecord {
         vehicleId.requirePositive("车辆标识")
         expectedVersion.requireNonNegative("车辆版本")
         command.validate()
@@ -124,9 +100,6 @@ internal class AdminManagementService(
             inTransaction { connection ->
                 val existingCategory = connection.findVehicleCategoryForUpdate(vehicleId)
                     ?: throw AdminResourceNotFoundException("车辆不存在")
-                AdminVehicleAccessPolicy.requireCategoryAccess(existingCategory, accessScope)
-                AdminVehicleAccessPolicy.requireCategoryAccess(command.category, accessScope)
-                AdminVehicleAccessPolicy.requireResidentRemarksUpdateAllowed(command, accessScope)
                 AdminVehicleCreationPolicy.requireUpdateAllowed(
                     isPrimaryAdministrator = connection.isPrimaryAdministrator(actorId),
                     originalCategory = existingCategory,
@@ -144,12 +117,12 @@ internal class AdminManagementService(
                     statement.executeUpdate()
                 }
                 if (changed == 0) throw vehicleWriteFailure(connection, vehicleId)
-                upsertProfiles(connection, vehicleId, command, actorId, accessScope)
+                upsertProfiles(connection, vehicleId, command, actorId)
             }
         } catch (exception: SQLException) {
             throw exception.toAdminException()
         }
-        return getVehicle(vehicleId, accessScope)
+        return getVehicle(vehicleId)
     }
 
     fun updateVehicleStatus(
@@ -157,7 +130,6 @@ internal class AdminManagementService(
         status: AdminVehicleStatus,
         expectedVersion: Int,
         actorId: Long,
-        accessScope: VehicleAccessScope,
     ): AdminVehicleRecord {
         vehicleId.requirePositive("车辆标识")
         expectedVersion.requireNonNegative("车辆版本")
@@ -165,9 +137,6 @@ internal class AdminManagementService(
             throw AdminValidationException("已停用状态仅由导入流程在车辆缺失时设置")
         }
         inTransaction { connection ->
-            val existingCategory = connection.findVehicleCategoryForUpdate(vehicleId)
-                ?: throw AdminResourceNotFoundException("车辆不存在")
-            AdminVehicleAccessPolicy.requireCategoryAccess(existingCategory, accessScope)
             val changed = connection.prepareStatement(UPDATE_VEHICLE_STATUS).use { statement ->
                 statement.setString(1, status.name)
                 statement.setLong(2, actorId)
@@ -177,7 +146,7 @@ internal class AdminManagementService(
             }
             if (changed == 0) throw vehicleWriteFailure(connection, vehicleId)
         }
-        return getVehicle(vehicleId, accessScope)
+        return getVehicle(vehicleId)
     }
 
     fun listUsers(limit: Int, offset: Int): List<AdminUserRecord> = dataSource.connection.use { connection ->
@@ -378,13 +347,7 @@ internal class AdminManagementService(
         }
     }
 
-    private fun upsertProfiles(
-        connection: Connection,
-        vehicleId: Long,
-        command: AdminVehicleCommand,
-        actorId: Long,
-        accessScope: VehicleAccessScope,
-    ) {
+    private fun upsertProfiles(connection: Connection, vehicleId: Long, command: AdminVehicleCommand, actorId: Long) {
         command.residentProfile?.let { profile ->
             connection.prepareStatement(UPSERT_RESIDENT_PROFILE).use { statement ->
                 statement.setLong(1, vehicleId)
@@ -392,9 +355,8 @@ internal class AdminManagementService(
                 statement.setString(3, profile.identityCardNumber.trim())
                 statement.setNullableString(4, profile.contactPhone.trimToNull())
                 statement.setNullableString(5, profile.remarks.trimToNull())
-                statement.setBoolean(6, accessScope.residentRemarksAccessEnabled)
+                statement.setLong(6, actorId)
                 statement.setLong(7, actorId)
-                statement.setLong(8, actorId)
                 statement.executeUpdate()
             }
             connection.prepareStatement(DELETE_LONG_TERM_PROFILE).use { statement ->
@@ -621,7 +583,6 @@ internal class AdminManagementService(
             FROM vehicles
             WHERE (? IS NULL OR normalized_plate LIKE ?)
               AND (? IS NULL OR status = ?)
-              AND (? OR category <> 'OTHER_LONG_TERM')
             ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'BLACKLISTED' THEN 1 WHEN 'INACTIVE' THEN 2 ELSE 3 END,
                      normalized_plate, id
             LIMIT ? OFFSET ?
@@ -632,7 +593,6 @@ internal class AdminManagementService(
             FROM vehicles
             WHERE (? IS NULL OR normalized_plate LIKE ?)
               AND (? IS NULL OR status = ?)
-              AND (? OR category <> 'OTHER_LONG_TERM')
         """
 
         const val SELECT_VEHICLE = """
@@ -645,7 +605,7 @@ internal class AdminManagementService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.id = ? AND (? OR v.category <> 'OTHER_LONG_TERM')
+            WHERE v.id = ?
         """
 
         const val INSERT_VEHICLE = """
@@ -675,7 +635,7 @@ internal class AdminManagementService(
                 owner_name = EXCLUDED.owner_name,
                 identity_card_number = EXCLUDED.identity_card_number,
                 contact_phone = EXCLUDED.contact_phone,
-                remarks = CASE WHEN ? THEN EXCLUDED.remarks ELSE resident_profiles.remarks END,
+                remarks = EXCLUDED.remarks,
                 version = resident_profiles.version + 1,
                 updated_by = EXCLUDED.updated_by
         """
@@ -709,10 +669,8 @@ internal class AdminManagementService(
         """
 
         const val INSERT_USER = """
-            INSERT INTO users (
-                username, password_hash, role, real_name, schedule_access_enabled, update_policy,
-                other_long_term_access_enabled, resident_remarks_access_enabled, created_by, updated_by
-            ) VALUES (?, ?, ?, ?, ?, 'OPTIONAL', FALSE, FALSE, ?, ?)
+            INSERT INTO users (username, password_hash, role, real_name, schedule_access_enabled, update_policy, created_by, updated_by)
+            VALUES (?, ?, ?, ?, ?, 'OPTIONAL', ?, ?)
         """
 
         const val UPDATE_USER = """
@@ -822,20 +780,6 @@ internal object AdminVehicleCreationPolicy {
     }
 }
 
-internal object AdminVehicleAccessPolicy {
-    fun requireCategoryAccess(category: VehicleCategory, accessScope: VehicleAccessScope) {
-        if (category == VehicleCategory.OTHER_LONG_TERM && !accessScope.otherLongTermAccessEnabled) {
-            throw AdminResourceNotFoundException("车辆不存在")
-        }
-    }
-
-    fun requireResidentRemarksUpdateAllowed(command: AdminVehicleCommand, accessScope: VehicleAccessScope) {
-        if (!accessScope.residentRemarksAccessEnabled && command.residentProfile?.remarks != null) {
-            throw AdminPermissionException("当前账号无权修改村民车辆备注")
-        }
-    }
-}
-
 internal object AdminUserProfilePolicy {
     fun requireModificationAllowed(canManageOtherUserProfiles: Boolean, profileChangeRequested: Boolean) {
         if (profileChangeRequested && !canManageOtherUserProfiles) {
@@ -880,14 +824,6 @@ internal data class AdminVehicleRecord(
     val residentProfile: AdminResidentProfile?,
     val longTermProfile: AdminLongTermProfile?,
 )
-
-internal fun AdminVehicleRecord.filteredFor(accessScope: VehicleAccessScope): AdminVehicleRecord =
-    if (accessScope.residentRemarksAccessEnabled) this
-    else copy(residentProfile = residentProfile?.copy(remarks = null))
-
-private fun AdminVehicleCreationCapabilities.filteredFor(accessScope: VehicleAccessScope): AdminVehicleCreationCapabilities =
-    if (accessScope.otherLongTermAccessEnabled) this
-    else copy(creatableCategories = creatableCategories.filterNot { it == VehicleCategory.OTHER_LONG_TERM })
 
 internal data class AdminResidentProfile(
     val ownerName: String,
@@ -942,8 +878,8 @@ internal data class AdminUserRecord(
     val realName: String?,
     val scheduleAccessEnabled: Boolean,
     val updatePolicy: AdminUpdatePolicy = AdminUpdatePolicy.OPTIONAL,
-    val otherLongTermAccessEnabled: Boolean = false,
-    val residentRemarksAccessEnabled: Boolean = false,
+    val otherLongTermAccessEnabled: Boolean = true,
+    val residentRemarksAccessEnabled: Boolean = true,
 )
 
 internal data class AdminAvatarContent(val content: ByteArray, val contentType: String)
