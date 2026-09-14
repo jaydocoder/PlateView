@@ -113,6 +113,18 @@ class VehicleCacheDatabaseTest {
         assertEquals("黄色", dao.searchCandidates("A123", 20).single().plateColor)
     }
 
+    @Test
+    fun V7迁移清空旧快照以重新同步号牌颜色() = runBlocking {
+        val dao = database.vehicleCacheDao()
+        dao.insertSnapshots(listOf(snapshot(11, 1, "新H13032")))
+        dao.promoteGeneration(11, 7, 100, 100)
+
+        VehicleCacheDatabase.MIGRATION_6_7.migrate(database.openHelper.writableDatabase)
+
+        assertEquals(null, dao.getCatalogState())
+        assertEquals(null, dao.getDetail(1))
+    }
+
     private fun snapshot(
         generation: Long,
         vehicleId: Long,
