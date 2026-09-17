@@ -17,10 +17,10 @@ readonly RETENTION_SCRIPT="$PROJECT_ROOT/deploy/plateview-retain-api-images.sh"
                 ;;
             'image ls')
                 printf '%s\n' \
-                    'plateview-api:current sha256:current' \
-                    'plateview-api:previous sha256:previous' \
-                    'plateview-api:stale-one sha256:stale' \
-                    'plateview-api:stale-two sha256:stale'
+                    'sha256:current' \
+                    'sha256:previous' \
+                    'sha256:stale' \
+                    'sha256:stale'
                 ;;
             'image rm')
                 removed_images+=("$3")
@@ -32,8 +32,8 @@ readonly RETENTION_SCRIPT="$PROJECT_ROOT/deploy/plateview-retain-api-images.sh"
         esac
     }
 
-    source "$RETENTION_SCRIPT" plateview-api-current plateview-api-previous
-    [[ "${removed_images[*]}" == 'plateview-api:stale-one plateview-api:stale-two' ]]
+    source "$RETENTION_SCRIPT" plateview-api-current plateview-api-previous ghcr.io/jaydocoder/plateview-api
+    [[ "${removed_images[*]}" == 'sha256:stale' ]]
 )
 
 (
@@ -44,12 +44,12 @@ readonly RETENTION_SCRIPT="$PROJECT_ROOT/deploy/plateview-retain-api-images.sh"
                 ;;
             'image ls')
                 printf '%s\n' \
-                    'plateview-api:current sha256:current' \
-                    'plateview-api:previous sha256:previous' \
-                    'plateview-api:stale sha256:stale'
+                    'sha256:current' \
+                    'sha256:previous' \
+                    'sha256:stale'
                 ;;
             'image rm')
-                [[ "$3" == plateview-api:stale ]]
+                [[ "$3" == sha256:stale ]]
                 return 1
                 ;;
             *)
@@ -58,7 +58,7 @@ readonly RETENTION_SCRIPT="$PROJECT_ROOT/deploy/plateview-retain-api-images.sh"
         esac
     }
 
-    source "$RETENTION_SCRIPT" plateview-api-current plateview-api-previous
+    source "$RETENTION_SCRIPT" plateview-api-current plateview-api-previous ghcr.io/jaydocoder/plateview-api
 )
 
 printf 'API 镜像保留测试通过\n'

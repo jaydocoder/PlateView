@@ -7,6 +7,11 @@ services:
     ports:
       - "127.0.0.1:15432:5432"
     privileged: true
+    mem_limit: 384m
+    mem_reservation: 256m
+    memswap_limit: 512m
+    cpus: 0.45
+    pids_limit: 256
     security_opt:
       - label=disable
     environment:
@@ -27,6 +32,11 @@ services:
   caddy:
     image: caddy:2.8.4-alpine
     restart: unless-stopped
+    mem_limit: 128m
+    mem_reservation: 64m
+    memswap_limit: 192m
+    cpus: 0.20
+    pids_limit: 128
     ports:
       - "80:80"
       - "443:443"

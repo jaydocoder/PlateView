@@ -1,0 +1,11 @@
+[Unit]
+Description=PlateView 每日数据库备份
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ExecStart=/opt/plateview/source/deploy/plateview-database-backup.sh

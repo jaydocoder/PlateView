@@ -1,4 +1,4 @@
-name: 服务端自动部署
+name: 服务端低压力自动部署
 
 on:
   push:
@@ -9,23 +9,88 @@ on:
       - "compose.production.yaml"
       - "deploy/**"
       - "infra/**"
+      - ".github/workflows/server-deploy.yml"
   workflow_dispatch:
     inputs:
       commit:
-        description: "要部署的提交，留空表示 main"
+        description: "要部署的提交或分支，留空表示当前 main"
         required: false
         default: "main"
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: plateview-production-deploy
   cancel-in-progress: false
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: jaydocoder/plateview-api
+
 jobs:
+  build-image:
+    name: 测试并构建服务端镜像
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      image: ${{ steps.image.outputs.reference }}
+    steps:
+      - name: 获取目标源码
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.commit || github.sha }}
+
+      - name: 解析目标提交
+        id: source
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 执行服务端测试
+        working-directory: server
+        run: ./gradlew --no-daemon test
+
+      - name: 配置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GitHub 容器镜像仓库
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送不可变镜像
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.source.outputs.commit }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.commit }}
+          cache-from: type=gha,scope=plateview-server
+          cache-to: type=gha,mode=max,scope=plateview-server
+
+      - name: 固定镜像摘要
+        id: image
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "reference=${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: 部署到七牛云生产服务器
+    needs: build-image
     runs-on: ubuntu-latest
     steps:
       - name: 配置 SSH
@@ -40,43 +105,110 @@ jobs:
           chmod 600 "$HOME/.ssh/plateview_deploy"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
 
-      - name: 执行服务器部署
+      - name: 登录服务器镜像仓库
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          TARGET_COMMIT: ${{ github.event.inputs.commit || github.sha }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: |
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
           test -n "$DEPLOY_PORT"
-          if [[ "$TARGET_COMMIT" != "main" && ! "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "部署目标必须是 main 或完整提交哈希"
-            exit 1
-          fi
           ssh_args=(-i "$HOME/.ssh/plateview_deploy" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=20 \
-            -o ConnectTimeout=15 \
+            -o ConnectTimeout=20 \
+            -p "$DEPLOY_PORT")
+          printf '%s' "$GHCR_TOKEN" | ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker login ghcr.io -u '$GHCR_USER' --password-stdin >/dev/null"
+
+      - name: 执行服务器部署
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          TARGET_COMMIT: ${{ needs.build-image.outputs.commit }}
+          TARGET_IMAGE: ${{ needs.build-image.outputs.image }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PORT"
+          [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TARGET_IMAGE" =~ ^ghcr.io/jaydocoder/plateview-api@sha256:[0-9a-f]{64}$ ]]
+          ssh_args=(-i "$HOME/.ssh/plateview_deploy" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=20 \
+            -o ConnectTimeout=20 \
             -p "$DEPLOY_PORT")
           remote="$DEPLOY_USER@$DEPLOY_HOST"
           status_file="/opt/plateview/runtime/deploy-status-$TARGET_COMMIT"
           ssh "${ssh_args[@]}" "$remote" \
-            "rm -f '$status_file'; nohup sh -c 'set -u; rc=0; (cd /opt/plateview/source && git fetch --prune origin main && git checkout --detach --force $TARGET_COMMIT && ./deploy/plateview-deploy.sh $TARGET_COMMIT) || rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"; exit \"\$rc\"' </dev/null >/dev/null 2>&1 &"
+            "rm -f '$status_file'; nohup sh -c 'set -u; rc=0; (cd /opt/plateview/source && git fetch --prune origin main && git checkout --detach --force $TARGET_COMMIT && ./deploy/plateview-deploy.sh $TARGET_COMMIT $TARGET_IMAGE) || rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"; exit \"\$rc\"' </dev/null >/dev/null 2>&1 &"
 
-          for attempt in $(seq 1 120); do
+          for attempt in $(seq 1 80); do
             state=$(ssh "${ssh_args[@]}" "$remote" "cat '$status_file' 2>/dev/null || true" || true)
             if [[ "$state" == "0" ]]; then
-              echo "服务器部署成功"
+              echo "服务器部署成功：$TARGET_COMMIT"
               exit 0
             fi
             if [[ "$state" =~ ^[1-9][0-9]*$ ]]; then
               echo "服务器部署失败，状态码：$state"
+              ssh "${ssh_args[@]}" "$remote" \
+                "latest=\$(find /opt/plateview/logs/deploy -maxdepth 1 -type f -name 'deploy-*-$TARGET_COMMIT.log' -printf '%T@ %p\\n' | sort -nr | head -n1 | cut -d' ' -f2-); test -n \"\$latest\" && tail -n 200 \"\$latest\"" || true
               exit 1
             fi
             sleep 15
           done
           echo "等待服务器部署结果超时"
           exit 1
+
+      - name: 清除服务器临时镜像凭据
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          ssh -i "$HOME/.ssh/plateview_deploy" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker logout ghcr.io >/dev/null 2>&1 || true" || true
+
+  cleanup-registry:
+    name: 清理过期服务端镜像
+    needs: deploy
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: 保留最近十个提交和正式版本镜像
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          versions=$(gh api --paginate --slurp \
+            "/users/jaydocoder/packages/container/plateview-api/versions?per_page=100")
+          mapfile -t expired_ids < <(
+            jq -r '
+              add
+              | sort_by(.created_at)
+              | reverse
+              | map(select((.metadata.container.tags | any(startswith("v"))) | not))
+              | .[10:]
+              | .[]
+              | .id
+            ' <<< "$versions"
+          )
+          for version_id in "${expired_ids[@]-}"; do
+            [[ -n "$version_id" ]] || continue
+            gh api --method DELETE \
+              "/users/jaydocoder/packages/container/plateview-api/versions/$version_id"
+            echo "已清理 GHCR 过期镜像版本：$version_id"
+          done

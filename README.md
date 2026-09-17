@@ -87,9 +87,9 @@ android/app/build/outputs/apk/debug/app-debug.apk
 docker compose --env-file .env -f compose.production.yaml up -d
 ```
 
-服务端代码推送到 `main` 后，GitHub Actions 仅在 `server/**`、`compose.production.yaml`、`deploy/**` 或 `infra/**` 发生变化时触发服务器部署。工作流通过 SSH 在生产服务器启动部署脚本；服务器会拉取提交、每次部署前创建数据库备份、在服务器本机构建候选 API 镜像、执行迁移、核对 Flyway 无失败记录且已达到源码最高版本、再进行健康检查。通过后才由 Caddy 平滑切换流量，失败则保留旧容器。
+服务端代码推送到 `main` 后，GitHub Actions 仅在服务端、生产编排、部署脚本或部署工作流发生变化时触发。GitHub 托管运行器先执行服务端测试，再通过 Buildx 构建镜像并推送到 GHCR；服务器只拉取指定提交的不可变镜像摘要，不再运行 Gradle、Kotlin 或 Docker 镜像构建。
 
-> 当前部署脚本仍会在生产服务器执行 `docker build`，尚未实施“GitHub Actions 构建 GHCR 镜像、服务器只拉取镜像”的低压力发布方案；`compose.production.yaml` 也尚未设置 API、PostgreSQL 与 Caddy 的 CPU/内存限额。因此 2 核 2GiB 服务器在构建候选镜像时仍可能出现较高 CPU 和内存占用。该优化不能被视为已上线功能。
+部署前会检查磁盘、可用内存、交换空间、一分钟负载、当前 API 与公网健康状态。只有新增或恢复数据库迁移文件时才额外执行发布前备份；每日完整备份由低优先级 systemd 定时器负责。候选 API、PostgreSQL 和 Caddy 均有 CPU、内存与进程数上限，通过 Flyway 和健康检查后才由 Caddy 平滑切流。失败时保留旧服务并保存候选容器日志。
 
 首次部署需要配置 `DEPLOY_SSH_KEY`、`DEPLOY_KNOWN_HOSTS`、`DEPLOY_HOST`、`DEPLOY_USER` 和 `DEPLOY_PORT` Secrets。完整初始化、蓝绿切换、备份恢复、回滚和排障步骤见：[部署运行手册](docs/12-部署运行手册.md)。
 
