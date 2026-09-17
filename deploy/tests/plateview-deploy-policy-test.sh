@@ -40,5 +40,12 @@ fi
 [[ -f "$PROJECT_ROOT/server/src/main/resources/db/migration/V30__restrict_user_vehicle_data_access_defaults.sql" ]]
 grep -F 'docker/build-push-action@v6' "$PROJECT_ROOT/.github/workflows/server-deploy.yml" >/dev/null
 grep -F 'TARGET_IMAGE' "$PROJECT_ROOT/.github/workflows/server-deploy.yml" >/dev/null
+grep -F 'OnCalendar=*-*-* 19:30:00' "$PROJECT_ROOT/deploy/systemd/plateview-database-backup.timer" >/dev/null
+grep -F 'AccuracySec=15min' "$PROJECT_ROOT/deploy/systemd/plateview-database-backup.timer" >/dev/null
+if grep -E 'RandomizedDelaySec|OnCalendar=.* UTC' \
+    "$PROJECT_ROOT/deploy/systemd/plateview-database-backup.timer" >/dev/null; then
+    printf '数据库备份定时器不得使用 systemd 219 不兼容的配置\n' >&2
+    exit 1
+fi
 
 printf '低压力部署策略测试通过\n'
