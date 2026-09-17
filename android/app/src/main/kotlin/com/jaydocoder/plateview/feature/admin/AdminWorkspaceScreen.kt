@@ -92,6 +92,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -767,6 +769,17 @@ private fun AdminVehicleItem(
                             },
                         )
                     }
+                    if (item.status != "STRICT_CHECK") {
+                        DropdownMenuItem(
+                            text = { Text("标记严查", color = StrictCheckActionColor) },
+                            leadingIcon = { Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = StrictCheckActionColor) },
+                            enabled = !isSaving,
+                            onClick = {
+                                showActions = false
+                                onStatusChange(item, "STRICT_CHECK")
+                            },
+                        )
+                    }
                     if (item.status != "BLACKLISTED") {
                         DropdownMenuItem(
                             text = { Text("拉黑档案", color = MaterialTheme.colorScheme.error) },
@@ -904,6 +917,7 @@ private fun ImportsPane(
     onChooseImport: () -> Unit,
     onOpenBatch: (Long) -> Unit,
 ) {
+    val sortedItems = remember(items) { items.sortedByDescending { it.createdAt.orEmpty() } }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(PlateViewDimensions.pageHorizontal, PlateViewDimensions.pageVertical),
@@ -925,11 +939,11 @@ private fun ImportsPane(
             }
         }
         if (items.isEmpty()) item { EmptyPane("暂无导入任务") }
-        items(items, key = ManagedImportBatchSummary::id) { item ->
-            ElevatedCard(
-                onClick = { onOpenBatch(item.id) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)
+        items(sortedItems, key = ManagedImportBatchSummary::id) { item ->
+            GlassSurface(
+                modifier = Modifier.fillMaxWidth().clickable { onOpenBatch(item.id) },
+                shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
+                elevated = true,
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -941,7 +955,7 @@ private fun ImportsPane(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(item.sourceFileName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         AdminStatusBadge(
-                            item.importStatusLabel(),
+                            item.status.importStatusLabel(),
                             if (item.status == "PUBLISHED") AdminStatusTone.Positive else AdminStatusTone.Neutral,
                         )
                     }
@@ -1029,9 +1043,10 @@ private fun AuditPane(
                 )
                 AuditSelector(
                     modifier = Modifier.weight(1f),
-                    label = filter.actionType ?: "全部操作",
-                    options = listOf(AuditSelection<String?>(null, "全部操作")) + actionTypes.map { AuditSelection<String?>(it, it) },
+                    label = filter.actionType?.auditActionLabel() ?: "全部操作",
+                    options = listOf(AuditSelection<String?>(null, "全部操作")) + actionTypes.map { AuditSelection<String?>(it, it.auditActionLabel()) },
                     onSelected = onActionTypeChanged,
+                    testTag = "audit_action_selector",
                 )
             }
         }
@@ -1109,9 +1124,10 @@ private fun <T> AuditSelector(
     options: List<AuditSelection<T>>,
     onSelected: (T) -> Unit,
     modifier: Modifier = Modifier,
+    testTag: String? = null,
 ) {
     var expanded by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    Box(modifier = modifier) {
+    Box(modifier = if (testTag == null) modifier else modifier.testTag(testTag)) {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
             Text(label, maxLines = 1, modifier = Modifier.weight(1f))
         }
@@ -1141,7 +1157,7 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.width(4.dp))
-                    Text(item.resultStatus, style = MaterialTheme.typography.labelSmall)
+                    Text(item.resultStatus.auditResultLabel(), style = MaterialTheme.typography.labelSmall)
                 }
             }
             Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
@@ -1152,9 +1168,9 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
             )
         }
         Spacer(Modifier.height(6.dp))
-        Text(item.actionType, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(item.actionType.auditActionLabel(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Text(
-            "${item.actorUsername ?: "系统"} · ${item.targetType}${item.targetId?.let { " #$it" }.orEmpty()}",
+            "${item.actorUsername ?: "系统"} · ${item.targetType.auditTargetLabel()}${item.targetId?.let { " #$it" }.orEmpty()}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1165,6 +1181,63 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
 private fun formatAuditTime(value: String): String = runCatching {
     auditTimeFormatter.format(Instant.parse(value))
 }.getOrElse { value }
+
+private fun String.auditActionLabel(): String = when (this) {
+    "ADMIN_ACCESS" -> "尝试访问管理功能"
+    "AUDIT_LIST" -> "查看审计日志"
+    "IMPORT_LIST" -> "查看导入批次"
+    "IMPORT_PREVIEW" -> "预览导入数据"
+    "IMPORT_VIEW" -> "查看导入批次"
+    "IMPORT_VIEW_DETAIL" -> "查看导入差异"
+    "IMPORT_RESOLUTION" -> "确认导入差异"
+    "IMPORT_PUBLISH" -> "正式发布导入"
+    "IMPORT_ROLLBACK" -> "撤销导入发布"
+    "LOGIN" -> "登录应用"
+    "LOGOUT" -> "退出登录"
+    "USER_LIST" -> "查看账号列表"
+    "USER_CREATE" -> "创建账号"
+    "USER_UPDATE" -> "更新账号资料"
+    "USER_UPDATE_POLICY" -> "更新升级策略"
+    "USER_DATA_ACCESS_UPDATE" -> "更新数据访问权限"
+    "USER_AVATAR_UPDATE" -> "更新账号头像"
+    "USER_AVATAR_DELETE" -> "删除账号头像"
+    "VEHICLE_LIST" -> "查看车辆档案"
+    "VEHICLE_CREATE" -> "新增车辆档案"
+    "VEHICLE_VIEW", "VEHICLE_DETAIL_VIEW" -> "查看车辆详情"
+    "VEHICLE_UPDATE" -> "更新车辆档案"
+    "VEHICLE_STATUS_ACTIVE" -> "设为启用"
+    "VEHICLE_STATUS_STRICT_CHECK" -> "标记严查"
+    "VEHICLE_STATUS_BLACKLISTED" -> "设为拉黑"
+    "VEHICLE_STATUS_INACTIVE" -> "设为失效"
+    "VEHICLE_STATUS_DELETED" -> "删除车辆档案"
+    "SCHEDULE_ADMIN_ACCESS" -> "尝试管理排班"
+    "SCHEDULE_CONFIGURATION_UPDATE" -> "更新排班配置"
+    "SCHEDULE_TEMPLATE_APPLY" -> "应用排班模板"
+    "SCHEDULE_TEMPLATE_CREATE" -> "创建排班模板"
+    "SCHEDULE_TEMPLATE_DELETE" -> "删除排班模板"
+    "SCHEDULE_TEMPLATE_UPDATE" -> "更新排班模板"
+    else -> "其他操作"
+}
+
+private fun String.auditTargetLabel(): String = when (this) {
+    "AUTH" -> "认证"
+    "AUDIT" -> "审计日志"
+    "IMPORT_BATCH" -> "导入批次"
+    "IMPORT_ROW" -> "导入记录"
+    "SCHEDULE" -> "排班"
+    "SCHEDULE_TEMPLATE" -> "排班模板"
+    "SESSION" -> "会话"
+    "USER" -> "账号"
+    "VEHICLE" -> "车辆档案"
+    else -> "管理对象"
+}
+
+private fun String.auditResultLabel(): String = when (this) {
+    "SUCCESS" -> "成功"
+    "FAILURE" -> "失败"
+    "DENIED" -> "已拒绝"
+    else -> "异常"
+}
 
 @Composable
 private fun EmptyPane(message: String) {
@@ -1217,11 +1290,13 @@ private fun AdminPaneHeading(
 private fun AdminStatusBadge(label: String, tone: AdminStatusTone) {
     val containerColor = when (tone) {
         AdminStatusTone.Positive -> MaterialTheme.colorScheme.primaryContainer
+        AdminStatusTone.Caution -> StrictCheckContainerColor
         AdminStatusTone.Warning -> MaterialTheme.colorScheme.errorContainer
         AdminStatusTone.Neutral -> MaterialTheme.colorScheme.surfaceVariant
     }
     val contentColor = when (tone) {
         AdminStatusTone.Positive -> MaterialTheme.colorScheme.onPrimaryContainer
+        AdminStatusTone.Caution -> StrictCheckActionColor
         AdminStatusTone.Warning -> MaterialTheme.colorScheme.onErrorContainer
         AdminStatusTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -1231,7 +1306,11 @@ private fun AdminStatusBadge(label: String, tone: AdminStatusTone) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                if (tone == AdminStatusTone.Positive) Icons.Outlined.CheckCircle else Icons.Outlined.Block,
+                when (tone) {
+                    AdminStatusTone.Positive -> Icons.Outlined.CheckCircle
+                    AdminStatusTone.Caution -> Icons.Outlined.ErrorOutline
+                    else -> Icons.Outlined.Block
+                },
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
             )
@@ -1615,12 +1694,14 @@ private fun VehicleStatusChangeDialog(
     val targetStatus = pendingChange.targetStatus
     val title = when (targetStatus) {
         "ACTIVE" -> "启用车辆档案"
+        "STRICT_CHECK" -> "标记车辆严查"
         "BLACKLISTED" -> "拉黑车辆档案"
         "DELETED" -> "删除车辆档案"
         else -> "更新车辆状态"
     }
     val description = when (targetStatus) {
         "ACTIVE" -> "${vehicle.plateNumber} 将恢复为启用状态，可正常核验。"
+        "STRICT_CHECK" -> "${vehicle.plateNumber} 仍可在首页查询，并提示核实三证合一、车辆信息与驾驶人员信息。"
         "BLACKLISTED" -> "${vehicle.plateNumber} 仍可在首页查询，但会明确标注为已拉黑。"
         "DELETED" -> "${vehicle.plateNumber} 将从首页查询、车辆目录和详情中隐藏，管理记录会保留。"
         else -> "确认更新 ${vehicle.plateNumber} 的车辆状态。"
@@ -1629,18 +1710,27 @@ private fun VehicleStatusChangeDialog(
         Column(modifier = Modifier.padding(PlateViewDimensions.pageHorizontal)) {
             GlassSurface(
                 shape = CircleShape,
-                color = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
+                color = when (targetStatus) {
+                    "ACTIVE" -> MaterialTheme.colorScheme.secondaryContainer
+                    "STRICT_CHECK" -> StrictCheckContainerColor
+                    else -> MaterialTheme.colorScheme.errorContainer
+                },
                 elevated = true,
             ) {
                 Icon(
                     when (targetStatus) {
                         "ACTIVE" -> Icons.Outlined.CheckCircle
+                        "STRICT_CHECK" -> Icons.Outlined.ErrorOutline
                         "DELETED" -> Icons.Outlined.DeleteOutline
                         else -> Icons.Outlined.Block
                     },
                     contentDescription = null,
                     modifier = Modifier.padding(10.dp).size(22.dp),
-                    tint = if (targetStatus == "ACTIVE") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    tint = when (targetStatus) {
+                        "ACTIVE" -> MaterialTheme.colorScheme.primary
+                        "STRICT_CHECK" -> StrictCheckActionColor
+                        else -> MaterialTheme.colorScheme.error
+                    },
                 )
             }
             Spacer(Modifier.height(PlateViewDimensions.itemSpacing))
@@ -1659,12 +1749,17 @@ private fun VehicleStatusChangeDialog(
                     onClick = onConfirm,
                     modifier = Modifier.testTag("admin_confirm_vehicle_status"),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (targetStatus == "DELETED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        containerColor = when (targetStatus) {
+                            "STRICT_CHECK" -> StrictCheckActionColor
+                            "BLACKLISTED", "DELETED" -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.primary
+                        },
                     ),
                 ) {
                     Text(
                         when (targetStatus) {
                             "ACTIVE" -> "确认启用"
+                            "STRICT_CHECK" -> "确认标记严查"
                             "BLACKLISTED" -> "确认拉黑"
                             else -> "确认删除"
                         },
@@ -1716,6 +1811,9 @@ private fun ImportBatchDialog(
     onRollback: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val sortedRows = remember(batch.rows) {
+        batch.rows.sortedBy { row -> if (row.resolution == "PENDING") 0 else 1 }
+    }
     val hasMoreRows = batch.rows.size < batch.rowTotal
     val shouldLoadMore by remember(listState, batch.rows.size, batch.rowTotal, isPageLoading) {
         derivedStateOf {
@@ -1736,8 +1834,9 @@ private fun ImportBatchDialog(
 
     AdminFullScreenWorkspace(
         title = "数据差异核对",
-        subtitle = batch.sourceFileName,
+        subtitle = "",
         onDismiss = onDismiss,
+        showBottomBarDivider = false,
         bottomBar = {
             if (batch.status == "PUBLISHED") {
                 OutlinedButton(
@@ -1768,42 +1867,26 @@ private fun ImportBatchDialog(
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
                 item {
-                    Column {
-                        Text(batch.sourceFileName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("当前状态: ${batch.status}", color = MaterialTheme.colorScheme.primary)
-                        if (batch.status == "ROLLED_BACK") {
-                            Text("该批次已经撤销，可重新发布", style = MaterialTheme.typography.bodySmall)
-                        }
+                    Column(verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing)) {
                         Text(
-                            "新增 ${batch.stats.newRows} | 更新 ${batch.stats.updateRows} | 恢复 ${batch.stats.reactivateRows} | 待失效 ${batch.stats.deactivateRows}",
-                            style = MaterialTheme.typography.bodySmall,
+                            batch.sourceFileName,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "异常 ${batch.stats.errorRows} | 已隐藏完全一致 ${batch.stats.duplicateRows} | 待确认 ${batch.stats.pendingReviewRows}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
+                            batch.status.importStatusLabel(),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary,
                         )
-                        Text(
-                            text = "已加载 ${batch.rows.size} / ${batch.rowTotal} 条需核对记录",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.outline,
+                        ImportBatchChangeSummary(batch)
+                        ImportFilterSelector(
+                            selected = filter,
+                            enabled = !isSaving,
+                            onSelected = onFilterChanged,
                         )
-                        LazyRow(
-                            modifier = Modifier.padding(top = PlateViewDimensions.compactSpacing),
-                            horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
-                        ) {
-                            items(ImportRowFilter.entries, key = ImportRowFilter::name) { option ->
-                                FilterChip(
-                                    selected = filter == option,
-                                    onClick = { onFilterChanged(option) },
-                                    label = { Text(option.label) },
-                                    enabled = !isSaving,
-                                )
-                            }
-                        }
                     }
                 }
-                items(batch.rows, key = ManagedImportRow::id) { row ->
+                items(sortedRows, key = ManagedImportRow::id) { row ->
                     ImportRowItem(row, isSaving, onOpenDetail)
                 }
                 if (isPageLoading) {
@@ -1839,14 +1922,124 @@ private fun ImportBatchDialog(
 }
 
 @Composable
+private fun ImportBatchChangeSummary(batch: ManagedImportBatch) {
+    val changes = listOfNotNull(
+        batch.stats.newRows.takeIf { it > 0 }?.let { "新增 $it" },
+        batch.stats.updateRows.takeIf { it > 0 }?.let { "更新 $it" },
+        batch.stats.reactivateRows.takeIf { it > 0 }?.let { "恢复 $it" },
+        batch.stats.deactivateRows.takeIf { it > 0 }?.let { "待失效 $it" },
+        batch.stats.errorRows.takeIf { it > 0 }?.let { "异常 $it" },
+        "待确认 ${batch.stats.pendingReviewRows}",
+    )
+    if (changes.isNotEmpty()) {
+        Text(
+            changes.joinToString(" · "),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ImportFilterControl(
+    option: ImportRowFilter,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val modifier = Modifier.testTag("admin_import_filter_${option.name}")
+    if (enabled) {
+        GlassPill(
+            selected = selected,
+            modifier = modifier,
+            onClick = onClick,
+        ) {
+            Text(
+                text = option.label,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    } else {
+        GlassSurface(
+            modifier = modifier,
+            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Text(
+                text = option.label,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportFilterSelector(
+    selected: ImportRowFilter,
+    enabled: Boolean,
+    onSelected: (ImportRowFilter) -> Unit,
+) {
+    GlassSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = PlateViewDimensions.compactSpacing),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+    ) {
+        Column(
+            modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
+            verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+        ) {
+            Text(
+                text = "核对类型",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            CompatFlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("admin_import_filter_selector"),
+                horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                ImportRowFilter.entries.forEach { option ->
+                    ImportFilterControl(
+                        option = option,
+                        selected = selected == option,
+                        enabled = enabled,
+                        onClick = { onSelected(option) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun ImportRowItem(
     row: ManagedImportRow,
     isSaving: Boolean,
     onOpenDetail: (Long) -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    GlassSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 122.dp)
+            .clickable(enabled = !isSaving) { onOpenDetail(row.id) }
+            .testTag("admin_import_row_${row.id}"),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        elevated = row.resolution == "PENDING",
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.itemSpacing)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (row.resolution == "PENDING") {
+                    IceLakePendingDot(contentDescription = "待核对")
+                    Spacer(Modifier.width(8.dp))
+                }
             Surface(color = row.importActionColor(), shape = RoundedCornerShape(4.dp)) {
                 Text(row.plateNumber ?: "???", modifier = Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium)
             }
@@ -1857,15 +2050,11 @@ private fun ImportRowItem(
                 Text("第${row.sourceRowNumber}行", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
         }
-        row.primarySubject?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (!row.warningMessage.isNullOrBlank()) Text(row.warningMessage!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-        if (!row.errorMessage.isNullOrBlank()) Text(row.errorMessage!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        TextButton(
-            onClick = { onOpenDetail(row.id) },
-            enabled = !isSaving,
-            modifier = Modifier.padding(top = 4.dp).testTag("admin_import_row_detail_${row.id}"),
-        ) { Text(row.importDetailLabel()) }
-        HorizontalDivider(modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            row.primarySubject?.let { Text(it, modifier = Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (!row.warningMessage.isNullOrBlank()) Text(row.warningMessage!!, modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+            if (!row.errorMessage.isNullOrBlank()) Text(row.errorMessage!!, modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Text(row.importDetailLabel(), modifier = Modifier.padding(top = 10.dp).testTag("admin_import_row_detail_${row.id}"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
@@ -1881,6 +2070,7 @@ private fun ImportRowDetailDialog(
         title = row.importDetailLabel(),
         subtitle = row.plateNumber ?: "未识别车牌",
         onDismiss = onDismiss,
+        showBottomBarDivider = false,
         bottomBar = {
             if (row.resolution == "PENDING") {
                 OutlinedButton(
@@ -1913,9 +2103,12 @@ private fun ImportRowDetailDialog(
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
             ) {
                 item {
-                    Surface(
+                    GlassSurface(
+                        modifier = Modifier.fillMaxWidth(),
                         color = row.importActionColor(),
+                        opacity = 0.72f,
                         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                        elevated = true,
                     ) {
                         Column(modifier = Modifier.padding(PlateViewDimensions.itemSpacing)) {
                             Text(row.importActionLabel(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1928,44 +2121,114 @@ private fun ImportRowDetailDialog(
                     row.warningMessage?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall) }
                 }
                 items(detail.sections, key = ManagedImportDiffSection::title) { section ->
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    GlassSurface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color.White,
+                        opacity = 0.48f,
                         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                        elevated = true,
                     ) {
                         Column(
-                            modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(PlateViewDimensions.itemSpacing),
                             verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
                         ) {
-                        Text(section.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        section.fields.forEach { field ->
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(field.label, style = MaterialTheme.typography.labelLarge)
-                                Text("原值  ${field.before.displayImportValue()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("新值  ${field.after.displayImportValue()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(section.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            section.fields.forEach { field ->
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(field.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        ImportDiffValue(
+                                            label = "原值",
+                                            value = field.before,
+                                            modifier = Modifier.weight(1f),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            emphasized = false,
+                                        )
+                                        ImportDiffValue(
+                                            label = "新值",
+                                            value = field.after,
+                                            modifier = Modifier.weight(1f),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            emphasized = true,
+                                        )
+                                    }
+                                }
                             }
-                        }
                         }
                     }
                 }
                 if (detail.sourceValues.isNotEmpty()) {
                     item {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        GlassSurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.White,
+                            opacity = 0.48f,
                             shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                            elevated = true,
                         ) {
                             Column(
-                                modifier = Modifier.padding(PlateViewDimensions.itemSpacing),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(PlateViewDimensions.itemSpacing),
                                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
                             ) {
-                            Text("Excel 源字段", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            detail.sourceValues.forEach { value ->
-                                Text("${value.label}：${value.value}", style = MaterialTheme.typography.bodyMedium)
-                            }
+                                Text("Excel 源字段", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                detail.sourceValues.forEach { value ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.Top,
+                                    ) {
+                                        Text(
+                                            text = value.label,
+                                            modifier = Modifier.width(84.dp),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            text = value.value,
+                                            modifier = Modifier.weight(1f),
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+    }
+}
+
+@Composable
+private fun ImportDiffValue(
+    label: String,
+    value: String?,
+    modifier: Modifier,
+    color: Color,
+    emphasized: Boolean,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = color.copy(alpha = if (emphasized) 1f else 0.82f),
+        )
+        Text(
+            text = value.displayImportValue(),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
+            color = color,
+        )
     }
 }
 
@@ -1975,6 +2238,7 @@ private fun AdminFullScreenWorkspace(
     title: String,
     subtitle: String,
     onDismiss: () -> Unit,
+    showBottomBarDivider: Boolean = true,
     bottomBar: @Composable () -> Unit,
     content: @Composable (PaddingValues) -> Unit,
 ) {
@@ -1998,7 +2262,9 @@ private fun AdminFullScreenWorkspace(
                         title = {
                             Column {
                                 Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (subtitle.isNotBlank()) {
+                                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         },
                         navigationIcon = {
@@ -2010,7 +2276,9 @@ private fun AdminFullScreenWorkspace(
                 },
                 bottomBar = {
                     Column {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        if (showBottomBarDivider) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
                         CompatFlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2033,6 +2301,19 @@ private fun AdminFullScreenWorkspace(
             )
         }
     }
+}
+
+private val IceLakePendingColor = Color(0xFF3B8878)
+
+@Composable
+private fun IceLakePendingDot(contentDescription: String) {
+    Box(
+        modifier = Modifier
+            .size(9.dp)
+            .background(IceLakePendingColor, CircleShape)
+            .semantics { this.contentDescription = contentDescription }
+            .testTag("import_pending_dot"),
+    )
 }
 
 private fun ManagedImportRow.importActionLabel(): String = when (plannedAction) {
@@ -2132,10 +2413,14 @@ private fun AdminTab.label(): String = when (this) {
     AdminTab.Audit -> "审计日志"
 }
 
-private enum class AdminStatusTone { Positive, Warning, Neutral }
+private enum class AdminStatusTone { Positive, Caution, Warning, Neutral }
+
+private val StrictCheckActionColor = Color(0xFF9A6700)
+private val StrictCheckContainerColor = Color(0xFFFFF1C7)
 
 private fun ManagedVehicleSummary.statusLabel(): String = when (status) {
     "ACTIVE" -> "已启用"
+    "STRICT_CHECK" -> "严查"
     "BLACKLISTED" -> "已拉黑"
     "INACTIVE" -> "已停用（已失效）"
     "DELETED" -> "已删除"
@@ -2144,16 +2429,17 @@ private fun ManagedVehicleSummary.statusLabel(): String = when (status) {
 
 private fun String.statusTone(): AdminStatusTone = when (this) {
     "ACTIVE" -> AdminStatusTone.Positive
-    "BLACKLISTED", "INACTIVE" -> AdminStatusTone.Warning
+    "STRICT_CHECK" -> AdminStatusTone.Caution
+    "BLACKLISTED", "INACTIVE", "DELETED" -> AdminStatusTone.Warning
     else -> AdminStatusTone.Neutral
 }
 private fun ManagedUser.roleLabel(): String = if (role == "ADMIN") "管理员" else "核验员"
 private fun ManagedUser.statusLabel(): String = if (status == "ACTIVE") "正常" else "已禁用"
-private fun ManagedImportBatchSummary.importStatusLabel(): String = when (status) {
+private fun String.importStatusLabel(): String = when (this) {
     "VALIDATED" -> "待发布"
     "PUBLISHED" -> "已发布"
     "ROLLED_BACK" -> "已撤销"
-    else -> status
+    else -> this
 }
 
 private data class ChoiceOption(val value: String, val label: String)

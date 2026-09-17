@@ -1,6 +1,5 @@
 package com.jaydocoder.plateview.component.glass
 
-import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -29,10 +28,8 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,21 +48,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jaydocoder.plateview.PlateViewDimensions
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
-import com.kyant.backdrop.shadow.Shadow
-
-private val LocalLiquidBackdrop = staticCompositionLocalOf<Backdrop?> { null }
-
-internal fun supportsLiquidBackdrop(sdkInt: Int): Boolean =
-    sdkInt == Build.VERSION_CODES.VANILLA_ICE_CREAM
+internal fun supportsLiquidBackdrop(
+    sdkInt: Int,
+    manufacturer: String,
+    brand: String,
+): Boolean = false
 
 @Composable
 fun LiquidGlassScaffold(
@@ -78,29 +65,13 @@ fun GlassBackdrop(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    if (supportsLiquidBackdrop(Build.VERSION.SDK_INT)) {
-        val backdrop = rememberLayerBackdrop()
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .layerBackdrop(backdrop)
-                .background(MaterialTheme.colorScheme.background),
-        ) {
-            CompositionLocalProvider(LocalLiquidBackdrop provides backdrop) {
-                content()
-            }
-        }
-    } else {
-        // Android 12-14 与 Android 16 及以上使用静态玻璃，避开厂商 RenderThread 的 Backdrop 原生崩溃。
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
-        ) {
-            CompositionLocalProvider(LocalLiquidBackdrop provides null) {
-                content()
-            }
-        }
+    // 所有设备使用静态玻璃，避开厂商 RenderThread 的实时背景采样崩溃。
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        content()
     }
 }
 
@@ -114,36 +85,14 @@ fun GlassSurface(
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val backdrop = LocalLiquidBackdrop.current
     val alpha = opacity?.coerceIn(0f, 1f) ?: if (elevated) 0.42f else 0.26f
     val tint = when {
         color == Color.Transparent -> Color.Transparent
         color == MaterialTheme.colorScheme.background || color == MaterialTheme.colorScheme.surface -> Color.White.copy(alpha = alpha)
         else -> color.copy(alpha = alpha)
     }
-    // 背景材质在 Surface 外层绘制，必须先按同一形状裁剪，否则降级透明层会露出矩形边角。
-    val clippedModifier = modifier.clip(shape)
-    val material = if (backdrop == null) {
-        clippedModifier.background(tint)
-    } else {
-        clippedModifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { shape },
-            effects = {
-                vibrancy()
-                blur(if (elevated) 18.dp.toPx() else 12.dp.toPx())
-                lens(
-                    refractionHeight = if (elevated) 18.dp.toPx() else 10.dp.toPx(),
-                    refractionAmount = if (elevated) 28.dp.toPx() else 16.dp.toPx(),
-                    chromaticAberration = elevated,
-                )
-            },
-            highlight = { Highlight.Default.copy(alpha = if (elevated) 0.74f else 0.54f) },
-            shadow = { Shadow.Default.copy(alpha = if (elevated) 0.42f else 0.18f) },
-            innerShadow = { InnerShadow.Default.copy(alpha = if (elevated) 0.22f else 0.10f) },
-            onDrawSurface = { if (tint != Color.Transparent) drawRect(tint) },
-        )
-    }
+    // 背景材质在 Surface 外层绘制，必须先按同一形状裁剪，否则透明层会露出矩形边角。
+    val material = modifier.clip(shape).background(tint)
     Surface(
         modifier = material,
         shape = shape,

@@ -56,6 +56,8 @@ import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.InactiveVehicleContainerColor
 import com.jaydocoder.plateview.component.InactiveVehicleContentColor
 import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
+import com.jaydocoder.plateview.component.StrictCheckContainerColor
+import com.jaydocoder.plateview.component.StrictCheckContentColor
 import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
@@ -200,19 +202,22 @@ private fun VehicleDetailContent(
         ),
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
-        if (vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") {
+        if (vehicle.status == "STRICT_CHECK" || vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") {
             item(key = "inactive_notice") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = InactiveVehicleContainerColor,
-                    contentColor = InactiveVehicleContentColor,
+                    color = if (vehicle.status == "STRICT_CHECK") StrictCheckContainerColor else InactiveVehicleContainerColor,
+                    contentColor = if (vehicle.status == "STRICT_CHECK") StrictCheckContentColor else InactiveVehicleContentColor,
                     shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         InactiveVehicleStatusBadge(vehicle.status)
                         Text(
-                            if (vehicle.status == "BLACKLISTED") "该车辆档案已被管理员拉黑，不具备有效通行核验资格"
-                            else "该车辆档案已失效，不具备有效通行核验资格",
+                            when (vehicle.status) {
+                                "STRICT_CHECK" -> "该车辆需严查：请核实三证合一、车辆信息与驾驶人员信息后再放行。"
+                                "BLACKLISTED" -> "该车辆档案已被管理员拉黑，不具备有效通行核验资格"
+                                else -> "该车辆档案已失效，不具备有效通行核验资格"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
@@ -305,9 +310,18 @@ private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (vehicle.status == "BLACKLISTED") "已拉黑" else if (vehicle.status == "INACTIVE") "已停用（已失效）" else "通行档案核验信息",
+                        text = when (vehicle.status) {
+                            "STRICT_CHECK" -> "严查 · 核实三证合一及车辆、人员信息"
+                            "BLACKLISTED" -> "已拉黑"
+                            "INACTIVE" -> "已停用（已失效）"
+                            else -> "通行档案核验信息"
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") InactiveVehicleContentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = when (vehicle.status) {
+                            "STRICT_CHECK" -> StrictCheckContentColor
+                            "BLACKLISTED", "INACTIVE" -> InactiveVehicleContentColor
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
             }

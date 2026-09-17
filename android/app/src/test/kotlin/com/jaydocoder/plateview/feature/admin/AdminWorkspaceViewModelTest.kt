@@ -416,6 +416,34 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `确认导入行后会刷新并展示服务端置顶的下一条待核对记录`() = runTest {
+        val confirmedRow = ManagedImportRow(201, "村民车辆", 3, 0, "新A12345", "RESIDENT", "甲", "VALID", "CREATE", "PENDING", null, null)
+        val nextPendingRow = ManagedImportRow(202, "村民车辆", 4, 0, "新A12346", "RESIDENT", "乙", "VALID", "UPDATE", "PENDING", null, null)
+        val processedRow = confirmedRow.copy(resolution = "PUBLISH")
+        var hasResolvedFirstRow = false
+        val repository = FakeAdminRepository(
+            importTotal = 2,
+            importPageProvider = { _, _ ->
+                if (hasResolvedFirstRow) listOf(nextPendingRow, processedRow) else listOf(confirmedRow, nextPendingRow)
+            },
+            importResolutionHandler = { _, _ -> hasResolvedFirstRow = true },
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.openImportBatch(1)
+        advanceUntilIdle()
+        viewModel.updateImportResolution(confirmedRow.id, "PUBLISH")
+        advanceUntilIdle()
+
+        val rows = viewModel.uiState.value.selectedImportBatch?.rows.orEmpty()
+        assertEquals(nextPendingRow.id, rows.first().id)
+        assertEquals("PENDING", rows.first().resolution)
+        assertEquals("PUBLISH", rows.last().resolution)
+        assertEquals(listOf(0, 0), repository.importOffsets.takeLast(2))
+    }
+
+    @Test
     fun `打开导入差异详情时展示仓库返回结果`() = runTest {
         val detail = ManagedImportRowDetail(
             row = ManagedImportRow(202, "系统差异检测", 0, 0, "新A12346", "SCENIC_UNIT", "测试单位", "VALID", "DEACTIVATE", "PENDING", null, null),
@@ -474,6 +502,8 @@ private class FakeAdminRepository(
     private val vehiclePageProvider: (suspend (String?, String?, Int) -> ManagedVehiclePage)? = null,
     private val importPages: List<List<ManagedImportRow>> = emptyList(),
     private val importPagesByFilter: Map<ImportRowFilter, List<List<ManagedImportRow>>> = emptyMap(),
+    private val importPageProvider: (suspend (Int, ImportRowFilter) -> List<ManagedImportRow>)? = null,
+    private val importResolutionHandler: ((Long, String) -> Unit)? = null,
     private val importTotal: Int = 0,
     private val auditPages: List<List<ManagedAuditEntry>> = emptyList(),
     private val auditTotal: Int = 0,
@@ -553,9 +583,15 @@ private class FakeAdminRepository(
     ): ManagedImportBatch {
         importOffsets += offset
         importFilters += filter
+        importPageProvider?.let { provider ->
+            return importBatch(batchId, provider(offset, filter))
+        }
         val pages = importPagesByFilter[filter] ?: importPages
         val page = pages.getOrElse(if (offset == 0) 0 else 1) { emptyList() }
-        return ManagedImportBatch(
+        return importBatch(batchId, page)
+    }
+
+    private fun importBatch(batchId: Long, page: List<ManagedImportRow>) = ManagedImportBatch(
             id = batchId,
             sourceFileName = "测试导入.xlsx",
             status = "VALIDATED",
@@ -571,11 +607,14 @@ private class FakeAdminRepository(
             rowTotal = importTotal,
             rows = page,
         )
-    }
+
     override suspend fun getImportRowDetail(accessToken: String, batchId: Long, rowId: Long): ManagedImportRowDetail =
         importDetail ?: error("本测试不读取导入详情")
     override suspend fun previewImport(accessToken: String, fileName: String, content: ByteArray): ManagedImportBatch = error("本测试不上传文件")
-    override suspend fun updateImportResolution(accessToken: String, batchId: Long, rowId: Long, resolution: String): ManagedImportBatch = error("本测试不处理导入行")
+    override suspend fun updateImportResolution(accessToken: String, batchId: Long, rowId: Long, resolution: String): ManagedImportBatch {
+        importResolutionHandler?.invoke(rowId, resolution) ?: error("本测试不处理导入行")
+        return importBatch(batchId, emptyList())
+    }
     override suspend fun publishImport(accessToken: String, batchId: Long): ManagedImportBatch = error("本测试不发布")
     override suspend fun rollbackImport(accessToken: String, batchId: Long): ManagedImportBatch = error("本测试不回滚")
     override suspend fun listAuditEntries(

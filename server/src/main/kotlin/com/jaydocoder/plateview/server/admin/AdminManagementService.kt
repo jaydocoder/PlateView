@@ -583,7 +583,7 @@ internal class AdminManagementService(
             FROM vehicles
             WHERE (? IS NULL OR normalized_plate LIKE ?)
               AND (? IS NULL OR status = ?)
-            ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'BLACKLISTED' THEN 1 WHEN 'INACTIVE' THEN 2 ELSE 3 END,
+            ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'STRICT_CHECK' THEN 1 WHEN 'BLACKLISTED' THEN 2 WHEN 'INACTIVE' THEN 3 ELSE 4 END,
                      normalized_plate, id
             LIMIT ? OFFSET ?
         """
@@ -839,7 +839,7 @@ internal data class AdminLongTermProfile(
     val remarks: String?,
 )
 
-internal enum class AdminVehicleStatus { ACTIVE, BLACKLISTED, INACTIVE, DELETED }
+internal enum class AdminVehicleStatus { ACTIVE, STRICT_CHECK, BLACKLISTED, INACTIVE, DELETED }
 internal enum class AdminRole { ADMIN, USER }
 internal enum class AdminUserStatus { ACTIVE, DISABLED }
 

@@ -138,7 +138,7 @@ class AdminWorkspaceScreenTest {
         composeRule.onNodeWithTag("admin_vehicle_status_filter").assertIsDisplayed()
         composeRule.onNodeWithText("全部").assertIsDisplayed()
         composeRule.onNodeWithText("启用").assertIsDisplayed()
-        composeRule.onNodeWithText("拉黑").assertIsDisplayed()
+        composeRule.onNodeWithText("严查").assertIsDisplayed()
         composeRule.onNodeWithText("失效").assertIsDisplayed()
         composeRule.onNodeWithText("删除").assertIsDisplayed()
 
@@ -487,6 +487,50 @@ class AdminWorkspaceScreenTest {
     }
 
     @Test
+    fun 导入核对页展示完整的圆角筛选标签并标识待核对记录() {
+        val pending = ManagedImportRow(201, "村民车辆", 3, 0, "新A12345", "RESIDENT", "甲", "VALID", "CREATE", "PENDING", null, null)
+        val processed = ManagedImportRow(202, "村民车辆", 4, 0, "新A12346", "RESIDENT", "乙", "VALID", "UPDATE", "PUBLISH", null, null)
+        val batch = ManagedImportBatch(
+            id = 1,
+            sourceFileName = "导入数据.xlsx",
+            status = "VALIDATED",
+            stats = ImportBatchStats(totalRows = 2, newRows = 1, updateRows = 1, publishableRows = 2, pendingReviewRows = 1),
+            createdAt = null,
+            publishedAt = null,
+            rollbackAt = null,
+            rowTotal = 2,
+            rows = listOf(pending, processed),
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(tab = AdminTab.Imports, isLoading = false, selectedImportBatch = batch),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
+                    onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
+                    onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {}, onChooseImport = {},
+                    onOpenImportBatch = {}, onDismissImportBatch = {}, onImportResolution = { _, _ -> },
+                    onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("admin_import_filter_REVIEW").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_filter_CREATE").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_filter_UPDATE").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_filter_REACTIVATE").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_filter_DEACTIVATE").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_filter_ERROR").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_filter_selector").assertIsDisplayed()
+        composeRule.onNodeWithText("全部待核对").assertIsDisplayed()
+        composeRule.onNodeWithText("待失效").assertIsDisplayed()
+        composeRule.onNodeWithText("新增 1 · 更新 1 · 待确认 1").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_row_${pending.id}").assertIsDisplayed()
+        composeRule.onNodeWithTag("import_pending_dot").assertIsDisplayed()
+    }
+
+    @Test
     fun 待失效记录详情展示确认失效操作() {
         val row = ManagedImportRow(
             id = 202,
@@ -548,6 +592,7 @@ class AdminWorkspaceScreenTest {
                         auditEntries = listOf(entry),
                         auditTotalCount = 1,
                         auditSummary = ManagedAuditSummary(1, 0, 1, 1),
+                        auditActionTypes = listOf("USER_LIST", "VEHICLE_UPDATE"),
                     ),
                     onNavigateUp = {},
                     onTabSelected = {},
@@ -576,9 +621,14 @@ class AdminWorkspaceScreenTest {
         }
 
         composeRule.onNodeWithText("近24小时").assertIsDisplayed()
-        composeRule.onNodeWithText("FAILURE").assertIsDisplayed()
+        composeRule.onNodeWithText("更新车辆档案").assertIsDisplayed()
+        composeRule.onNodeWithText("账号").assertIsDisplayed()
+        composeRule.onAllNodesWithText("VEHICLE_UPDATE").assertCountEquals(0)
         composeRule.onNodeWithText("2026年09月12日 00:03:19").assertIsDisplayed()
         composeRule.onAllNodesWithText("2026-09-11T16:03:19.230862Z").assertCountEquals(0)
+        composeRule.onNodeWithTag("audit_action_selector").performClick()
+        composeRule.onNodeWithText("查看账号列表").assertIsDisplayed()
+        composeRule.onAllNodesWithText("USER_LIST").assertCountEquals(0)
     }
 
     @Test
@@ -614,7 +664,7 @@ class AdminWorkspaceScreenTest {
                     uiState = AdminUiState(
                         tab = AdminTab.Vehicles,
                         isLoading = false,
-                        pendingVehicleStatusChange = PendingVehicleStatusChange(vehicle, "BLACKLISTED"),
+                        pendingVehicleStatusChange = PendingVehicleStatusChange(vehicle, "STRICT_CHECK"),
                     ),
                     onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
                     onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
@@ -627,8 +677,8 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("拉黑车辆档案").assertIsDisplayed()
-        composeRule.onNodeWithText("新A12345 仍可在首页查询，但会明确标注为已拉黑。").assertIsDisplayed()
+        composeRule.onNodeWithText("标记车辆严查").assertIsDisplayed()
+        composeRule.onNodeWithText("新A12345 仍可在首页查询，并提示核实三证合一、车辆信息与驾驶人员信息。").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_confirm_vehicle_status").performClick()
 
         composeRule.runOnIdle { assertTrue(confirmed) }

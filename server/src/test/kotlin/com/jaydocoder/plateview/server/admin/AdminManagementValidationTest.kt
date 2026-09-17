@@ -8,10 +8,11 @@ import kotlinx.serialization.json.JsonObject
 
 class AdminManagementValidationTest {
     @Test
-    fun `车辆状态区分人工拉黑、导入失效和逻辑删除`() {
+    fun `车辆状态区分严查、人工拉黑、导入失效和逻辑删除`() {
         assertEquals(
             setOf(
                 AdminVehicleStatus.ACTIVE,
+                AdminVehicleStatus.STRICT_CHECK,
                 AdminVehicleStatus.BLACKLISTED,
                 AdminVehicleStatus.INACTIVE,
                 AdminVehicleStatus.DELETED,

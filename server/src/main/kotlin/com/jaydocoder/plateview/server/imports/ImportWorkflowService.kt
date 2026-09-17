@@ -285,7 +285,8 @@ internal class ImportWorkflowService(
                result_status, planned_action, resolution, error_message, warning_message
         FROM import_rows
         WHERE import_batch_id = ? AND ${filter.sqlCondition}
-        ORDER BY CASE WHEN source_sheet_name = '$SYSTEM_DIFF_SOURCE' THEN 1 ELSE 0 END,
+        ORDER BY CASE WHEN resolution = 'PENDING' THEN 0 ELSE 1 END,
+                 CASE WHEN source_sheet_name = '$SYSTEM_DIFF_SOURCE' THEN 1 ELSE 0 END,
                  source_sheet_name, source_row_number, source_item_index, id
         LIMIT ? OFFSET ?
         """.trimIndent(),

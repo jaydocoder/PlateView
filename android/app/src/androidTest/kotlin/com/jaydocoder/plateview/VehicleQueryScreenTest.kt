@@ -184,8 +184,8 @@ class VehicleQueryScreenTest {
     }
 
     @Test
-    fun 停用车辆仍可展示并给出拉黑状态提示() {
-        val candidate = VehicleCandidate(107, "新A12351", "CADRE", "干部车辆", status = "INACTIVE")
+    fun 严查车辆仍可展示并给出黄色警戒提示() {
+        val candidate = VehicleCandidate(107, "新A12351", "CADRE", "干部车辆", status = "STRICT_CHECK")
 
         composeRule.setContent {
             PlateViewTheme {
@@ -204,7 +204,7 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onNodeWithTag("candidate_107").assertIsDisplayed()
-        composeRule.onNodeWithText("已停用（已失效）").assertIsDisplayed()
+        composeRule.onNodeWithText("严查").assertIsDisplayed()
     }
 
     @Test
@@ -411,6 +411,36 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onNodeWithText("该车辆档案已失效，不具备有效通行核验资格").assertIsDisplayed()
+    }
+
+    @Test
+    fun 严查车辆详情提示核实三证合一和人员信息() {
+        val vehicle = VehicleDetail(
+            id = 104,
+            plateNumber = "新A12348",
+            normalizedPlate = "新A12348",
+            category = "CADRE",
+            categoryLabel = "干部车辆",
+            vehicleType = null,
+            status = "STRICT_CHECK",
+            attributes = emptyList(),
+            residentProfile = null,
+            longTermProfile = null,
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                VehicleDetailScreen(
+                    uiState = VehicleDetailUiState(VehicleDetailContent.Data(vehicle)),
+                    onNavigateUp = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("严查").assertIsDisplayed()
+        composeRule.onNodeWithText("该车辆需严查：请核实三证合一、车辆信息与驾驶人员信息后再放行。")
+            .assertIsDisplayed()
     }
 
     @Test
