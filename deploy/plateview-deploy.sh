@@ -20,6 +20,8 @@ mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR" "$LOG_DIR"
 readonly LOG_FILE="$LOG_DIR/deploy-$(date -u +%Y%m%dT%H%M%SZ)-${1:-manual}.log"
 readonly API_CONTAINER_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-containers.sh"
 readonly API_IMAGE_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-images.sh"
+# shellcheck source=deploy/plateview-deploy-lib.sh
+source "$SOURCE_DIR/deploy/plateview-deploy-lib.sh"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -122,8 +124,8 @@ verify_database_migrations() {
     applied_version=$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" "$POSTGRES_CONTAINER" \
         psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
         "SELECT version FROM flyway_schema_history WHERE success = TRUE AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1;")
-    [[ "$applied_version" == "$expected_version" ]] || die "Flyway 迁移版本不一致：期望 V$expected_version，实际 V${applied_version:-无}"
-    log "Flyway 迁移校验通过：V$applied_version，失败记录 $failed_migrations 条"
+    migration_version_is_at_least "$expected_version" "$applied_version" || die "Flyway 迁移版本落后：源码要求至少 V$expected_version，实际 V${applied_version:-无}"
+    log "Flyway 迁移校验通过：数据库 V$applied_version，源码要求至少 V$expected_version，失败记录 $failed_migrations 条"
 }
 
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
