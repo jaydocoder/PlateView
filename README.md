@@ -2,20 +2,22 @@
 
 PlateView 是面向景区入口、巡查与车辆信息核验场景的 Android 应用及自建服务端。已登录用户可通过手动输入车牌片段，快速查询车辆归属、类别与通行信息；管理员可维护车辆档案、账号、Excel 导入批次与审计记录。
 
-当前 Android 客户端最低支持 Android 12（API 31），采用 Kotlin 与 Jetpack Compose 开发；服务端采用 Kotlin、Ktor 与 PostgreSQL。
+当前正式版本为 `0.3.27`（`versionCode 31`）。Android 客户端最低支持 Android 12（API 31），采用 Kotlin 与 Jetpack Compose 开发；服务端采用 Kotlin、Ktor 与 PostgreSQL。
 
 ## 核心能力
 
 - 账号密码登录，区分普通用户与管理员角色。
 - 手动输入车牌，忽略大小写、空格、中点和连字符。
-- 从首个有效车牌字符开始防抖模糊匹配，候选项展示车牌与车辆类型。
+- 从首个有效车牌字符开始防抖模糊匹配，候选项展示真实号牌颜色、车牌与车辆类型。
 - 查询村民车辆、驻景区单位车辆、驻景区企业车辆、干部车辆与喀纳斯旅游发展股份有限公司车辆详情。
+- 车辆状态支持有效、严查、已拉黑、已失效与已删除；严查车辆以黄色警戒状态提示核验三证合一及车辆、人员信息。
 - 保存当前账号的本机搜索历史。
 - 使用 SQLCipher Room 保存加密车辆目录快照；目录未变化时，本地完成候选与详情查询，降低弱网场景的等待时间。
 - 通过目录版本在登录、页面恢复前台和联网后台任务中检查数据变化；检测到变化后原子替换本地快照。
-- 检测到新正式版后由用户主动下载；网络中断时保留安装包断点，下次下载自动继续。
+- 检测到新正式版后支持下载更新；网络中断时保留安装包断点，下次下载自动继续。
 - 管理员工作台提供车辆档案、账号、Excel 导入、发布、回滚和审计查询。
-- Excel 导入采用预览、行级处置、确认发布与可追溯回滚流程，支持特殊后缀车牌。
+- Excel 导入采用预览、行级处置、确认发布与可追溯回滚流程，支持特殊后缀车牌。新增、更新、恢复和待失效记录只要尚未确认处置，都会显示冰湖绿色提示点并排在已处理记录之前；确认或跳过后提示点消失。
+- 界面使用森林冰湖绿主题和静态液态玻璃材质。为兼容不同厂商设备，未启用实时背景采样、折射或模糊渲染，也不使用边到边窗口处理。
 
 ## 工程结构
 
@@ -24,7 +26,7 @@ PlateView/
 ├── android/                 Android 客户端（Compose、Hilt、Room、WorkManager）
 ├── server/                  Ktor REST API 与 Flyway 数据库迁移
 ├── infra/                   PostgreSQL 初始化脚本
-├── deploy/                  Caddy 反向代理配置
+├── deploy/                  生产部署、蓝绿切流与镜像清理脚本
 ├── docs/                    需求、架构、操作与部署文档
 ├── compose.yaml             本地开发 Docker Compose 编排
 ├── compose.production.yaml  生产 Docker Compose 编排
@@ -75,7 +77,7 @@ cd android
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-真机调试时，将地址替换为开发服务器的 HTTPS 域名；不要把密码、令牌或生产数据库密码写入源码。
+真机调试时，将地址替换为局域网开发服务器地址或开发服务器的 HTTPS 域名；不要把密码、令牌或生产数据库密码写入源码。
 
 ## 生产部署
 
@@ -85,7 +87,9 @@ android/app/build/outputs/apk/debug/app-debug.apk
 docker compose --env-file .env -f compose.production.yaml up -d
 ```
 
-服务端代码推送到 `main` 后，GitHub Actions 仅在 `server/**`、`compose.production.yaml`、`deploy/**` 或 `infra/**` 发生变化时触发服务器部署。服务器会拉取提交、备份数据库、构建候选镜像、执行迁移、核对 Flyway 无失败记录且已达到源码最高版本、再进行健康检查；通过后才由 Caddy 平滑切换流量，失败则保留旧容器。
+服务端代码推送到 `main` 后，GitHub Actions 仅在 `server/**`、`compose.production.yaml`、`deploy/**` 或 `infra/**` 发生变化时触发服务器部署。工作流通过 SSH 在生产服务器启动部署脚本；服务器会拉取提交、每次部署前创建数据库备份、在服务器本机构建候选 API 镜像、执行迁移、核对 Flyway 无失败记录且已达到源码最高版本、再进行健康检查。通过后才由 Caddy 平滑切换流量，失败则保留旧容器。
+
+> 当前部署脚本仍会在生产服务器执行 `docker build`，尚未实施“GitHub Actions 构建 GHCR 镜像、服务器只拉取镜像”的低压力发布方案；`compose.production.yaml` 也尚未设置 API、PostgreSQL 与 Caddy 的 CPU/内存限额。因此 2 核 2GiB 服务器在构建候选镜像时仍可能出现较高 CPU 和内存占用。该优化不能被视为已上线功能。
 
 首次部署需要配置 `DEPLOY_SSH_KEY`、`DEPLOY_KNOWN_HOSTS`、`DEPLOY_HOST`、`DEPLOY_USER` 和 `DEPLOY_PORT` Secrets。完整初始化、蓝绿切换、备份恢复、回滚和排障步骤见：[部署运行手册](docs/12-部署运行手册.md)。
 
@@ -95,7 +99,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。服务器由 `root` 一次性安装 `plateview-update-mirror.timer` 后，每五分钟主动检查 GitHub Release，断点续传同一签名 APK，校验 SHA-256 后原子更新服务器镜像与 `latest.json`。客户端优先从 GitHub 下载；GitHub 不可用或中途下载失败时，会复用未完成文件并从服务器镜像继续断点下载。
 
-当前版本：`0.3.24`（`versionCode 28`）。
+当前版本：`0.3.27`（`versionCode 31`）。最新正式 APK 可在 [GitHub Releases](https://github.com/jaydocoder/PlateView/releases) 下载。
 
 ## 文档索引
 
