@@ -48,6 +48,12 @@ git_source() { git --git-dir="$SOURCE_DIR/.git" --work-tree="$SOURCE_DIR" "$@"; 
 write_caddy_upstream() { printf 'reverse_proxy %s:8080\n' "$1" > "$RUNTIME_DIR/Caddyfile"; }
 restore_caddy_config() { cp "$RUNTIME_DIR/Caddyfile.previous" "$RUNTIME_DIR/Caddyfile"; }
 
+read_runtime_value() {
+    local name="$1"
+    [[ -r "$RUNTIME_DIR/$name" ]] || return 0
+    tr -d '[:space:]' < "$RUNTIME_DIR/$name"
+}
+
 container_ip() {
     docker inspect -f "{{with index .NetworkSettings.Networks \"$BACKEND_NETWORK\"}}{{.IPAddress}}{{end}}" "$1"
 }
@@ -131,10 +137,10 @@ if [[ "${1:-}" == "rollback" ]]; then
     current_upstream=$(<"$RUNTIME_DIR/active-upstream")
     current_container=$(<"$RUNTIME_DIR/active-container")
     current_slot=$(<"$RUNTIME_DIR/active-slot")
-    current_commit=$(tr -d '[:space:]' < "$RUNTIME_DIR/active-commit" 2>/dev/null || true)
-    current_image=$(tr -d '[:space:]' < "$RUNTIME_DIR/active-image" 2>/dev/null || true)
-    previous_commit=$(tr -d '[:space:]' < "$RUNTIME_DIR/previous-commit" 2>/dev/null || true)
-    previous_image=$(tr -d '[:space:]' < "$RUNTIME_DIR/previous-image" 2>/dev/null || true)
+    current_commit=$(read_runtime_value active-commit)
+    current_image=$(read_runtime_value active-image)
+    previous_commit=$(read_runtime_value previous-commit)
+    previous_image=$(read_runtime_value previous-image)
     case "$current_slot" in
         blue) previous_slot=green ;;
         *) previous_slot=blue ;;
@@ -188,7 +194,7 @@ git_source checkout --detach --force "$target_commit"
 resolved_commit=$(git_source rev-parse HEAD)
 short_commit=${resolved_commit:0:12}
 
-active_commit=$(tr -d '[:space:]' < "$RUNTIME_DIR/active-commit" 2>/dev/null || true)
+active_commit=$(read_runtime_value active-commit)
 needs_server_deploy() {
     local current_commit="$1"
     if [[ -z "$current_commit" ]]; then
@@ -317,7 +323,7 @@ if ! curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL" >/dev/
 fi
 
 docker update --restart=unless-stopped "$candidate" >/dev/null
-previous_image=$(tr -d '[:space:]' < "$RUNTIME_DIR/active-image" 2>/dev/null || true)
+previous_image=$(read_runtime_value active-image)
 printf '%s\n' "$active_upstream" > "$RUNTIME_DIR/previous-upstream"
 printf '%s\n' "$active_container" > "$RUNTIME_DIR/previous-container"
 [[ -n "$active_commit" ]] && printf '%s\n' "$active_commit" > "$RUNTIME_DIR/previous-commit"
