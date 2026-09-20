@@ -34,7 +34,7 @@ readonly API_PIDS_LIMIT="${PLATEVIEW_API_PIDS_LIMIT:-256}"
 readonly API_JAVA_OPTIONS="${PLATEVIEW_API_JAVA_OPTIONS:--XX:MaxRAMPercentage=50 -XX:MaxMetaspaceSize=96m -XX:+ExitOnOutOfMemoryError}"
 readonly IMAGE_REPOSITORY="${PLATEVIEW_API_IMAGE_REPOSITORY:-ghcr.io/jaydocoder/plateview-api}"
 
-mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR" "$LOG_DIR" "$WORK_ORDER_IMAGE_DIR"
+mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR" "$LOG_DIR"
 readonly LOG_FILE="$LOG_DIR/deploy-$(date -u +%Y%m%dT%H%M%SZ)-${1:-manual}.log"
 readonly API_CONTAINER_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-containers.sh"
 readonly API_IMAGE_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-images.sh"
@@ -48,6 +48,11 @@ compose() { docker compose --project-directory "$APP_DIR" --project-name platevi
 git_source() { git --git-dir="$SOURCE_DIR/.git" --work-tree="$SOURCE_DIR" "$@"; }
 write_caddy_upstream() { printf 'reverse_proxy %s:8080\n' "$1" > "$RUNTIME_DIR/Caddyfile"; }
 restore_caddy_config() { cp "$RUNTIME_DIR/Caddyfile.previous" "$RUNTIME_DIR/Caddyfile"; }
+
+mkdir -p "$WORK_ORDER_IMAGE_DIR" 2>/dev/null \
+    || die "微信车单附件目录不可创建，请先使用 root 执行 install-low-pressure-host.sh：$WORK_ORDER_IMAGE_DIR"
+[[ -w "$WORK_ORDER_IMAGE_DIR" ]] \
+    || die "微信车单附件目录不可写：$WORK_ORDER_IMAGE_DIR"
 
 read_runtime_value() {
     local name="$1"

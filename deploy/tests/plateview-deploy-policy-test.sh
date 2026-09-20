@@ -37,6 +37,11 @@ if grep -F 'docker build' "$PROJECT_ROOT/deploy/plateview-deploy.sh" >/dev/null;
     printf '生产部署脚本不得执行 Docker 构建\n' >&2
     exit 1
 fi
+grep -F 'install -d -m 0750 -o "$deployment_owner" -g "$deployment_group" "$WORK_ORDER_IMAGE_DIR"' \
+    "$PROJECT_ROOT/deploy/install-low-pressure-host.sh" >/dev/null
+grep -F '微信车单附件目录不可创建，请先使用 root 执行 install-low-pressure-host.sh' \
+    "$PROJECT_ROOT/deploy/plateview-deploy.sh" >/dev/null
+grep -F '微信车单附件目录不可写' "$PROJECT_ROOT/deploy/plateview-deploy.sh" >/dev/null
 [[ -f "$PROJECT_ROOT/server/src/main/resources/db/migration/V30__restrict_user_vehicle_data_access_defaults.sql" ]]
 grep -F 'docker/build-push-action@v6' "$PROJECT_ROOT/.github/workflows/server-deploy.yml" >/dev/null
 grep -F 'TARGET_IMAGE' "$PROJECT_ROOT/.github/workflows/server-deploy.yml" >/dev/null
