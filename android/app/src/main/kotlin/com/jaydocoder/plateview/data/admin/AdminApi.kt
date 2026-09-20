@@ -3,6 +3,7 @@ package com.jaydocoder.plateview.data.admin
 import okhttp3.MultipartBody
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.DELETE
 import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.POST
@@ -150,4 +151,56 @@ interface AdminApi {
         @Query("limit") limit: Int,
         @Query("offset") offset: Int,
     ): AdminAuditListResponseDto
+
+    @GET("admin/wechat-sync/status")
+    suspend fun getWechatSyncStatus(@Header("Authorization") authorization: String): WechatSyncStatusResponseDto
+
+    @GET("admin/wechat-sync/issues")
+    suspend fun getWechatSyncIssues(@Header("Authorization") authorization: String): WechatSyncIssuesResponseDto
+
+    @GET("admin/wechat-sync/records/search")
+    suspend fun searchWechatWorkOrders(
+        @Header("Authorization") authorization: String,
+        @Query("keyword") keyword: String,
+    ): AdminWorkOrderSearchResponseDto
+
+    @GET("admin/wechat-sync/passage-senders")
+    suspend fun getWechatPassageSenders(@Header("Authorization") authorization: String): WechatPassageSendersResponseDto
+
+    @PUT("admin/wechat-sync/passage-senders/{senderUsername}")
+    suspend fun saveWechatPassageSender(
+        @Header("Authorization") authorization: String,
+        @Path("senderUsername") senderUsername: String,
+        @Body request: WechatPassageSenderRequestDto,
+    )
+
+    @PUT("admin/wechat-sync/records/{recordId}")
+    suspend fun correctWechatWorkOrder(
+        @Header("Authorization") authorization: String,
+        @Path("recordId") recordId: Long,
+        @Body request: WorkOrderCorrectionRequestDto,
+    )
+
+    @PUT("admin/wechat-sync/images/{imageId}/association")
+    suspend fun associateWechatImage(
+        @Header("Authorization") authorization: String,
+        @Path("imageId") imageId: Long,
+        @Body request: WorkOrderImageAssociationRequestDto,
+    )
+
+    @DELETE("admin/wechat-sync/images/{imageId}/association")
+    suspend fun removeWechatImageAssociation(
+        @Header("Authorization") authorization: String,
+        @Path("imageId") imageId: Long,
+    )
+
+    @POST("admin/wechat-sync/images/{imageId}/ignore")
+    suspend fun ignoreWechatImage(@Header("Authorization") authorization: String, @Path("imageId") imageId: Long)
+
+    @GET("admin/wechat-sync/images/{imageId}")
+    suspend fun downloadWechatAttachment(
+        @Header("Authorization") authorization: String,
+        @Path("imageId") imageId: Long,
+        @Query("variant") variant: String = "preview",
+    ): ResponseBody
 }

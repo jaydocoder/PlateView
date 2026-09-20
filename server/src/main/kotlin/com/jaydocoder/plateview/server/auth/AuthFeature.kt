@@ -208,7 +208,7 @@ private class AuthService(private val dataSource: DataSource, private val settin
     }
 
     fun findActiveUserById(userId: Long): UserAccount? = findUser(
-        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, update_policy, ((username = 'admin' AND role = 'ADMIN') OR (schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id AND p.enabled = TRUE))) AS schedule_enabled FROM users WHERE id = ? AND status = 'ACTIVE'",
+        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, update_policy, ((username = 'admin' AND role = 'ADMIN') OR (schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id AND p.enabled = TRUE))) AS schedule_enabled, ((username = 'admin' AND role = 'ADMIN') OR wechat_work_order_access_enabled) AS wechat_work_order_access_enabled FROM users WHERE id = ? AND status = 'ACTIVE'",
         userId,
     )
 
@@ -316,11 +316,11 @@ private class AuthService(private val dataSource: DataSource, private val settin
     }
 
     private fun findUserByUsername(username: String): UserAccount? = findUser(
-        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, update_policy, ((username = 'admin' AND role = 'ADMIN') OR (schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id AND p.enabled = TRUE))) AS schedule_enabled FROM users WHERE username = ? AND status = 'ACTIVE'",
+        "SELECT id, username, password_hash, role, auth_version, avatar_version, avatar_content, avatar_content_type, update_policy, ((username = 'admin' AND role = 'ADMIN') OR (schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = users.id AND p.enabled = TRUE))) AS schedule_enabled, ((username = 'admin' AND role = 'ADMIN') OR wechat_work_order_access_enabled) AS wechat_work_order_access_enabled FROM users WHERE username = ? AND status = 'ACTIVE'",
         username,
     )
     private fun findUserByRefreshHash(tokenHash: String): UserAccount? = findUser(
-        "SELECT u.id, u.username, u.password_hash, u.role, u.auth_version, u.avatar_version, u.avatar_content, u.avatar_content_type, u.update_policy, ((u.username = 'admin' AND u.role = 'ADMIN') OR (u.schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = u.id AND p.enabled = TRUE))) AS schedule_enabled FROM refresh_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP AND u.status = 'ACTIVE'",
+        "SELECT u.id, u.username, u.password_hash, u.role, u.auth_version, u.avatar_version, u.avatar_content, u.avatar_content_type, u.update_policy, ((u.username = 'admin' AND u.role = 'ADMIN') OR (u.schedule_access_enabled AND EXISTS (SELECT 1 FROM schedule_participants p WHERE p.account_id = u.id AND p.enabled = TRUE))) AS schedule_enabled, ((u.username = 'admin' AND u.role = 'ADMIN') OR u.wechat_work_order_access_enabled) AS wechat_work_order_access_enabled FROM refresh_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP AND u.status = 'ACTIVE'",
         tokenHash,
     )
     private fun findUser(sql: String, value: Any): UserAccount? = dataSource.connection.use { connection ->
@@ -338,6 +338,7 @@ private class AuthService(private val dataSource: DataSource, private val settin
                     avatar = result.getBytes("avatar_content")?.let { AvatarContent(it, result.getString("avatar_content_type")) },
                     scheduleEnabled = result.getBoolean("schedule_enabled"),
                     updatePolicy = result.getString("update_policy"),
+                    wechatWorkOrderAccessEnabled = result.getBoolean("wechat_work_order_access_enabled"),
                 )
             }
         }
@@ -353,8 +354,8 @@ private class AuthService(private val dataSource: DataSource, private val settin
     val currentPassword: String? = null,
 )
 @Serializable private data class TokenResponse(val accessToken: String, val refreshToken: String, val accessTokenExpiresAt: String, val user: UserResponse)
-@Serializable private data class UserResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean, val updatePolicy: String)
-@Serializable private data class ProfileResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean, val updatePolicy: String)
+@Serializable private data class UserResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean)
+@Serializable private data class ProfileResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean)
 private data class UserAccount(
     val id: Long,
     val username: String,
@@ -365,13 +366,14 @@ private data class UserAccount(
     val avatar: AvatarContent?,
     val scheduleEnabled: Boolean,
     val updatePolicy: String,
+    val wechatWorkOrderAccessEnabled: Boolean,
 )
 private data class AvatarContent(val content: ByteArray, val contentType: String)
 internal data class AvatarUpload(val content: ByteArray, val contentType: String)
 internal class ProfileConflictException(message: String) : RuntimeException(message)
 
-private fun UserAccount.toResponse() = UserResponse(id, username, role, avatarVersion, scheduleEnabled, updatePolicy)
-private fun UserAccount.toProfileResponse() = ProfileResponse(id, username, role, avatarVersion, avatar != null, scheduleEnabled, updatePolicy)
+private fun UserAccount.toResponse() = UserResponse(id, username, role, avatarVersion, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled)
+private fun UserAccount.toProfileResponse() = ProfileResponse(id, username, role, avatarVersion, avatar != null, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled)
 
 internal suspend fun ApplicationCall.receiveAvatarUpload(): AvatarUpload {
     val declaredSize = request.headers[HttpHeaders.ContentLength]?.toLongOrNull()

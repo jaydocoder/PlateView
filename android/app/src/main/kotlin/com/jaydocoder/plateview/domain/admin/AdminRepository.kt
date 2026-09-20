@@ -39,4 +39,15 @@ interface AdminRepository {
         limit: Int = 50,
         offset: Int = 0,
     ): ManagedAuditPage
+
+    suspend fun getWechatSyncStatus(accessToken: String): List<WechatSyncSource>
+    suspend fun getWechatSyncIssues(accessToken: String): List<WechatSyncIssue>
+    suspend fun getWechatPassageSenders(accessToken: String): List<WechatPassageSender>
+    suspend fun saveWechatPassageSender(accessToken: String, sender: WechatPassageSender)
+    suspend fun correctWechatWorkOrder(accessToken: String, recordId: Long, command: WorkOrderCorrectionCommand)
+    suspend fun associateWechatImage(accessToken: String, imageId: Long, recordId: Long)
+    suspend fun removeWechatImageAssociation(accessToken: String, imageId: Long)
+    suspend fun ignoreWechatImage(accessToken: String, imageId: Long)
+    suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String = "preview"): ByteArray
+    suspend fun searchWechatWorkOrders(accessToken: String, keyword: String): List<WechatWorkOrderSearchItem>
 }

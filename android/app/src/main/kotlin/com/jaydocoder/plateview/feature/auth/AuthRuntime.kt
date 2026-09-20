@@ -26,6 +26,7 @@ import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 
 private val Context.authDataStore by preferencesDataStore("auth_session")
 
@@ -38,11 +39,12 @@ data class AuthSession(
     val avatarVersion: Long = 0L,
     val scheduleEnabled: Boolean = false,
     val updatePolicy: String = "OPTIONAL",
+    val wechatWorkOrderAccessEnabled: Boolean = false,
 )
 data class LoginRequest(val username: String, val password: String)
 data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto)
-data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL")
-data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL")
+data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false)
+data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false)
 data class ProfileUpdateRequest(
     val username: String? = null,
     val password: String? = null,
@@ -86,6 +88,7 @@ interface AuthApi {
 class AuthRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val api: AuthApi,
+    private val workOrderRepository: WorkOrderRepository,
 ) : AuthSessionProvider {
     override val session: Flow<AuthSession?> = context.authDataStore.data.map { p ->
         val access = p[ACCESS] ?: return@map null
@@ -99,11 +102,15 @@ class AuthRepository @Inject constructor(
             avatarVersion = p[AVATAR_VERSION] ?: 0L,
             scheduleEnabled = p[SCHEDULE_ENABLED] ?: false,
             updatePolicy = p[UPDATE_POLICY] ?: "OPTIONAL",
+            wechatWorkOrderAccessEnabled = p[WECHAT_WORK_ORDER_ACCESS] ?: false,
         )
     }
 
     suspend fun login(username: String, password: String) {
         val response = api.login(LoginRequest(username, password))
+        if (!response.user.wechatWorkOrderAccessEnabled) {
+            workOrderRepository.clear(response.user.id)
+        }
         context.authDataStore.edit { preferences ->
             preferences[ACCESS] = response.accessToken
             preferences[REFRESH] = response.refreshToken
@@ -113,10 +120,12 @@ class AuthRepository @Inject constructor(
             preferences[AVATAR_VERSION] = response.user.avatarVersion
             preferences[SCHEDULE_ENABLED] = response.user.scheduleEnabled
             preferences[UPDATE_POLICY] = response.user.updatePolicy
+            preferences[WECHAT_WORK_ORDER_ACCESS] = response.user.wechatWorkOrderAccessEnabled
         }
     }
 
     override suspend fun logout() {
+        session.first()?.userId?.let { workOrderRepository.clear(it) }
         context.authDataStore.edit { it.clear() }
     }
 
@@ -141,6 +150,7 @@ class AuthRepository @Inject constructor(
         val AVATAR_VERSION = longPreferencesKey("avatar_version")
         val SCHEDULE_ENABLED = androidx.datastore.preferences.core.booleanPreferencesKey("schedule_enabled")
         val UPDATE_POLICY = stringPreferencesKey("update_policy")
+        val WECHAT_WORK_ORDER_ACCESS = androidx.datastore.preferences.core.booleanPreferencesKey("wechat_work_order_access")
     }
 }
 

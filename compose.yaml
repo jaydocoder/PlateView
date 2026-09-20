@@ -32,6 +32,10 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}
       SENTRY_RELEASE: ${SENTRY_RELEASE:-plateview-server@local}
+      WECHAT_COLLECTOR_TOKEN: ${WECHAT_COLLECTOR_TOKEN:-}
+      WORK_ORDER_IMAGE_DIR: /opt/plateview/work-order-images
+    volumes:
+      - ./data/work-order-images:/opt/plateview/work-order-images
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:

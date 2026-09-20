@@ -8,6 +8,8 @@ java_pid*.hprof
 local.properties
 *.apk
 *.aab
+__pycache__/
+*.pyc
 
 # 本机密钥与部署配置
 *.jks

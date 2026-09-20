@@ -128,7 +128,7 @@ internal fun Application.configureAdminManagementFeature() {
                         )
                         call.auditAdmin(
                             actorId,
-                            if (command.otherLongTermAccessEnabled != null || command.residentRemarksAccessEnabled != null) "USER_DATA_ACCESS_UPDATE" else if (command.updatePolicy != null) "USER_UPDATE_POLICY" else "USER_UPDATE",
+                            if (command.otherLongTermAccessEnabled != null || command.residentRemarksAccessEnabled != null || command.wechatWorkOrderAccessEnabled != null) "USER_DATA_ACCESS_UPDATE" else if (command.updatePolicy != null) "USER_UPDATE_POLICY" else "USER_UPDATE",
                             "USER",
                             user.id,
                         )
@@ -307,6 +307,7 @@ private data class AdminUserUpdateRequest(
     val updatePolicy: String? = null,
     val otherLongTermAccessEnabled: Boolean? = null,
     val residentRemarksAccessEnabled: Boolean? = null,
+    val wechatWorkOrderAccessEnabled: Boolean? = null,
 ) {
     fun toCommand(): AdminUserUpdateCommand = AdminUserUpdateCommand(
         role = parseEnum(role, "账号角色") { AdminValidationException("账号角色无效") },
@@ -318,6 +319,7 @@ private data class AdminUserUpdateRequest(
         updatePolicy = updatePolicy?.let { parseEnum<AdminUpdatePolicy>(it, "更新策略") { AdminValidationException("更新策略无效") } },
         otherLongTermAccessEnabled = otherLongTermAccessEnabled,
         residentRemarksAccessEnabled = residentRemarksAccessEnabled,
+        wechatWorkOrderAccessEnabled = wechatWorkOrderAccessEnabled,
     )
 }
 
@@ -366,6 +368,7 @@ private fun AdminUserRecord.toResponse(includeRealName: Boolean): AdminUserRespo
     updatePolicy = updatePolicy.name,
     otherLongTermAccessEnabled = otherLongTermAccessEnabled,
     residentRemarksAccessEnabled = residentRemarksAccessEnabled,
+    wechatWorkOrderAccessEnabled = wechatWorkOrderAccessEnabled,
 )
 
 private fun AdminImportBatchSummary.toResponse(): AdminImportBatchSummaryResponse = AdminImportBatchSummaryResponse(
@@ -414,7 +417,7 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 @Serializable private data class AdminResidentProfileResponse(val ownerName: String, val identityCardNumber: String, val contactPhone: String?, val remarks: String?)
 @Serializable private data class AdminLongTermProfileResponse(val organizationName: String?, val passHolder: String?, val passageDetails: String?, val remarks: String?)
 @Serializable private data class AdminUserListResponse(val items: List<AdminUserResponse>)
-@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String?, val scheduleAccessEnabled: Boolean, val updatePolicy: String, val otherLongTermAccessEnabled: Boolean, val residentRemarksAccessEnabled: Boolean)
+@Serializable private data class AdminUserResponse(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String?, val scheduleAccessEnabled: Boolean, val updatePolicy: String, val otherLongTermAccessEnabled: Boolean, val residentRemarksAccessEnabled: Boolean, val wechatWorkOrderAccessEnabled: Boolean)
 @Serializable private data class AdminImportBatchListResponse(val items: List<AdminImportBatchSummaryResponse>)
 @Serializable private data class AdminImportBatchSummaryResponse(val id: Long, val sourceFileName: String, val status: String, val totalRows: Int, val validRows: Int, val duplicateRows: Int, val errorRows: Int, val version: Int, val createdAt: String?, val publishedAt: String?, val rollbackAt: String?)
 @Serializable private data class AdminAuditListResponse(

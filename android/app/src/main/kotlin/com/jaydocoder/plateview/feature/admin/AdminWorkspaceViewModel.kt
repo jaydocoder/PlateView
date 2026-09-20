@@ -16,6 +16,7 @@ import com.jaydocoder.plateview.domain.admin.AuditResult
 import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
+import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -50,8 +51,64 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun selectTab(tab: AdminTab) {
+        if (tab == AdminTab.WechatSync && !_uiState.value.isPrimaryAdministrator) return
         _uiState.update { it.copy(tab = tab, failure = null) }
         refresh()
+    }
+
+    fun correctWechatWorkOrder(recordId: Long, orderNumber: String, rawPlate: String) {
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isSaving = true, failure = null) }
+            repository.correctWechatWorkOrder(
+                accessToken,
+                recordId,
+                WorkOrderCorrectionCommand(orderNumber.trim().ifEmpty { null }, rawPlate.trim().ifEmpty { null }),
+            )
+            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+        }
+    }
+
+    fun associateWechatImage(imageId: Long, recordId: Long) {
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isSaving = true, failure = null) }
+            repository.associateWechatImage(accessToken, imageId, recordId)
+            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+        }
+    }
+
+    fun removeWechatImageAssociation(imageId: Long) {
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isSaving = true, failure = null) }
+            repository.removeWechatImageAssociation(accessToken, imageId)
+            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+        }
+    }
+
+    fun ignoreWechatImage(imageId: Long) {
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isSaving = true, failure = null) }
+            repository.ignoreWechatImage(accessToken, imageId)
+            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+        }
+    }
+
+    fun searchWechatWorkOrders(imageId: Long, keyword: String) {
+        if (keyword.trim().length < 2) {
+            _uiState.update { it.copy(wechatWorkOrderCandidates = it.wechatWorkOrderCandidates - imageId) }
+            return
+        }
+        launchAdminAction { accessToken ->
+            val candidates = repository.searchWechatWorkOrders(accessToken, keyword.trim())
+            _uiState.update { it.copy(wechatWorkOrderCandidates = it.wechatWorkOrderCandidates + (imageId to candidates)) }
+        }
+    }
+
+    fun saveWechatPassageSender(sender: com.jaydocoder.plateview.domain.admin.WechatPassageSender) {
+        launchAdminAction { accessToken ->
+            _uiState.update { it.copy(isSaving = true, failure = null) }
+            repository.saveWechatPassageSender(accessToken, sender)
+            _uiState.update { it.copy(wechatPassageSenders = repository.getWechatPassageSenders(accessToken), isSaving = false) }
+        }
     }
 
     fun refresh() {
@@ -67,6 +124,24 @@ class AdminWorkspaceViewModel @Inject constructor(
                 AdminTab.Users -> loadUsers(accessToken)
                 AdminTab.Imports -> _uiState.update { it.copy(importBatches = repository.listImportBatches(accessToken)) }
                 AdminTab.Audit -> loadAuditEntries(accessToken, reset = true)
+                AdminTab.WechatSync -> {
+                    val session = sessionProvider.session.first()
+                    if (session?.username != "admin" || session.role != "ADMIN") throw IllegalStateException("仅admin账号可以查看微信同步")
+                    val issues = repository.getWechatSyncIssues(accessToken)
+                    _uiState.update {
+                        it.copy(
+                            wechatSyncSources = repository.getWechatSyncStatus(accessToken),
+                            wechatSyncIssues = issues,
+                            wechatPassageSenders = repository.getWechatPassageSenders(accessToken),
+                        )
+                    }
+                    issues.mapNotNull { it.imageId }.distinct().forEach { imageId ->
+                        viewModelScope.launch {
+                            runCatching { repository.downloadWechatAttachment(accessToken, imageId) }
+                                .onSuccess { bytes -> _uiState.update { state -> state.copy(wechatAttachmentPreviews = state.wechatAttachmentPreviews + (imageId to bytes)) } }
+                        }
+                    }
+                }
             }
             _uiState.update { it.copy(isLoading = false) }
         }
@@ -271,6 +346,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         updatePolicy = editor.updatePolicy.takeIf { editor.canEditProfile && editor.originalUsername != "admin" && it != editor.originalUpdatePolicy },
                         otherLongTermAccessEnabled = editor.otherLongTermAccessEnabled.takeIf { editor.canEditProfile && editor.originalUsername != "admin" && it != editor.originalOtherLongTermAccessEnabled },
                         residentRemarksAccessEnabled = editor.residentRemarksAccessEnabled.takeIf { editor.canEditProfile && editor.originalUsername != "admin" && it != editor.originalResidentRemarksAccessEnabled },
+                        wechatWorkOrderAccessEnabled = editor.wechatWorkOrderAccessEnabled.takeIf { editor.canEditProfile && editor.originalUsername != "admin" && it != editor.originalWechatWorkOrderAccessEnabled },
                     ),
                 )
             }

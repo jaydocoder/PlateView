@@ -68,11 +68,20 @@ import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
 import com.jaydocoder.plateview.component.VehiclePlateBadge
+import com.jaydocoder.plateview.component.rememberCurrentBeijingTime
 import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.component.glass.LiquidGlassInput
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.formatPlateForDisplay
+import com.jaydocoder.plateview.domain.workorder.WorkOrder
+import com.jaydocoder.plateview.domain.workorder.WechatMessage
+import com.jaydocoder.plateview.domain.workorder.WorkOrderPassageState
+import com.jaydocoder.plateview.domain.workorder.displayLabel
+import com.jaydocoder.plateview.domain.workorder.extractWorkOrderPassageTimeRemark
+import com.jaydocoder.plateview.domain.workorder.resolveWorkOrderPassageState
+import com.jaydocoder.plateview.domain.workorder.resolveWechatMessagePassageState
+import com.jaydocoder.plateview.domain.workorder.selectWorkOrderCandidatePlate
 import com.jaydocoder.plateview.feature.auth.AvatarViewModel
 import com.jaydocoder.plateview.feature.profile.AvatarImage
 import java.text.DateFormat
@@ -81,6 +90,8 @@ import java.util.Date
 @Composable
 fun SearchRoute(
     onNavigateToVehicle: (Long) -> Unit,
+    onNavigateToWorkOrder: (Long, String) -> Unit,
+    onNavigateToWechatMessage: (Long) -> Unit,
     onNavigateToProfile: () -> Unit,
     onScreenVisible: () -> Unit = {},
     onScreenHidden: () -> Unit = {},
@@ -100,6 +111,8 @@ fun SearchRoute(
         viewModel.events.collect { event ->
             when (event) {
                 is SearchEvent.OpenVehicle -> onNavigateToVehicle(event.vehicleId)
+                is SearchEvent.OpenWorkOrder -> onNavigateToWorkOrder(event.recordId, event.query)
+                is SearchEvent.OpenWechatMessage -> onNavigateToWechatMessage(event.messageId)
             }
         }
     }
@@ -115,6 +128,8 @@ fun SearchRoute(
         uiState = uiState,
         onQueryChanged = viewModel::updateQuery,
         onCandidateSelected = viewModel::selectCandidate,
+        onWorkOrderSelected = viewModel::selectWorkOrder,
+        onWechatMessageSelected = viewModel::selectWechatMessage,
         onHistorySelected = viewModel::selectHistory,
         onDeleteHistory = viewModel::deleteHistory,
         onClearHistory = viewModel::clearHistory,
@@ -130,6 +145,8 @@ fun SearchScreen(
     uiState: SearchUiState,
     onQueryChanged: (String) -> Unit,
     onCandidateSelected: (VehicleCandidate) -> Unit,
+    onWorkOrderSelected: (WorkOrder) -> Unit = {},
+    onWechatMessageSelected: (WechatMessage) -> Unit = {},
     onHistorySelected: (SearchHistoryItem) -> Unit,
     onDeleteHistory: (Long) -> Unit,
     onClearHistory: () -> Unit,
@@ -239,6 +256,38 @@ fun SearchScreen(
                 }
             }
 
+            if (uiState.workOrderCandidates.isNotEmpty()) {
+                item(key = "work_order_heading") {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        SectionTitle(text = "微信车单", modifier = Modifier.weight(1f))
+                        Text("${uiState.workOrderCandidates.size} 条", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                items(
+                    items = uiState.workOrderCandidates,
+                    key = WorkOrder::id,
+                    contentType = { "work_order_candidate" },
+                ) { candidate ->
+                    WorkOrderCandidateRow(candidate, uiState.query, onWorkOrderSelected)
+                }
+            }
+
+            if (uiState.wechatMessages.isNotEmpty()) {
+                item(key = "wechat_message_heading") {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        SectionTitle(text = "微信聊天记录", modifier = Modifier.weight(1f))
+                        Text("${uiState.wechatMessages.size} 条", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                items(
+                    items = uiState.wechatMessages,
+                    key = WechatMessage::id,
+                    contentType = { "wechat_message_candidate" },
+                ) { message ->
+                    WechatMessageCandidateRow(message, onWechatMessageSelected)
+                }
+            }
+
             if (uiState.history.isNotEmpty()) {
                 item(key = "history_heading") {
                     Row(
@@ -274,6 +323,208 @@ fun SearchScreen(
             }
         }
     }
+}
+
+@Composable
+private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (WechatMessage) -> Unit) {
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth().clickable { onSelected(message) }.testTag("wechat_message_${message.id}"),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
+        elevated = true,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.itemSpacing),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                message.plateNumbers.firstOrNull()?.let { plate ->
+                    VehiclePlateBadge(plateNumber = plate, compact = true)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    WechatSenderName(message.displayName)
+                    resolveWechatMessagePassageState(message, rememberCurrentBeijingTime())?.let { state ->
+                        CandidateCompactBadge(
+                            text = state.displayLabel(),
+                            containerColor = when (state) {
+                                WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.primaryContainer
+                                WorkOrderPassageState.EXPIRED,
+                                WorkOrderPassageState.VOID,
+                                WorkOrderPassageState.AREA_MISMATCH,
+                                -> MaterialTheme.colorScheme.errorContainer
+                                else -> MaterialTheme.colorScheme.tertiaryContainer
+                            },
+                            contentColor = when (state) {
+                                WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.onPrimaryContainer
+                                WorkOrderPassageState.EXPIRED,
+                                WorkOrderPassageState.VOID,
+                                WorkOrderPassageState.AREA_MISMATCH,
+                                -> MaterialTheme.colorScheme.onErrorContainer
+                                else -> MaterialTheme.colorScheme.onTertiaryContainer
+                            },
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    Text(
+                        text = "${message.sourceName} · ${formatWechatMessageTime(message.sentAt)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "查看微信聊天详情", tint = MaterialTheme.colorScheme.outline)
+            }
+            Text(
+                text = message.matchedSnippet,
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WechatSenderName(displayName: String) {
+    val isDirector = displayName.trim() == "孙主任"
+    Text(
+        text = displayName,
+        style = MaterialTheme.typography.titleMedium.copy(
+            fontSize = if (isDirector) 20.sp else MaterialTheme.typography.titleMedium.fontSize,
+            fontWeight = if (isDirector) FontWeight.Bold else FontWeight.SemiBold,
+        ),
+        color = if (isDirector) Color(0xFFB87800) else MaterialTheme.colorScheme.onSurface,
+        maxLines = 1,
+    )
+}
+
+private fun formatWechatMessageTime(value: String): String = runCatching {
+    java.time.Instant.parse(value).atZone(java.time.ZoneId.of("Asia/Shanghai"))
+        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm"))
+}.getOrDefault(value)
+
+@Composable
+private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelected: (WorkOrder) -> Unit) {
+    val selectedPlate = selectWorkOrderCandidatePlate(
+        rawPlate = candidate.rawPlate,
+        orderNumber = candidate.orderNumber,
+        query = query,
+        rawContent = candidate.rawContent,
+    )
+    val passageTimeRemark = extractWorkOrderPassageTimeRemark(candidate.remarks)
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth().clickable { onSelected(candidate) }.testTag("work_order_${candidate.id}"),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
+        elevated = true,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.itemSpacing),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (selectedPlate != null) {
+                    VehiclePlateBadge(
+                        plateNumber = selectedPlate,
+                        compact = true,
+                        modifier = Modifier.testTag("work_order_plate_${candidate.id}"),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    CandidatePrimaryText(
+                        text = candidate.orderNumber ?: "未识别",
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    WorkOrderStatusBadge(
+                        candidate,
+                        Modifier.padding(top = 4.dp).testTag("work_order_status_${candidate.id}"),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "查看车单详情", tint = MaterialTheme.colorScheme.outline)
+            }
+            val supportingInformation = listOfNotNull(
+                candidate.rawValidTime?.takeIf(String::isNotBlank),
+                candidate.location?.takeIf(String::isNotBlank),
+                candidate.sourceName.takeIf(String::isNotBlank),
+                passageTimeRemark,
+            )
+            if (supportingInformation.isNotEmpty()) {
+                Text(
+                    text = supportingInformation.joinToString(" · "),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkOrderStatusBadge(workOrder: WorkOrder, modifier: Modifier = Modifier) {
+    val passageState = resolveWorkOrderPassageState(workOrder, rememberCurrentBeijingTime())
+    val containerColor = when (passageState) {
+        WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.primaryContainer
+        WorkOrderPassageState.NOT_STARTED,
+        WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
+        WorkOrderPassageState.UNKNOWN,
+        -> MaterialTheme.colorScheme.tertiaryContainer
+        WorkOrderPassageState.EXPIRED,
+        WorkOrderPassageState.VOID,
+        WorkOrderPassageState.AREA_MISMATCH,
+        -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when (passageState) {
+        WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.onPrimaryContainer
+        WorkOrderPassageState.NOT_STARTED,
+        WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
+        WorkOrderPassageState.UNKNOWN,
+        -> MaterialTheme.colorScheme.onTertiaryContainer
+        WorkOrderPassageState.EXPIRED,
+        WorkOrderPassageState.VOID,
+        WorkOrderPassageState.AREA_MISMATCH,
+        -> MaterialTheme.colorScheme.onErrorContainer
+    }
+    CandidateCompactBadge(
+        text = passageState.displayLabel(),
+        modifier = modifier,
+        containerColor = containerColor,
+        contentColor = contentColor,
+    )
+}
+
+@Composable
+private fun CandidateCompactBadge(
+    text: String,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = containerColor,
+        contentColor = contentColor,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelMedium,
+        )
+    }
+}
+
+@Composable
+private fun CandidatePrimaryText(text: String, color: Color, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        modifier = modifier,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        maxLines = 1,
+    )
 }
 
 @Composable
@@ -460,12 +711,9 @@ private fun VehicleCandidateRow(
             Spacer(modifier = Modifier.width(8.dp))
             
             Column(modifier = Modifier.weight(1f)) {
-                Text(
+                CandidatePrimaryText(
                     text = candidate.categoryLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
                     color = candidateCategoryColor(candidate.category),
-                    maxLines = 1,
                 )
                 if (candidate.status == "STRICT_CHECK" || candidate.status == "BLACKLISTED" || candidate.status == "INACTIVE") {
                     InactiveVehicleStatusBadge(candidate.status, modifier = Modifier.padding(top = 4.dp))
@@ -478,18 +726,12 @@ private fun VehicleCandidateRow(
                         maxLines = 1,
                     )
                 }
-                Surface(
+                CandidateCompactBadge(
+                    text = "核验就绪",
                     modifier = Modifier.padding(top = 4.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-                ) {
-                    Text(
-                        text = "核验就绪",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
+                )
             }
             
             Icon(

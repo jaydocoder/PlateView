@@ -24,6 +24,9 @@ import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.VehicleCreationCapabilities
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
+import com.jaydocoder.plateview.domain.admin.WechatSyncSource
+import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
+import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
 import java.util.Locale
@@ -91,7 +94,7 @@ class NetworkAdminRepository @Inject constructor(
             bearer(accessToken),
             version,
             userId,
-            AdminUserUpdateRequestDto(command.role, command.status, command.username, command.password, command.realName, command.scheduleAccessEnabled, command.updatePolicy?.name, command.otherLongTermAccessEnabled, command.residentRemarksAccessEnabled),
+            AdminUserUpdateRequestDto(command.role, command.status, command.username, command.password, command.realName, command.scheduleAccessEnabled, command.updatePolicy?.name, command.otherLongTermAccessEnabled, command.residentRemarksAccessEnabled, command.wechatWorkOrderAccessEnabled),
         )
         .toDomain()
 
@@ -177,6 +180,56 @@ class NetworkAdminRepository @Inject constructor(
     private companion object {
         val EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".toMediaType()
     }
+
+    override suspend fun getWechatSyncStatus(accessToken: String): List<WechatSyncSource> = api
+        .getWechatSyncStatus(bearer(accessToken))
+        .sources
+        .map { WechatSyncSource(it.sourceKey, it.displayName, it.status, it.latestMessageAt, it.lastHeartbeatAt, it.lastUploadedAt, it.backlogCount, it.errorCode) }
+
+    override suspend fun getWechatSyncIssues(accessToken: String): List<WechatSyncIssue> = api
+        .getWechatSyncIssues(bearer(accessToken))
+        .items
+        .map {
+            WechatSyncIssue(
+                it.type, it.recordId, it.imageId, it.sourceName, it.sentAt, it.summary, it.attachmentKind, it.fileName,
+                it.candidates.map { candidate -> com.jaydocoder.plateview.domain.admin.WechatAttachmentCandidate(candidate.recordId, candidate.orderNumber, candidate.sentAt, candidate.summary) },
+            )
+        }
+
+    override suspend fun getWechatPassageSenders(accessToken: String) = api.getWechatPassageSenders(bearer(accessToken)).items.map {
+        com.jaydocoder.plateview.domain.admin.WechatPassageSender(it.senderUsername, it.originalDisplayName, it.displayAlias, it.enabled)
+    }
+
+    override suspend fun saveWechatPassageSender(accessToken: String, sender: com.jaydocoder.plateview.domain.admin.WechatPassageSender) {
+        api.saveWechatPassageSender(
+            bearer(accessToken), sender.senderUsername,
+            WechatPassageSenderRequestDto(sender.originalDisplayName, sender.displayAlias, sender.enabled),
+        )
+    }
+
+    override suspend fun correctWechatWorkOrder(accessToken: String, recordId: Long, command: WorkOrderCorrectionCommand) {
+        api.correctWechatWorkOrder(bearer(accessToken), recordId, WorkOrderCorrectionRequestDto(command.orderNumber, command.rawPlate, command.status))
+    }
+
+    override suspend fun associateWechatImage(accessToken: String, imageId: Long, recordId: Long) {
+        api.associateWechatImage(bearer(accessToken), imageId, WorkOrderImageAssociationRequestDto(recordId))
+    }
+
+    override suspend fun removeWechatImageAssociation(accessToken: String, imageId: Long) {
+        api.removeWechatImageAssociation(bearer(accessToken), imageId)
+    }
+
+    override suspend fun ignoreWechatImage(accessToken: String, imageId: Long) {
+        api.ignoreWechatImage(bearer(accessToken), imageId)
+    }
+
+    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): ByteArray =
+        api.downloadWechatAttachment(bearer(accessToken), imageId, variant).bytes()
+
+    override suspend fun searchWechatWorkOrders(accessToken: String, keyword: String) =
+        api.searchWechatWorkOrders(bearer(accessToken), keyword).candidates.map {
+            com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem(it.id, it.orderNumber, it.sentAt, it.rawContent.take(160))
+        }
 }
 
 private fun VehicleWriteCommand.toRequest(): AdminVehicleWriteRequestDto = AdminVehicleWriteRequestDto(
@@ -230,6 +283,7 @@ private fun AdminUserDto.toDomain(): ManagedUser = ManagedUser(
     updatePolicy = runCatching { UserUpdatePolicy.valueOf(updatePolicy) }.getOrDefault(UserUpdatePolicy.OPTIONAL),
     otherLongTermAccessEnabled = otherLongTermAccessEnabled,
     residentRemarksAccessEnabled = residentRemarksAccessEnabled,
+    wechatWorkOrderAccessEnabled = wechatWorkOrderAccessEnabled,
 )
 
 private fun AdminImportBatchSummaryDto.toDomain(): ManagedImportBatchSummary = ManagedImportBatchSummary(

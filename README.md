@@ -2,7 +2,7 @@
 
 PlateView 是面向景区入口、巡查与车辆信息核验场景的 Android 应用及自建服务端。已登录用户可通过手动输入车牌片段，快速查询车辆归属、类别与通行信息；管理员可维护车辆档案、账号、Excel 导入批次与审计记录。
 
-当前正式版本为 `0.3.27`（`versionCode 31`）。Android 客户端最低支持 Android 12（API 31），采用 Kotlin 与 Jetpack Compose 开发；服务端采用 Kotlin、Ktor 与 PostgreSQL。
+当前正式版本为 `0.3.28`（`versionCode 32`）。Android 客户端最低支持 Android 12（API 31），采用 Kotlin 与 Jetpack Compose 开发；服务端采用 Kotlin、Ktor 与 PostgreSQL。
 
 ## 核心能力
 
@@ -16,6 +16,8 @@ PlateView 是面向景区入口、巡查与车辆信息核验场景的 Android �
 - 通过目录版本在登录、页面恢复前台和联网后台任务中检查数据变化；检测到变化后原子替换本地快照。
 - 检测到新正式版后支持下载更新；网络中断时保留安装包断点，下次下载自动继续。
 - 管理员工作台提供车辆档案、账号、Excel 导入、发布、回滚和审计查询。
+- 经主管理员授权的账号可在首页按单号、车牌或微信原文查询三个工作群的车单，查看完整人员证件、来源、北京时间和关联图片；同号车单默认展示最新记录。
+- Ubuntu 微信采集器在桌面登录后后台启动，按游标补传文本和图片，并在本机生成缩略图与预览图，电脑关机期间的消息会在下次开机后追赶。
 - Excel 导入采用预览、行级处置、确认发布与可追溯回滚流程，支持特殊后缀车牌。新增、更新、恢复和待失效记录只要尚未确认处置，都会显示冰湖绿色提示点并排在已处理记录之前；确认或跳过后提示点消失。
 - 界面使用森林冰湖绿主题和静态液态玻璃材质。为兼容不同厂商设备，未启用实时背景采样、折射或模糊渲染，也不使用边到边窗口处理。
 
@@ -25,6 +27,7 @@ PlateView 是面向景区入口、巡查与车辆信息核验场景的 Android �
 PlateView/
 ├── android/                 Android 客户端（Compose、Hilt、Room、WorkManager）
 ├── server/                  Ktor REST API 与 Flyway 数据库迁移
+├── collector/               基于 wx-cli 的 Ubuntu 微信车单后台采集器
 ├── infra/                   PostgreSQL 初始化脚本
 ├── deploy/                  生产部署、蓝绿切流与镜像清理脚本
 ├── docs/                    需求、架构、操作与部署文档
@@ -37,8 +40,9 @@ PlateView/
 
 | 角色 | 功能 |
 | --- | --- |
-| 普通用户 | 登录、手动查询、查看车辆详情、管理本机搜索历史。 |
+| 普通用户 | 登录、手动查询、查看车辆详情、管理本机搜索历史；经授权后可查询微信车单。 |
 | 管理员 | 继承普通用户权限，并可管理车辆档案、账号、Excel 导入批次、发布回滚与审计记录。 |
+| 主管理员 `admin` | 可配置用户微信车单权限并查看三个群的同步状态；自身权限不可关闭。 |
 
 管理员界面仅是便利入口，服务端同样对管理员 API 执行角色校验。
 
@@ -99,7 +103,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `app-release.apk`。服务器由 `root` 一次性安装 `plateview-update-mirror.timer` 后，每五分钟主动检查 GitHub Release，断点续传同一签名 APK，校验 SHA-256 后原子更新服务器镜像与 `latest.json`。客户端优先从 GitHub 下载；GitHub 不可用或中途下载失败时，会复用未完成文件并从服务器镜像继续断点下载。
 
-当前版本：`0.3.27`（`versionCode 31`）。最新正式 APK 可在 [GitHub Releases](https://github.com/jaydocoder/PlateView/releases) 下载。
+当前版本：`0.3.28`（`versionCode 32`）。最新正式 APK 可在 [GitHub Releases](https://github.com/jaydocoder/PlateView/releases) 下载。
 
 ## 文档索引
 

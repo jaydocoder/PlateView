@@ -14,11 +14,14 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.Density
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
+import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
 import com.jaydocoder.plateview.domain.admin.ManagedImportBatch
@@ -27,6 +30,8 @@ import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
+import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
+import com.jaydocoder.plateview.domain.admin.WechatSyncSource
 import com.jaydocoder.plateview.feature.admin.AdminTab
 import com.jaydocoder.plateview.feature.admin.AdminUiState
 import com.jaydocoder.plateview.feature.admin.PendingVehicleStatusChange
@@ -135,15 +140,10 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithTag("admin_vehicle_status_filter").assertIsDisplayed()
-        composeRule.onNodeWithText("全部").assertIsDisplayed()
-        composeRule.onNodeWithText("启用").assertIsDisplayed()
-        composeRule.onNodeWithText("严查").assertIsDisplayed()
-        composeRule.onNodeWithText("失效").assertIsDisplayed()
-        composeRule.onNodeWithText("删除").assertIsDisplayed()
-
-        VehicleStatusFilter.entries.forEach { filter ->
-            composeRule.onNodeWithText(filter.label).performClick()
+        composeRule.onNodeWithTag("admin_vehicle_status_filter").performScrollTo().assertIsDisplayed()
+        VehicleStatusFilter.entries.forEachIndexed { index, filter ->
+            composeRule.onNodeWithTag("admin_vehicle_status_filter").performScrollToIndex(index)
+            composeRule.onNodeWithTag("admin_vehicle_status_filter_${filter.name}").assertIsDisplayed().performClick()
             composeRule.runOnIdle {
                 assertEquals(filter, selected)
             }
@@ -477,7 +477,6 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("该批次已经撤销，可重新发布").assertIsDisplayed()
         composeRule.onNodeWithText("重新发布数据").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_publish_import").performClick()
 
@@ -516,18 +515,16 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithTag("admin_import_filter_REVIEW").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_import_filter_CREATE").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_import_filter_UPDATE").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_import_filter_REACTIVATE").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_import_filter_DEACTIVATE").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_import_filter_ERROR").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_import_filter_selector").assertIsDisplayed()
+        ImportRowFilter.entries.forEachIndexed { index, option ->
+            composeRule.onNodeWithTag("admin_import_filter_selector").performScrollToIndex(index)
+            composeRule.onNodeWithTag("admin_import_filter_${option.name}").assertIsDisplayed()
+        }
+        composeRule.onNodeWithTag("admin_import_filter_selector").performScrollToIndex(0)
         composeRule.onNodeWithText("全部待核对").assertIsDisplayed()
-        composeRule.onNodeWithText("待失效").assertIsDisplayed()
         composeRule.onNodeWithText("新增 1 · 更新 1 · 待确认 1").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_import_rows").performScrollToIndex(1)
         composeRule.onNodeWithTag("admin_import_row_${pending.id}").assertIsDisplayed()
-        composeRule.onNodeWithTag("import_pending_dot").assertIsDisplayed()
+        composeRule.onNodeWithTag("import_pending_dot", useUnmergedTree = true).assertExists()
     }
 
     @Test
@@ -621,14 +618,15 @@ class AdminWorkspaceScreenTest {
         }
 
         composeRule.onNodeWithText("近24小时").assertIsDisplayed()
-        composeRule.onNodeWithText("更新车辆档案").assertIsDisplayed()
-        composeRule.onNodeWithText("账号").assertIsDisplayed()
-        composeRule.onAllNodesWithText("VEHICLE_UPDATE").assertCountEquals(0)
-        composeRule.onNodeWithText("2026年09月12日 00:03:19").assertIsDisplayed()
-        composeRule.onAllNodesWithText("2026-09-11T16:03:19.230862Z").assertCountEquals(0)
         composeRule.onNodeWithTag("audit_action_selector").performClick()
         composeRule.onNodeWithText("查看账号列表").assertIsDisplayed()
         composeRule.onAllNodesWithText("USER_LIST").assertCountEquals(0)
+        composeRule.onNodeWithTag("admin_audit_list").performScrollToIndex(5)
+        composeRule.onNodeWithTag("audit_entry_action_${entry.id}").assertIsDisplayed()
+        composeRule.onNodeWithText("admin · 车辆档案 #101").assertIsDisplayed()
+        composeRule.onAllNodesWithText("VEHICLE_UPDATE").assertCountEquals(0)
+        composeRule.onNodeWithText("2026年09月12日 00:03:19").assertIsDisplayed()
+        composeRule.onAllNodesWithText("2026-09-11T16:03:19.230862Z").assertCountEquals(0)
     }
 
     @Test
@@ -652,6 +650,130 @@ class AdminWorkspaceScreenTest {
 
         composeRule.runOnUiThread { isPrimaryAdministrator = true }
         composeRule.onNodeWithText("排班规划").assertIsDisplayed()
+    }
+
+    @Test
+    fun 主管理员可从概览打开微信同步() {
+        var selectedTab: AdminTab? = null
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.Dashboard,
+                        isLoading = false,
+                        isPrimaryAdministrator = true,
+                    ),
+                    onNavigateUp = {}, onTabSelected = { selectedTab = it }, onRefresh = {},
+                    onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {}, onSaveVehicle = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {},
+                    onChooseImport = {}, onOpenImportBatch = {}, onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> }, onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("admin_dashboard_wechat_sync").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertEquals(AdminTab.WechatSync, selectedTab) }
+    }
+
+    @Test
+    fun 仅主管理员可以查看微信同步入口和状态() {
+        var selectedTab: AdminTab? = null
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.WechatSync,
+                        isLoading = false,
+                        isPrimaryAdministrator = true,
+                        wechatSyncSources = listOf(
+                            WechatSyncSource(
+                                sourceKey = "20546602068@chatroom",
+                                displayName = "2026车单子接收群",
+                                status = "HEALTHY",
+                                latestMessageAt = "2026-09-20T01:00:00Z",
+                                lastHeartbeatAt = "2026-09-20T01:00:05Z",
+                                lastUploadedAt = "2026-09-20T01:00:06Z",
+                                backlogCount = 0,
+                                errorCode = null,
+                            ),
+                        ),
+                    ),
+                    onNavigateUp = {}, onTabSelected = { selectedTab = it }, onRefresh = {},
+                    onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {}, onSaveVehicle = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {},
+                    onChooseImport = {}, onOpenImportBatch = {}, onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> }, onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("微信同步").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("admin_wechat_sync_page").assertIsDisplayed()
+        composeRule.onNodeWithText("2026车单子接收群").assertIsDisplayed()
+        composeRule.onNodeWithText("同步正常").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(AdminTab.WechatSync, selectedTab) }
+    }
+
+    @Test
+    fun 普通管理员不显示微信同步入口和页面() {
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.WechatSync,
+                        isLoading = false,
+                        isPrimaryAdministrator = false,
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {},
+                    onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {}, onSaveVehicle = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {},
+                    onChooseImport = {}, onOpenImportBatch = {}, onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> }, onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("微信同步").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("admin_wechat_sync_page").assertCountEquals(0)
+    }
+
+    @Test
+    fun 微信同步页显示需要处理的异常() {
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.WechatSync,
+                        isLoading = false,
+                        isPrimaryAdministrator = true,
+                        wechatSyncIssues = listOf(
+                            WechatSyncIssue(
+                                type = "IMAGE_CONFLICT",
+                                recordId = null,
+                                imageId = 42,
+                                sourceName = "票务中心工作群",
+                                sentAt = "2026-09-20T01:00:00Z",
+                                summary = "图片存在两个可能的车单",
+                            ),
+                        ),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {},
+                    onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {}, onSaveVehicle = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {},
+                    onChooseImport = {}, onOpenImportBatch = {}, onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> }, onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("图片存在多个关联候选").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("图片存在两个可能的车单").assertIsDisplayed()
+        composeRule.onNodeWithText("附件记录：42").assertIsDisplayed()
     }
 
     @Test

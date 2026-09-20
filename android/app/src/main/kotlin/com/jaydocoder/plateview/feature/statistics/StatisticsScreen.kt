@@ -157,7 +157,7 @@ internal fun StatisticsScreen(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).testTag("statistics_content_list"),
             contentPadding = PaddingValues(
                 start = PlateViewDimensions.pageHorizontal,
                 end = PlateViewDimensions.pageHorizontal,

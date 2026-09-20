@@ -73,6 +73,7 @@ data class ManagedUser(
     val updatePolicy: UserUpdatePolicy = UserUpdatePolicy.OPTIONAL,
     val otherLongTermAccessEnabled: Boolean = true,
     val residentRemarksAccessEnabled: Boolean = true,
+    val wechatWorkOrderAccessEnabled: Boolean = false,
 )
 
 enum class UserUpdatePolicy(val label: String) {
@@ -98,6 +99,7 @@ data class UserUpdateCommand(
     val updatePolicy: UserUpdatePolicy? = null,
     val otherLongTermAccessEnabled: Boolean? = null,
     val residentRemarksAccessEnabled: Boolean? = null,
+    val wechatWorkOrderAccessEnabled: Boolean? = null,
 )
 
 data class ManagedImportBatchSummary(
@@ -112,6 +114,39 @@ data class ManagedImportBatchSummary(
     val createdAt: String?,
     val publishedAt: String?,
     val rollbackAt: String?,
+)
+
+data class WechatSyncSource(
+    val sourceKey: String,
+    val displayName: String,
+    val status: String,
+    val latestMessageAt: String?,
+    val lastHeartbeatAt: String?,
+    val lastUploadedAt: String?,
+    val backlogCount: Int,
+    val errorCode: String?,
+)
+
+data class WechatSyncIssue(
+    val type: String,
+    val recordId: Long?,
+    val imageId: Long?,
+    val sourceName: String,
+    val sentAt: String,
+    val summary: String,
+    val attachmentKind: String? = null,
+    val fileName: String? = null,
+    val candidates: List<WechatAttachmentCandidate> = emptyList(),
+)
+
+data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
+data class WechatWorkOrderSearchItem(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
+data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
+
+data class WorkOrderCorrectionCommand(
+    val orderNumber: String?,
+    val rawPlate: String?,
+    val status: String = "ACTIVE",
 )
 
 data class ManagedImportBatch(

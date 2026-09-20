@@ -15,6 +15,10 @@ import com.jaydocoder.plateview.domain.admin.ManagedVehicle
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
+import com.jaydocoder.plateview.domain.admin.WechatSyncSource
+import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
+import com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem
+import com.jaydocoder.plateview.domain.admin.WechatPassageSender
 import com.jaydocoder.plateview.data.network.AppError
 
 data class AdminUiState(
@@ -50,6 +54,11 @@ data class AdminUiState(
     val selectedImportRowDetail: ManagedImportRowDetail? = null,
     val isImportDetailLoading: Boolean = false,
     val pendingVehicleStatusChange: PendingVehicleStatusChange? = null,
+    val wechatSyncSources: List<WechatSyncSource> = emptyList(),
+    val wechatSyncIssues: List<WechatSyncIssue> = emptyList(),
+    val wechatAttachmentPreviews: Map<Long, ByteArray> = emptyMap(),
+    val wechatWorkOrderCandidates: Map<Long, List<WechatWorkOrderSearchItem>> = emptyMap(),
+    val wechatPassageSenders: List<WechatPassageSender> = emptyList(),
 )
 
 enum class VehicleStatusFilter(val requestValue: String?, val label: String) {
@@ -72,6 +81,7 @@ enum class AdminTab {
     Users,
     Imports,
     Audit,
+    WechatSync,
 }
 
 data class VehicleEditorState(
@@ -153,6 +163,8 @@ data class UserEditorState(
     val originalOtherLongTermAccessEnabled: Boolean = true,
     val residentRemarksAccessEnabled: Boolean = true,
     val originalResidentRemarksAccessEnabled: Boolean = true,
+    val wechatWorkOrderAccessEnabled: Boolean = false,
+    val originalWechatWorkOrderAccessEnabled: Boolean = false,
     val canEditProfile: Boolean = false,
     val role: String = "USER",
     val status: String = "ACTIVE",
@@ -204,6 +216,8 @@ fun ManagedUser.toEditor(canEditProfile: Boolean): UserEditorState = UserEditorS
     originalOtherLongTermAccessEnabled = otherLongTermAccessEnabled,
     residentRemarksAccessEnabled = residentRemarksAccessEnabled,
     originalResidentRemarksAccessEnabled = residentRemarksAccessEnabled,
+    wechatWorkOrderAccessEnabled = wechatWorkOrderAccessEnabled,
+    originalWechatWorkOrderAccessEnabled = wechatWorkOrderAccessEnabled,
     role = role,
     status = status,
     canEditProfile = canEditProfile,

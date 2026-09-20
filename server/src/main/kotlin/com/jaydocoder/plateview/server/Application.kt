@@ -12,11 +12,13 @@ import com.jaydocoder.plateview.server.imports.configureImportPreviewFeature
 import com.jaydocoder.plateview.server.vehicle.configureVehicleQueryFeature
 import com.jaydocoder.plateview.server.statistics.configureVehicleStatisticsFeature
 import com.jaydocoder.plateview.server.schedule.configureScheduleFeature
+import com.jaydocoder.plateview.server.workorder.configureWorkOrderFeature
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.partialcontent.PartialContent
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
@@ -33,6 +35,7 @@ fun Application.module() {
     install(ContentNegotiation) {
         json()
     }
+    install(PartialContent)
 
     configureAuthenticationFeature()
     configureImportPreviewFeature()
@@ -40,6 +43,7 @@ fun Application.module() {
     configureVehicleStatisticsFeature()
     configureScheduleFeature()
     configureAdminManagementFeature()
+    configureWorkOrderFeature()
 
     routing {
         get("/health") {

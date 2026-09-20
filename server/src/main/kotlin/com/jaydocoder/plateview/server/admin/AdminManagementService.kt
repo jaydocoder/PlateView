@@ -197,7 +197,7 @@ internal class AdminManagementService(
             val profileChangeRequested = command.username != null || command.password != null || command.realName != null
             val scheduleAccessChangeRequested = command.scheduleAccessEnabled != null
             val updatePolicyChangeRequested = command.updatePolicy != null
-            val vehicleDataAccessChangeRequested = command.otherLongTermAccessEnabled != null || command.residentRemarksAccessEnabled != null
+            val vehicleDataAccessChangeRequested = command.otherLongTermAccessEnabled != null || command.residentRemarksAccessEnabled != null || command.wechatWorkOrderAccessEnabled != null
             val roleOrStatusChanged = command.role != existing.role || command.status != existing.status
             val userInfoChanged = hasUserInfoChanged(existing, command)
             AdminUserProfilePolicy.requireModificationAllowed(
@@ -214,6 +214,9 @@ internal class AdminManagementService(
             }
             if (updatePolicyChangeRequested && existing.username == "admin") {
                 throw AdminValidationException("admin账号不能设置强制更新策略")
+            }
+            if (command.wechatWorkOrderAccessEnabled != null && existing.username == "admin") {
+                throw AdminValidationException("admin账号的微信车单访问权限不能关闭")
             }
             command.username?.trim()?.let { username ->
                 connection.prepareStatement("SELECT 1 FROM users WHERE username = ? AND id <> ?").use { statement ->
@@ -243,10 +246,11 @@ internal class AdminManagementService(
                 statement.setNullableString(7, command.updatePolicy?.name)
                 statement.setNullableBoolean(8, command.otherLongTermAccessEnabled)
                 statement.setNullableBoolean(9, command.residentRemarksAccessEnabled)
-                statement.setBoolean(10, userInfoChanged)
-                statement.setLong(11, actorId)
-                statement.setLong(12, userId)
-                statement.setInt(13, expectedVersion)
+                statement.setNullableBoolean(10, command.wechatWorkOrderAccessEnabled)
+                statement.setBoolean(11, userInfoChanged)
+                statement.setLong(12, actorId)
+                statement.setLong(13, userId)
+                statement.setInt(14, expectedVersion)
                 statement.executeUpdate()
             }
             if (changed == 0) throw AdminConflictException("账号已被其他管理员修改，请刷新后重试")
@@ -456,10 +460,11 @@ internal class AdminManagementService(
         updatePolicy = AdminUpdatePolicy.valueOf(getString("update_policy")),
         otherLongTermAccessEnabled = getBoolean("other_long_term_access_enabled"),
         residentRemarksAccessEnabled = getBoolean("resident_remarks_access_enabled"),
+        wechatWorkOrderAccessEnabled = (getString("username") == "admin" && getString("role") == "ADMIN") || getBoolean("wechat_work_order_access_enabled"),
     )
 
     private fun Connection.findUserForUpdate(userId: Long): AdminUserRecord? = prepareStatement(
-        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled FROM users WHERE id = ? FOR UPDATE",
+        "SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled, wechat_work_order_access_enabled FROM users WHERE id = ? FOR UPDATE",
     ).use { statement ->
         statement.setLong(1, userId)
         statement.executeQuery().use { result -> if (result.next()) result.toUserRecord() else null }
@@ -657,14 +662,14 @@ internal class AdminManagementService(
         const val DELETE_LONG_TERM_PROFILE = "DELETE FROM long_term_profiles WHERE vehicle_id = ?"
 
         const val SELECT_USERS = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled, wechat_work_order_access_enabled
             FROM users
             ORDER BY username, id
             LIMIT ? OFFSET ?
         """
 
         const val SELECT_USER = """
-            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled
+            SELECT id, username, role, status, version, created_at, updated_at, avatar_version, avatar_content, real_name, schedule_access_enabled, update_policy, other_long_term_access_enabled, resident_remarks_access_enabled, wechat_work_order_access_enabled
             FROM users WHERE id = ?
         """
 
@@ -676,7 +681,7 @@ internal class AdminManagementService(
         const val UPDATE_USER = """
             UPDATE users
             SET username = COALESCE(?, username), password_hash = COALESCE(?, password_hash), real_name = COALESCE(?, real_name),
-                role = ?, status = ?, schedule_access_enabled = COALESCE(?, schedule_access_enabled), update_policy = COALESCE(?, update_policy), other_long_term_access_enabled = COALESCE(?, other_long_term_access_enabled), resident_remarks_access_enabled = COALESCE(?, resident_remarks_access_enabled), auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
+                role = ?, status = ?, schedule_access_enabled = COALESCE(?, schedule_access_enabled), update_policy = COALESCE(?, update_policy), other_long_term_access_enabled = COALESCE(?, other_long_term_access_enabled), resident_remarks_access_enabled = COALESCE(?, resident_remarks_access_enabled), wechat_work_order_access_enabled = COALESCE(?, wechat_work_order_access_enabled), auth_version = auth_version + CASE WHEN ? THEN 1 ELSE 0 END,
                 version = version + 1, updated_by = ?
             WHERE id = ? AND version = ?
         """
@@ -738,7 +743,8 @@ internal fun hasUserInfoChanged(existing: AdminUserRecord, command: AdminUserUpd
         command.scheduleAccessEnabled?.let { it != existing.scheduleAccessEnabled } == true ||
         command.updatePolicy?.let { it != existing.updatePolicy } == true ||
         command.otherLongTermAccessEnabled?.let { it != existing.otherLongTermAccessEnabled } == true ||
-        command.residentRemarksAccessEnabled?.let { it != existing.residentRemarksAccessEnabled } == true
+        command.residentRemarksAccessEnabled?.let { it != existing.residentRemarksAccessEnabled } == true ||
+        command.wechatWorkOrderAccessEnabled?.let { it != existing.wechatWorkOrderAccessEnabled } == true
 }
 
 internal data class AdminVehicleCommand(
@@ -863,6 +869,7 @@ internal data class AdminUserUpdateCommand(
     val updatePolicy: AdminUpdatePolicy? = null,
     val otherLongTermAccessEnabled: Boolean? = null,
     val residentRemarksAccessEnabled: Boolean? = null,
+    val wechatWorkOrderAccessEnabled: Boolean? = null,
 )
 
 internal data class AdminUserRecord(
@@ -880,6 +887,7 @@ internal data class AdminUserRecord(
     val updatePolicy: AdminUpdatePolicy = AdminUpdatePolicy.OPTIONAL,
     val otherLongTermAccessEnabled: Boolean = true,
     val residentRemarksAccessEnabled: Boolean = true,
+    val wechatWorkOrderAccessEnabled: Boolean = false,
 )
 
 internal data class AdminAvatarContent(val content: ByteArray, val contentType: String)

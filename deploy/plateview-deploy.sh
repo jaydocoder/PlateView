@@ -13,6 +13,7 @@ readonly SOURCE_DIR="$APP_DIR/source"
 readonly RUNTIME_DIR="$APP_DIR/runtime"
 readonly BACKUP_DIR="$APP_DIR/backups"
 readonly LOG_DIR="$APP_DIR/logs/deploy"
+readonly WORK_ORDER_IMAGE_DIR="$APP_DIR/data/work-order-images"
 readonly LOCK_FILE="$RUNTIME_DIR/deploy.lock"
 readonly COMPOSE_FILE="$SOURCE_DIR/compose.production.yaml"
 readonly CADDY_CONTAINER="${PLATEVIEW_CADDY_CONTAINER:-plateview-caddy-1}"
@@ -33,7 +34,7 @@ readonly API_PIDS_LIMIT="${PLATEVIEW_API_PIDS_LIMIT:-256}"
 readonly API_JAVA_OPTIONS="${PLATEVIEW_API_JAVA_OPTIONS:--XX:MaxRAMPercentage=50 -XX:MaxMetaspaceSize=96m -XX:+ExitOnOutOfMemoryError}"
 readonly IMAGE_REPOSITORY="${PLATEVIEW_API_IMAGE_REPOSITORY:-ghcr.io/jaydocoder/plateview-api}"
 
-mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR" "$LOG_DIR"
+mkdir -p "$RUNTIME_DIR" "$BACKUP_DIR" "$LOG_DIR" "$WORK_ORDER_IMAGE_DIR"
 readonly LOG_FILE="$LOG_DIR/deploy-$(date -u +%Y%m%dT%H%M%SZ)-${1:-manual}.log"
 readonly API_CONTAINER_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-containers.sh"
 readonly API_IMAGE_RETENTION_SCRIPT="$SOURCE_DIR/deploy/plateview-retain-api-images.sh"
@@ -293,6 +294,8 @@ docker run -d --name "$candidate" --restart=no \
     --log-opt max-size=20m \
     --log-opt max-file=3 \
     --env-file "$ENV_FILE" \
+    -e WORK_ORDER_IMAGE_DIR=/opt/plateview/work-order-images \
+    -v "$WORK_ORDER_IMAGE_DIR:/opt/plateview/work-order-images" \
     -e PORT=8080 \
     -e DATABASE_MIGRATE_ON_START=true \
     -e DATABASE_URL="jdbc:postgresql://postgres:5432/$POSTGRES_DB" \

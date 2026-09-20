@@ -478,6 +478,190 @@ paths:
       responses:
         '200':
           description: 服务已就绪。
+  /work-orders/search:
+    get:
+      summary: 查询当前账号可访问的微信车单
+      parameters:
+        - name: keyword
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 按单号保留最新消息的车单候选，同时返回目录版本。
+        '403':
+          description: 当前账号未获得微信车单权限。
+  /work-orders/catalog/version:
+    get:
+      summary: 读取微信车单目录版本
+      responses:
+        '200':
+          description: 返回当前目录修订号。
+        '403':
+          description: 当前账号未获得微信车单权限。
+  /work-orders/catalog/changes:
+    get:
+      summary: 分页读取微信车单增量
+      parameters:
+        - name: afterVersion
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            maximum: 200
+      responses:
+        '200':
+          description: 返回修订号之后的车单记录。
+  /work-orders/{recordId}:
+    get:
+      summary: 查看微信车单详情与图片元数据
+      parameters:
+        - name: recordId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 返回结构化字段、完整人员证件、微信原文与来源信息。
+  /work-orders/{recordId}/history:
+    get:
+      summary: 查看同一单号的全部历史版本
+      parameters:
+        - name: recordId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 按发送时间、微信消息编号和服务端记录编号倒序返回历史版本。
+        '403':
+          description: 当前账号未获得微信车单权限。
+  /work-orders/{recordId}/images/{imageId}:
+    get:
+      summary: 读取属于指定车单的图片规格
+      parameters:
+        - name: recordId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: variant
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [thumbnail, preview, original]
+            default: preview
+      responses:
+        '200':
+          description: 私有缓存图片响应，支持条件请求和断点续传。
+        '404':
+          description: 图片不存在或不属于该车单。
+  /admin/wechat-sync/status:
+    get:
+      summary: 主管理员查看三个微信群同步状态
+      responses:
+        '200':
+          description: 返回心跳、最新消息、最后上传、积压和异常状态。
+        '403':
+          description: 仅用户名为admin且角色为管理员的账号可访问。
+  /admin/wechat-sync/issues:
+    get:
+      summary: 主管理员查看需要人工处理的微信同步异常
+      responses:
+        '200':
+          description: 返回无法建立搜索入口、图片不可用和图片关联冲突。
+        '403':
+          description: 仅用户名为admin且角色为管理员的账号可访问。
+  /admin/wechat-sync/records/{recordId}:
+    put:
+      summary: 主管理员修正车单结构化字段
+      parameters:
+        - name: recordId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 返回修正后的车单，微信原文保持不变。
+        '403':
+          description: 仅用户名为admin且角色为管理员的账号可访问。
+  /admin/wechat-sync/images/{imageId}/association:
+    put:
+      summary: 主管理员将图片关联到指定车单
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: 图片关联已更新。
+        '403':
+          description: 仅用户名为admin且角色为管理员的账号可访问。
+    delete:
+      summary: 主管理员解除图片与车单的关联
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: 图片关联已解除。
+        '403':
+          description: 仅用户名为admin且角色为管理员的账号可访问。
+  /internal/wechat/messages/batch:
+    post:
+      summary: 固定微信采集器批量上传原始消息
+      security: []
+      responses:
+        '200':
+          description: 返回新增、重复数量和目录版本。
+        '401':
+          description: 采集令牌无效。
+  /internal/wechat/heartbeat:
+    post:
+      summary: 采集器上报指定群的同步心跳与积压状态
+      security: []
+      responses:
+        '204':
+          description: 心跳状态已记录。
+        '401':
+          description: 采集令牌无效。
+  /internal/wechat/images:
+    post:
+      summary: 采集器上传图片元数据及可用的三级图片文件
+      security: []
+      responses:
+        '200':
+          description: 返回图片记录编号和自动关联结果。
+        '401':
+          description: 采集令牌无效。
 components:
   securitySchemes:
     bearerAuth:

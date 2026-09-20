@@ -13,6 +13,9 @@ import com.jaydocoder.plateview.server.vehicle.VehicleCatalogVersionConflictExce
 import com.jaydocoder.plateview.server.auth.ProfileConflictException
 import com.jaydocoder.plateview.server.schedule.ScheduleNotFoundException
 import com.jaydocoder.plateview.server.schedule.SchedulePermissionException
+import com.jaydocoder.plateview.server.workorder.WorkOrderNotFoundException
+import com.jaydocoder.plateview.server.workorder.WorkOrderPermissionException
+import com.jaydocoder.plateview.server.workorder.CollectorAuthenticationException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.application
@@ -132,6 +135,18 @@ internal fun Application.configureErrorHandling() {
 
         exception<SchedulePermissionException> { call, cause ->
             call.respondApiError(HttpStatusCode.Forbidden, ApiErrorResponse("SCHEDULE_PERMISSION_DENIED", cause.message ?: "没有排班权限", call.callId))
+        }
+
+        exception<WorkOrderPermissionException> { call, cause ->
+            call.respondApiError(HttpStatusCode.Forbidden, ApiErrorResponse("WORK_ORDER_PERMISSION_DENIED", cause.message ?: "没有微信车单访问权限", call.callId))
+        }
+
+        exception<WorkOrderNotFoundException> { call, cause ->
+            call.respondApiError(HttpStatusCode.NotFound, ApiErrorResponse("WORK_ORDER_NOT_FOUND", cause.message ?: "微信车单不存在", call.callId))
+        }
+
+        exception<CollectorAuthenticationException> { call, cause ->
+            call.respondApiError(HttpStatusCode.Unauthorized, ApiErrorResponse("COLLECTOR_UNAUTHENTICATED", cause.message ?: "微信采集凭据无效", call.callId))
         }
 
         exception<IllegalArgumentException> { call, cause ->

@@ -168,7 +168,7 @@ class ScheduleScreenTest {
             }
         }
 
-        composeRule.onNodeWithTag("schedule_member_search").performTextInput("许志")
+        composeRule.onNodeWithText("搜索真实姓名").performScrollTo().performTextInput("许志")
         composeRule.onNodeWithText("许志川").performClick()
         composeRule.onNodeWithText("选择").performClick()
         composeRule.onNodeWithTag("schedule_cycle_day_wheel").assertIsDisplayed()

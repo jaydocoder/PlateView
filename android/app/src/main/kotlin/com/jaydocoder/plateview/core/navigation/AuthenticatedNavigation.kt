@@ -25,6 +25,8 @@ import com.jaydocoder.plateview.feature.schedule.SchedulePlannerRoute
 import com.jaydocoder.plateview.feature.statistics.StatisticsRoute
 import com.jaydocoder.plateview.feature.profile.ProfileRoute
 import com.jaydocoder.plateview.feature.vehicle.VehicleDetailRoute
+import com.jaydocoder.plateview.feature.workorder.WorkOrderDetailRoute
+import com.jaydocoder.plateview.feature.workorder.WechatMessageDetailRoute
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.component.glass.GlassNavigationBar
 import com.jaydocoder.plateview.component.glass.GlassNavigationItem
@@ -53,6 +55,12 @@ fun AuthenticatedNavigation(
     val isPrimaryAdministrator = isAdministrator && username == "admin"
     val navigateToVehicle = remember(navController) {
         { vehicleId: Long -> navController.navigate(VehicleDetailDestination(vehicleId)) }
+    }
+    val navigateToWorkOrder: (Long, String) -> Unit = remember(navController) {
+        { recordId, query -> navController.navigate(WorkOrderDetailDestination(recordId, query)) }
+    }
+    val navigateToWechatMessage: (Long) -> Unit = remember(navController) {
+        { messageId -> navController.navigate(WechatMessageDetailDestination(messageId)) }
     }
     val navigateToAdmin = remember(navController, isAdministrator) {
         if (isAdministrator) {
@@ -102,6 +110,8 @@ fun AuthenticatedNavigation(
             composable<SearchDestination> {
                 SearchRoute(
                     onNavigateToVehicle = navigateToVehicle,
+                    onNavigateToWorkOrder = navigateToWorkOrder,
+                    onNavigateToWechatMessage = navigateToWechatMessage,
                     onNavigateToProfile = { navController.navigate(ProfileDestination) },
                     onScreenVisible = onQueryScreenVisible,
                     onScreenHidden = onQueryScreenHidden,
@@ -119,6 +129,12 @@ fun AuthenticatedNavigation(
             }
             composable<VehicleDetailDestination> {
                 VehicleDetailRoute(onNavigateUp = navController::navigateUp, onOpenUpdate = onOpenUpdate)
+            }
+            composable<WorkOrderDetailDestination> {
+                WorkOrderDetailRoute(onNavigateUp = navController::navigateUp)
+            }
+            composable<WechatMessageDetailDestination> {
+                WechatMessageDetailRoute(onNavigateUp = navController::navigateUp)
             }
             if (isAdministrator) {
                 composable<AdminWorkspaceDestination> {

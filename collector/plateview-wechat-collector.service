@@ -1,0 +1,16 @@
+[Unit]
+Description=PlateView微信车单后台同步
+After=network-online.target graphical-session.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/plateview/wechat-collector.env
+ExecStart=%h/.local/share/plateview-wechat-collector/venv/bin/python %h/.local/share/plateview-wechat-collector/plateview_wechat_collector.py
+Restart=on-failure
+RestartSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

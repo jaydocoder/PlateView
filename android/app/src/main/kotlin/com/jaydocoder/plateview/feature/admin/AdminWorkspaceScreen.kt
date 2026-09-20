@@ -51,6 +51,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.Button
@@ -117,6 +118,8 @@ import com.jaydocoder.plateview.domain.admin.ManagedImportDiffSection
 import com.jaydocoder.plateview.domain.admin.ManagedImportRowDetail
 import com.jaydocoder.plateview.domain.admin.ManagedUser
 import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
+import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
+import com.jaydocoder.plateview.domain.admin.WechatSyncSource
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.component.glass.GlassPill
@@ -187,6 +190,12 @@ fun AdminWorkspaceRoute(
         onAuditActionTypeChanged = viewModel::updateAuditActionType,
         onAuditResultChanged = viewModel::updateAuditResult,
         onLoadMoreAuditEntries = viewModel::loadMoreAuditEntries,
+        onCorrectWechatWorkOrder = viewModel::correctWechatWorkOrder,
+        onAssociateWechatImage = viewModel::associateWechatImage,
+        onRemoveWechatImageAssociation = viewModel::removeWechatImageAssociation,
+        onIgnoreWechatImage = viewModel::ignoreWechatImage,
+        onSearchWechatWorkOrders = viewModel::searchWechatWorkOrders,
+        onSaveWechatPassageSender = viewModel::saveWechatPassageSender,
         onOpenUpdate = onOpenUpdate,
         onOpenSchedulePlanner = onOpenSchedulePlanner,
     )
@@ -236,6 +245,12 @@ fun AdminWorkspaceScreen(
     onAuditActionTypeChanged: (String?) -> Unit = {},
     onAuditResultChanged: (AuditResult) -> Unit = {},
     onLoadMoreAuditEntries: () -> Unit = {},
+    onCorrectWechatWorkOrder: (Long, String, String) -> Unit = { _, _, _ -> },
+    onAssociateWechatImage: (Long, Long) -> Unit = { _, _ -> },
+    onRemoveWechatImageAssociation: (Long) -> Unit = {},
+    onIgnoreWechatImage: (Long) -> Unit = {},
+    onSearchWechatWorkOrders: (Long, String) -> Unit = { _, _ -> },
+    onSaveWechatPassageSender: (com.jaydocoder.plateview.domain.admin.WechatPassageSender) -> Unit = {},
     onOpenUpdate: (() -> Unit)? = null,
     onOpenSchedulePlanner: () -> Unit = {},
 ) {
@@ -273,8 +288,9 @@ fun AdminWorkspaceScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding),
         ) {
+            val visibleTabs = AdminTab.entries.filter { it != AdminTab.WechatSync || uiState.isPrimaryAdministrator }
             ScrollableTabRow(
-                selectedTabIndex = uiState.tab.ordinal,
+                selectedTabIndex = visibleTabs.indexOf(uiState.tab).coerceAtLeast(0),
                 edgePadding = PlateViewDimensions.pageHorizontal,
                 containerColor = Color.Transparent,
                 divider = {},
@@ -282,7 +298,7 @@ fun AdminWorkspaceScreen(
                     Box(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        val selectedPosition = tabPositions[uiState.tab.ordinal]
+                        val selectedPosition = tabPositions[visibleTabs.indexOf(uiState.tab).coerceAtLeast(0)]
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
@@ -297,7 +313,7 @@ fun AdminWorkspaceScreen(
                     }
                 }
             ) {
-                AdminTab.entries.forEach { tab ->
+                visibleTabs.forEach { tab ->
                     Tab(
                         selected = tab == uiState.tab,
                         onClick = { onTabSelected(tab) },
@@ -325,6 +341,7 @@ fun AdminWorkspaceScreen(
                             usersCount = uiState.users.size,
                             importsCount = uiState.importBatches.size,
                             showSchedulePlanner = uiState.isPrimaryAdministrator,
+                            showWechatSync = uiState.isPrimaryAdministrator,
                             onTabSelected = onTabSelected,
                             onOpenSchedulePlanner = onOpenSchedulePlanner,
                         )
@@ -373,6 +390,23 @@ fun AdminWorkspaceScreen(
                             onResultChanged = onAuditResultChanged,
                             onLoadMore = onLoadMoreAuditEntries,
                         )
+
+                        AdminTab.WechatSync -> if (uiState.isPrimaryAdministrator) {
+                            WechatSyncPane(
+                                items = uiState.wechatSyncSources,
+                                issues = uiState.wechatSyncIssues,
+                                attachmentPreviews = uiState.wechatAttachmentPreviews,
+                                workOrderCandidates = uiState.wechatWorkOrderCandidates,
+                                senders = uiState.wechatPassageSenders,
+                                isSaving = uiState.isSaving,
+                                onCorrectWorkOrder = onCorrectWechatWorkOrder,
+                                onAssociateImage = onAssociateWechatImage,
+                                onRemoveImageAssociation = onRemoveWechatImageAssociation,
+                                onIgnoreImage = onIgnoreWechatImage,
+                                onSearchWorkOrders = onSearchWechatWorkOrders,
+                                onSavePassageSender = onSaveWechatPassageSender,
+                            )
+                        }
                     }
                 }
             }
@@ -481,6 +515,7 @@ private fun DashboardPane(
     usersCount: Int,
     importsCount: Int,
     showSchedulePlanner: Boolean,
+    showWechatSync: Boolean,
     onTabSelected: (AdminTab) -> Unit,
     onOpenSchedulePlanner: () -> Unit,
 ) {
@@ -508,6 +543,19 @@ private fun DashboardPane(
                 DashboardCard("排班规划", "模板", Icons.Outlined.CalendarMonth, MaterialTheme.colorScheme.primary) { onOpenSchedulePlanner() }
             }
         }
+        if (showWechatSync) {
+            item {
+                DashboardCard(
+                    title = "微信同步",
+                    subtitle = "车单与图片",
+                    icon = Icons.Outlined.Sync,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.testTag("admin_dashboard_wechat_sync"),
+                ) {
+                    onTabSelected(AdminTab.WechatSync)
+                }
+            }
+        }
     }
 }
 
@@ -517,10 +565,11 @@ private fun DashboardCard(
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     color: Color,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     GlassSurface(
-        modifier = Modifier
+        modifier = modifier
             .height(140.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
@@ -827,14 +876,14 @@ private fun VehicleStatusFilterSelector(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            CompatFlowRow(
+            LazyRow(
                 modifier = Modifier.fillMaxWidth().testTag("admin_vehicle_status_filter"),
                 horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
-                verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.tinySpacing),
             ) {
-                VehicleStatusFilter.entries.forEach { filter ->
+                items(VehicleStatusFilter.entries, key = VehicleStatusFilter::name) { filter ->
                     GlassPill(
                         selected = filter == selected,
+                        modifier = Modifier.testTag("admin_vehicle_status_filter_${filter.name}"),
                         onClick = { onSelected(filter) },
                     ) {
                         Text(
@@ -1004,7 +1053,7 @@ private fun AuditPane(
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("admin_audit_list"),
         contentPadding = PaddingValues(PlateViewDimensions.pageHorizontal, PlateViewDimensions.pageVertical),
         verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
     ) {
@@ -1168,7 +1217,12 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
             )
         }
         Spacer(Modifier.height(6.dp))
-        Text(item.actionType.auditActionLabel(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(
+            item.actionType.auditActionLabel(),
+            modifier = Modifier.testTag("audit_entry_action_${item.id}"),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+        )
         Text(
             "${item.actorUsername ?: "系统"} · ${item.targetType.auditTargetLabel()}${item.targetId?.let { " #$it" }.orEmpty()}",
             style = MaterialTheme.typography.bodyMedium,
@@ -1523,6 +1577,14 @@ private fun UserEditorDialog(
                                 testTag = "admin_resident_remarks_access_switch",
                                 onCheckedChange = { enabled -> onChanged { it.copy(residentRemarksAccessEnabled = enabled, error = null) } },
                             )
+                            UserEditorSwitch(
+                                title = "微信车单数据",
+                                description = "允许查询微信群车单、完整人员信息和相关图片",
+                                checked = editor.wechatWorkOrderAccessEnabled,
+                                enabled = !isSaving,
+                                testTag = "admin_wechat_work_order_access_switch",
+                                onCheckedChange = { enabled -> onChanged { it.copy(wechatWorkOrderAccessEnabled = enabled, error = null) } },
+                            )
                         }
                     }
                 }
@@ -1857,7 +1919,7 @@ private fun ImportBatchDialog(
     ) { contentPadding ->
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().testTag("admin_import_rows"),
                 contentPadding = PaddingValues(
                     start = PlateViewDimensions.pageHorizontal,
                     end = PlateViewDimensions.pageHorizontal,
@@ -1998,14 +2060,13 @@ private fun ImportFilterSelector(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            CompatFlowRow(
+            LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("admin_import_filter_selector"),
                 horizontalArrangement = Arrangement.spacedBy(PlateViewDimensions.compactSpacing),
-                verticalArrangement = Arrangement.Center,
             ) {
-                ImportRowFilter.entries.forEach { option ->
+                items(ImportRowFilter.entries, key = ImportRowFilter::name) { option ->
                     ImportFilterControl(
                         option = option,
                         selected = selected == option,
@@ -2051,8 +2112,8 @@ private fun ImportRowItem(
             }
         }
             row.primarySubject?.let { Text(it, modifier = Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (!row.warningMessage.isNullOrBlank()) Text(row.warningMessage!!, modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
-            if (!row.errorMessage.isNullOrBlank()) Text(row.errorMessage!!, modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            row.warningMessage?.takeIf(String::isNotBlank)?.let { Text(it, modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary) }
+            row.errorMessage?.takeIf(String::isNotBlank)?.let { Text(it, modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             Text(row.importDetailLabel(), modifier = Modifier.padding(top = 10.dp).testTag("admin_import_row_detail_${row.id}"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
     }
@@ -2411,6 +2472,185 @@ private fun AdminTab.label(): String = when (this) {
     AdminTab.Users -> "账号角色"
     AdminTab.Imports -> "数据导入"
     AdminTab.Audit -> "审计日志"
+    AdminTab.WechatSync -> "微信同步"
+}
+
+@Composable
+private fun WechatSyncPane(
+    items: List<WechatSyncSource>,
+    issues: List<WechatSyncIssue>,
+    attachmentPreviews: Map<Long, ByteArray>,
+    workOrderCandidates: Map<Long, List<com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem>>,
+    senders: List<com.jaydocoder.plateview.domain.admin.WechatPassageSender>,
+    isSaving: Boolean,
+    onCorrectWorkOrder: (Long, String, String) -> Unit,
+    onAssociateImage: (Long, Long) -> Unit,
+    onRemoveImageAssociation: (Long) -> Unit,
+    onIgnoreImage: (Long) -> Unit,
+    onSearchWorkOrders: (Long, String) -> Unit,
+    onSavePassageSender: (com.jaydocoder.plateview.domain.admin.WechatPassageSender) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag("admin_wechat_sync_page"),
+        contentPadding = PaddingValues(PlateViewDimensions.pageHorizontal),
+        verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
+    ) {
+        item {
+            Text("微信同步状态", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("电脑开机并登录微信后自动追赶未同步消息。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        items(items, key = { it.sourceKey }) { source ->
+            GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(source.displayName, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(source.status.syncStatusLabel(), color = source.status.syncStatusColor(), fontWeight = FontWeight.SemiBold)
+                    }
+                    Text("最后心跳：${source.lastHeartbeatAt?.let(::formatAuditTime) ?: "尚未连接"}", style = MaterialTheme.typography.bodyMedium)
+                    Text("最后上传：${source.lastUploadedAt?.let(::formatAuditTime) ?: "尚未上传"}", style = MaterialTheme.typography.bodyMedium)
+                    if (source.backlogCount > 0) Text("等待同步：${source.backlogCount} 条", color = MaterialTheme.colorScheme.tertiary)
+                    source.errorCode?.let { Text("异常：$it", color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        }
+        if (items.isEmpty()) item { Text("采集电脑尚未上报同步状态", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item {
+            Text("放行发送者", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("使用稳定微信账号识别业务放行消息，并配置应用内显示称呼。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        items(senders, key = { it.senderUsername }) { sender ->
+            var alias by rememberSaveable(sender.senderUsername, sender.displayAlias) { androidx.compose.runtime.mutableStateOf(sender.displayAlias) }
+            GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(sender.originalDisplayName ?: sender.senderUsername, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(sender.senderUsername, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    LiquidGlassInput(value = alias, onValueChange = { alias = it }, label = { Text("应用显示称呼") }, singleLine = true)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Switch(
+                            checked = sender.enabled,
+                            onCheckedChange = { onSavePassageSender(sender.copy(displayAlias = alias.trim().ifEmpty { sender.displayAlias }, enabled = it)) },
+                        )
+                        Text(if (sender.enabled) "已启用通行语义识别" else "已停用通行语义识别", Modifier.padding(start = 8.dp).weight(1f))
+                        Button(onClick = { onSavePassageSender(sender.copy(displayAlias = alias.trim())) }, enabled = !isSaving && alias.isNotBlank()) { Text("保存") }
+                    }
+                }
+            }
+        }
+        item {
+            Text("需要处理", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                if (issues.isEmpty()) "当前没有上传异常、无法搜索消息或图片关联冲突" else "仅列出确实需要主管理员处理的异常",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        items(issues, key = { "${it.type}-${it.recordId}-${it.imageId}" }) { issue ->
+            var orderNumber by rememberSaveable(issue.recordId) { androidx.compose.runtime.mutableStateOf("") }
+            var plateNumber by rememberSaveable(issue.recordId) { androidx.compose.runtime.mutableStateOf("") }
+                    var targetRecordId by rememberSaveable(issue.imageId) { androidx.compose.runtime.mutableStateOf("") }
+            GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(issue.type.syncIssueLabel(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("${issue.sourceName} · ${formatAuditTime(issue.sentAt)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(issue.summary, style = MaterialTheme.typography.bodyLarge)
+                    issue.recordId?.let { Text("车单记录：$it", style = MaterialTheme.typography.labelLarge) }
+                    issue.imageId?.let { Text("附件记录：$it", style = MaterialTheme.typography.labelLarge) }
+                    issue.fileName?.let { Text("文件：$it", style = MaterialTheme.typography.bodyMedium) }
+                    issue.imageId?.let { imageId ->
+                        attachmentPreviews[imageId]?.let { preview ->
+                            coil3.compose.AsyncImage(
+                                model = preview,
+                                contentDescription = "附件内容预览",
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 360.dp),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            )
+                        }
+                    }
+                    if (issue.recordId != null) {
+                        LiquidGlassInput(
+                            value = orderNumber,
+                            onValueChange = { orderNumber = it },
+                            label = { Text("修正单号") },
+                            singleLine = true,
+                        )
+                        LiquidGlassInput(
+                            value = plateNumber,
+                            onValueChange = { plateNumber = it },
+                            label = { Text("修正车牌") },
+                            singleLine = true,
+                        )
+                        Button(
+                            onClick = { onCorrectWorkOrder(issue.recordId, orderNumber, plateNumber) },
+                            enabled = !isSaving && (orderNumber.isNotBlank() || plateNumber.isNotBlank()),
+                            modifier = Modifier.align(Alignment.End),
+                        ) { Text("保存结构化字段") }
+                    }
+                    if (issue.imageId != null && issue.type in setOf("ATTACHMENT_CONFLICT", "IMAGE_CONFLICT")) {
+                        issue.candidates.forEach { candidate ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().clickable(enabled = !isSaving) { onAssociateImage(issue.imageId, candidate.recordId) },
+                                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(candidate.orderNumber ?: "未识别单号", fontWeight = FontWeight.Bold)
+                                    Text(candidate.summary, maxLines = 3, style = MaterialTheme.typography.bodyMedium)
+                                    Text(formatAuditTime(candidate.sentAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                        LiquidGlassInput(
+                            value = targetRecordId,
+                            onValueChange = { targetRecordId = it.filter(Char::isDigit) },
+                            label = { Text("输入车单编号后关联") },
+                            singleLine = true,
+                        )
+                        workOrderCandidates[issue.imageId]?.forEach { candidate ->
+                            OutlinedButton(onClick = { onAssociateImage(issue.imageId, candidate.recordId) }, enabled = !isSaving) {
+                                Text("${candidate.orderNumber ?: "未识别单号"} · ${formatAuditTime(candidate.sentAt)}", maxLines = 1)
+                            }
+                        }
+                        Button(
+                            onClick = { onSearchWorkOrders(issue.imageId, targetRecordId) },
+                            enabled = !isSaving && targetRecordId.trim().length >= 2,
+                        ) { Text("搜索候选车单") }
+                    }
+                    if (issue.imageId != null && issue.type != "ATTACHMENT_UNAVAILABLE") {
+                        OutlinedButton(onClick = { onRemoveImageAssociation(issue.imageId) }, enabled = !isSaving) {
+                            Text("解除当前关联")
+                        }
+                    }
+                    if (issue.imageId != null) {
+                        TextButton(onClick = { onIgnoreImage(issue.imageId) }, enabled = !isSaving) { Text("暂不关联") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun String.syncIssueLabel(): String = when (this) {
+    "UNSEARCHABLE_MESSAGE" -> "车单字段无法搜索"
+    "ATTACHMENT_CONFLICT" -> "附件存在多个关联候选"
+    "IMAGE_CONFLICT" -> "图片存在多个关联候选"
+    "ATTACHMENT_UNAVAILABLE" -> "附件原文件暂不可用"
+    else -> "微信同步异常"
+}
+
+private fun String.syncStatusLabel(): String = when (this) {
+    "HEALTHY" -> "同步正常"
+    "CATCHING_UP" -> "正在追赶"
+    "WECHAT_NOT_READY" -> "微信未就绪"
+    "KEY_MISSING" -> "缺少密钥"
+    "UPLOAD_FAILED" -> "上传失败"
+    else -> "电脑离线"
+}
+
+@Composable
+private fun String.syncStatusColor(): Color = when (this) {
+    "HEALTHY" -> MaterialTheme.colorScheme.primary
+    "CATCHING_UP" -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.error
 }
 
 private enum class AdminStatusTone { Positive, Caution, Warning, Neutral }

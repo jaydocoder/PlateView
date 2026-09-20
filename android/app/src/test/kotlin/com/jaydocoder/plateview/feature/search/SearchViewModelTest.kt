@@ -10,6 +10,11 @@ import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
 import com.jaydocoder.plateview.domain.vehicle.VehicleFullCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
+import com.jaydocoder.plateview.domain.workorder.CachedWorkOrderImage
+import com.jaydocoder.plateview.domain.workorder.WorkOrder
+import com.jaydocoder.plateview.domain.workorder.WorkOrderImage
+import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
+import com.jaydocoder.plateview.domain.workorder.WorkOrderSyncResult
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.data.network.AppErrorKind
@@ -120,16 +125,77 @@ class SearchViewModelTest {
         assertEquals(SearchEvent.OpenVehicle(candidate.id), event.await())
     }
 
+    @Test
+    fun `获得权限后车辆无结果仍显示微信车单候选`() = runTest {
+        val workOrder = sampleWorkOrder()
+        val viewModel = createViewModel(
+            workOrderRepository = FakeWorkOrderRepository(remoteResults = listOf(workOrder)),
+            sessionProvider = FakeAuthSessionProvider(wechatAccessEnabled = true),
+        )
+
+        viewModel.updateQuery("0919011")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertEquals(listOf(workOrder), viewModel.uiState.value.workOrderCandidates)
+        assertEquals(SearchResultState.Idle, viewModel.uiState.value.resultState)
+    }
+
+    @Test
+    fun `选择微信车单时把当前查询词传入详情导航`() = runTest {
+        val workOrder = sampleWorkOrder()
+        val viewModel = createViewModel()
+        val event = async { viewModel.events.first() }
+        runCurrent()
+
+        viewModel.updateQuery("H27274")
+        viewModel.selectWorkOrder(workOrder)
+        advanceUntilIdle()
+
+        assertEquals(SearchEvent.OpenWorkOrder(workOrder.id, "H27274"), event.await())
+    }
+
     private fun createViewModel(
         vehicleRepository: FakeVehicleRepository = FakeVehicleRepository(),
         vehicleCacheRepository: VehicleCacheRepository = FakeVehicleCacheRepository(),
         historyRepository: FakeSearchHistoryRepository = FakeSearchHistoryRepository(),
+        workOrderRepository: WorkOrderRepository = FakeWorkOrderRepository(),
+        sessionProvider: AuthSessionProvider = FakeAuthSessionProvider(),
     ): SearchViewModel = SearchViewModel(
         vehicleRepository = vehicleRepository,
         vehicleCacheRepository = vehicleCacheRepository,
         historyRepository = historyRepository,
-        sessionProvider = FakeAuthSessionProvider(),
+        sessionProvider = sessionProvider,
+        workOrderRepository = workOrderRepository,
     )
+}
+
+private class FakeWorkOrderRepository(private val remoteResults: List<WorkOrder> = emptyList()) : WorkOrderRepository {
+    override suspend fun searchCached(keyword: String): List<WorkOrder> = emptyList()
+    override suspend fun searchRemote(accessToken: String, keyword: String): List<WorkOrder> = remoteResults
+    override suspend fun searchMessagesCached(keyword: String) = emptyList<com.jaydocoder.plateview.domain.workorder.WechatMessage>()
+    override suspend fun searchMessagesRemote(accessToken: String, keyword: String, offset: Int) =
+        com.jaydocoder.plateview.domain.workorder.WechatMessagePage(emptyList(), null)
+    override suspend fun getMessageDetail(accessToken: String, messageId: Long): com.jaydocoder.plateview.domain.workorder.WechatMessage =
+        error("本测试不读取微信聊天详情")
+    override suspend fun synchronize(accessToken: String, forceVersionCheck: Boolean) = WorkOrderSyncResult(false)
+    override suspend fun getDetail(accessToken: String, recordId: Long): WorkOrder = error("本测试不读取车单详情")
+    override suspend fun getHistory(accessToken: String, recordId: Long): List<WorkOrder> = emptyList()
+    override suspend fun image(
+        accessToken: String,
+        userId: Long,
+        recordId: Long,
+        image: WorkOrderImage,
+        variant: String,
+    ): CachedWorkOrderImage = error("本测试不读取车单图片")
+    override suspend fun attachment(
+        accessToken: String,
+        userId: Long,
+        messageId: Long,
+        attachment: com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment,
+        variant: String,
+    ): CachedWorkOrderImage = error("本测试不读取微信附件")
+    override suspend fun clear(userId: Long?) = Unit
 }
 
 private class FakeVehicleRepository(
@@ -192,15 +258,42 @@ private class FakeSearchHistoryRepository : SearchHistoryRepository {
     override suspend fun clear(username: String) = Unit
 }
 
-private class FakeAuthSessionProvider : AuthSessionProvider {
+private class FakeAuthSessionProvider(wechatAccessEnabled: Boolean = false) : AuthSessionProvider {
     override val session = MutableStateFlow(
         AuthSession(
             accessToken = "测试令牌",
             refreshToken = "测试刷新令牌",
             username = "guard-a",
             role = "USER",
+            wechatWorkOrderAccessEnabled = wechatAccessEnabled,
         ),
     )
 
     override suspend fun logout() = Unit
 }
+
+private fun sampleWorkOrder() = WorkOrder(
+    id = 31,
+    orderNumber = "0919011",
+    rawPlate = "新 H27274",
+    normalizedPlate = "新H27274",
+    vehicleType = "轻型多用途货车",
+    declaredPeople = 2,
+    rawValidTime = "9.20-9.23",
+    location = "禾木",
+    verificationMethod = "核实免门票",
+    reason = "设备调试",
+    remarks = "早八晚九",
+    status = "ACTIVE",
+    parseQuality = "COMPLETE",
+    catalogRevision = 1,
+    rawContent = "【单号】0919011",
+    sentAt = "2026-09-20T01:00:00Z",
+    sourceKey = "20546602068@chatroom",
+    sourceName = "2026车单子接收群",
+    senderUsername = "wxid_test",
+    senderDisplay = "测试发送者",
+    senderGroupNickname = null,
+    people = emptyList(),
+    images = emptyList(),
+)

@@ -20,6 +20,15 @@ data class VehicleDetailDestination(
 )
 
 @Serializable
+data class WorkOrderDetailDestination(
+    val recordId: Long,
+    val query: String = "",
+)
+
+@Serializable
+data class WechatMessageDetailDestination(val messageId: Long)
+
+@Serializable
 data object AdminWorkspaceDestination
 
 @Serializable

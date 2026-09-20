@@ -15,9 +15,9 @@ data class AdminVehicleWriteRequestDto(val plateNumber: String, val category: St
 data class AdminVehicleStatusUpdateRequestDto(val status: String)
 
 data class AdminUserListResponseDto(val items: List<AdminUserDto>)
-data class AdminUserDto(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String? = null, val scheduleAccessEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val otherLongTermAccessEnabled: Boolean = true, val residentRemarksAccessEnabled: Boolean = true)
+data class AdminUserDto(val id: Long, val username: String, val role: String, val status: String, val version: Int, val createdAt: String?, val updatedAt: String?, val avatarVersion: Long, val hasAvatar: Boolean, val realName: String? = null, val scheduleAccessEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val otherLongTermAccessEnabled: Boolean = true, val residentRemarksAccessEnabled: Boolean = true, val wechatWorkOrderAccessEnabled: Boolean = false)
 data class AdminUserCreateRequestDto(val username: String, val password: String, val role: String, val realName: String? = null, val scheduleAccessEnabled: Boolean = false)
-data class AdminUserUpdateRequestDto(val role: String, val status: String, val username: String? = null, val password: String? = null, val realName: String? = null, val scheduleAccessEnabled: Boolean? = null, val updatePolicy: String? = null, val otherLongTermAccessEnabled: Boolean? = null, val residentRemarksAccessEnabled: Boolean? = null)
+data class AdminUserUpdateRequestDto(val role: String, val status: String, val username: String? = null, val password: String? = null, val realName: String? = null, val scheduleAccessEnabled: Boolean? = null, val updatePolicy: String? = null, val otherLongTermAccessEnabled: Boolean? = null, val residentRemarksAccessEnabled: Boolean? = null, val wechatWorkOrderAccessEnabled: Boolean? = null)
 
 data class AdminImportBatchListResponseDto(val items: List<AdminImportBatchSummaryDto>)
 data class AdminImportBatchSummaryDto(val id: Long, val sourceFileName: String, val status: String, val totalRows: Int, val validRows: Int, val duplicateRows: Int, val errorRows: Int, val version: Int, val createdAt: String?, val publishedAt: String?, val rollbackAt: String?)
@@ -41,3 +41,18 @@ data class AdminAuditListResponseDto(
 data class AdminAuditEntryDto(val id: Long, val actorUsername: String?, val actionType: String, val targetType: String, val targetId: Long?, val resultStatus: String, val createdAt: String)
 data class AdminAuditSummaryDto(val total: Int, val successCount: Int, val abnormalCount: Int, val activeActorCount: Int)
 data class AdminAuditActorDto(val id: Long, val username: String?)
+data class WechatSyncStatusResponseDto(val sources: List<WechatSyncSourceDto>)
+data class WechatSyncSourceDto(val sourceKey: String, val displayName: String, val status: String, val latestMessageAt: String?, val lastHeartbeatAt: String?, val lastUploadedAt: String?, val backlogCount: Int, val errorCode: String?)
+data class WechatSyncIssuesResponseDto(val items: List<WechatSyncIssueDto>)
+data class WechatSyncIssueDto(
+    val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
+    val attachmentKind: String? = null, val fileName: String? = null, val candidates: List<WechatAttachmentCandidateDto> = emptyList(),
+)
+data class WechatAttachmentCandidateDto(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
+data class AdminWorkOrderSearchResponseDto(val catalogVersion: Long, val candidates: List<AdminWorkOrderSearchItemDto>)
+data class AdminWorkOrderSearchItemDto(val id: Long, val orderNumber: String?, val sentAt: String, val rawContent: String)
+data class WechatPassageSendersResponseDto(val items: List<WechatPassageSenderDto>)
+data class WechatPassageSenderDto(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
+data class WechatPassageSenderRequestDto(val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
+data class WorkOrderCorrectionRequestDto(val orderNumber: String?, val rawPlate: String?, val status: String)
+data class WorkOrderImageAssociationRequestDto(val recordId: Long)
