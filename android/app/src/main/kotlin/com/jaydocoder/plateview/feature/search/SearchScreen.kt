@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,6 +82,7 @@ import com.jaydocoder.plateview.domain.workorder.displayLabel
 import com.jaydocoder.plateview.domain.workorder.extractWorkOrderPassageTimeRemark
 import com.jaydocoder.plateview.domain.workorder.resolveWorkOrderPassageState
 import com.jaydocoder.plateview.domain.workorder.resolveWechatMessagePassageState
+import com.jaydocoder.plateview.domain.workorder.resolvedSenderName
 import com.jaydocoder.plateview.domain.workorder.selectWorkOrderCandidatePlate
 import com.jaydocoder.plateview.feature.auth.AvatarViewModel
 import com.jaydocoder.plateview.feature.profile.AvatarImage
@@ -221,7 +223,7 @@ fun SearchScreen(
                 )
             }
 
-            if (uiState.candidates.isNotEmpty()) {
+            if (uiState.candidates.isNotEmpty() || uiState.vehicleSectionState is SearchSectionState.Loading || uiState.vehicleSectionState is SearchSectionState.Error) {
                 item(key = "candidate_heading") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -231,17 +233,7 @@ fun SearchScreen(
                             text = stringResource(R.string.search_candidates_title),
                             modifier = Modifier.weight(1f),
                         )
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-                        ) {
-                            Text(
-                                text = "${uiState.candidates.size} 条",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
+                        SearchSectionStatus(uiState.vehicleSectionState, uiState.candidates.size)
                     }
                 }
                 items(
@@ -256,11 +248,11 @@ fun SearchScreen(
                 }
             }
 
-            if (uiState.workOrderCandidates.isNotEmpty()) {
+            if (uiState.workOrderCandidates.isNotEmpty() || uiState.workOrderSectionState is SearchSectionState.Loading || uiState.workOrderSectionState is SearchSectionState.Error) {
                 item(key = "work_order_heading") {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         SectionTitle(text = "微信车单", modifier = Modifier.weight(1f))
-                        Text("${uiState.workOrderCandidates.size} 条", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        SearchSectionStatus(uiState.workOrderSectionState, uiState.workOrderCandidates.size)
                     }
                 }
                 items(
@@ -272,11 +264,11 @@ fun SearchScreen(
                 }
             }
 
-            if (uiState.wechatMessages.isNotEmpty()) {
+            if (uiState.wechatMessages.isNotEmpty() || uiState.wechatMessageSectionState is SearchSectionState.Loading || uiState.wechatMessageSectionState is SearchSectionState.Error) {
                 item(key = "wechat_message_heading") {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         SectionTitle(text = "微信聊天记录", modifier = Modifier.weight(1f))
-                        Text("${uiState.wechatMessages.size} 条", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        SearchSectionStatus(uiState.wechatMessageSectionState, uiState.wechatMessages.size)
                     }
                 }
                 items(
@@ -342,7 +334,7 @@ private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (Wecha
                     Spacer(Modifier.width(8.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    WechatSenderName(message.displayName)
+                    WechatSenderName(message)
                     resolveWechatMessagePassageState(message, rememberCurrentBeijingTime())?.let { state ->
                         CandidateCompactBadge(
                             text = state.displayLabel(),
@@ -385,17 +377,35 @@ private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (Wecha
 }
 
 @Composable
-private fun WechatSenderName(displayName: String) {
-    val isDirector = displayName.trim() == "孙主任"
+private fun WechatSenderName(message: WechatMessage) {
+    val importantSender = message.importantSender()
+    val darkTheme = isSystemInDarkTheme()
     Text(
-        text = displayName,
+        text = message.resolvedSenderName(),
+        modifier = importantSender?.let { Modifier.testTag("important_sender_${it.testTagSuffix}") } ?: Modifier,
         style = MaterialTheme.typography.titleMedium.copy(
-            fontSize = if (isDirector) 20.sp else MaterialTheme.typography.titleMedium.fontSize,
-            fontWeight = if (isDirector) FontWeight.Bold else FontWeight.SemiBold,
+            fontSize = if (importantSender != null) 20.sp else MaterialTheme.typography.titleMedium.fontSize,
+            fontWeight = if (importantSender != null) FontWeight.Bold else FontWeight.SemiBold,
         ),
-        color = if (isDirector) Color(0xFFB87800) else MaterialTheme.colorScheme.onSurface,
+        color = importantSender?.color(darkTheme) ?: MaterialTheme.colorScheme.onSurface,
         maxLines = 1,
     )
+}
+
+private fun WechatMessage.importantSender(): ImportantWechatSender? = when {
+    senderUsername == "wxid_b0rmsm0lwqjk22" || displayName.trim() == "孙主任" -> ImportantWechatSender.DIRECTOR
+    senderUsername == "xurujun9599" || displayName.trim() == "徐站" -> ImportantWechatSender.STATION_MASTER
+    senderUsername == "wxid_2493514935112" || displayName.trim() == "三叔" -> ImportantWechatSender.UNCLE
+    else -> null
+}
+
+private enum class ImportantWechatSender(val testTagSuffix: String, val lightColor: Color, val darkColor: Color) {
+    DIRECTOR("director", Color(0xFFB26A00), Color(0xFFFFC15C)),
+    STATION_MASTER("station_master", Color(0xFF00796B), Color(0xFF5DD5C5)),
+    UNCLE("uncle", Color(0xFF285C9E), Color(0xFF8AB4F8)),
+    ;
+
+    fun color(darkTheme: Boolean): Color = if (darkTheme) darkColor else lightColor
 }
 
 private fun formatWechatMessageTime(value: String): String = runCatching {
@@ -437,6 +447,7 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
                     )
                     WorkOrderStatusBadge(
                         candidate,
+                        selectedPlate,
                         Modifier.padding(top = 4.dp).testTag("work_order_status_${candidate.id}"),
                     )
                 }
@@ -462,8 +473,8 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
 }
 
 @Composable
-private fun WorkOrderStatusBadge(workOrder: WorkOrder, modifier: Modifier = Modifier) {
-    val passageState = resolveWorkOrderPassageState(workOrder, rememberCurrentBeijingTime())
+private fun WorkOrderStatusBadge(workOrder: WorkOrder, selectedPlate: String?, modifier: Modifier = Modifier) {
+    val passageState = resolveWorkOrderPassageState(workOrder, rememberCurrentBeijingTime(), selectedPlate)
     val containerColor = when (passageState) {
         WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.primaryContainer
         WorkOrderPassageState.NOT_STARTED,
@@ -511,6 +522,8 @@ private fun CandidateCompactBadge(
             text = text,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
@@ -660,6 +673,32 @@ private fun StatusStrip(
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchSectionStatus(state: SearchSectionState, count: Int) {
+    when (state) {
+        SearchSectionState.Loading -> CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            strokeWidth = 2.dp,
+        )
+        is SearchSectionState.Error -> Text(
+            text = "加载失败",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+        else -> Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+        ) {
+            Text(
+                text = "$count 条",
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelMedium,
             )
         }
     }

@@ -11,6 +11,7 @@ import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment
 import com.jaydocoder.plateview.domain.workorder.WechatMessage
 import com.jaydocoder.plateview.domain.workorder.WechatMessagePage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
+import com.jaydocoder.plateview.domain.workorder.WorkOrderHomeSearchResult
 import com.jaydocoder.plateview.domain.workorder.WorkOrderSyncResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -44,6 +45,23 @@ class RoomWorkOrderRepository @Inject constructor(
         val records = page.records.map(WechatMessageDto::toDomain)
         if (records.isNotEmpty()) dao.upsertMessages(records.map { it.toEntity(gson) })
         return WechatMessagePage(records, page.nextOffset)
+    }
+
+    override suspend fun searchHomeRemote(accessToken: String, keyword: String): WorkOrderHomeSearchResult {
+        val response = api.searchHome(bearer(accessToken), keyword, MAXIMUM_RESULTS)
+        val workOrders = response.workOrderCandidates.map(WorkOrderDto::toDomain)
+        val messages = response.wechatMessages.map(WechatMessageDto::toDomain)
+        if (workOrders.isNotEmpty()) dao.upsert(workOrders.map { it.toEntity(gson) })
+        if (messages.isNotEmpty()) dao.upsertMessages(messages.map { it.toEntity(gson) })
+        return WorkOrderHomeSearchResult(
+            workOrders = workOrders,
+            wechatMessages = messages,
+            workOrderHasMore = response.workOrderHasMore,
+            wechatMessageHasMore = response.wechatMessageHasMore,
+            catalogVersion = response.catalogVersion,
+            workOrderFailed = response.workOrderFailed,
+            wechatMessageFailed = response.wechatMessageFailed,
+        )
     }
 
     override suspend fun getMessageDetail(accessToken: String, messageId: Long): WechatMessage {
@@ -164,7 +182,7 @@ class RoomWorkOrderRepository @Inject constructor(
     private fun fromEntity(entity: WorkOrderCacheEntity): WorkOrder = gson.fromJson(entity.detailJson, WorkOrder::class.java)
 
     private companion object {
-        const val MAXIMUM_RESULTS = 20
+        const val MAXIMUM_RESULTS = 8
         const val PAGE_SIZE = 200
         const val VERSION_CHECK_INTERVAL_MILLIS = 15 * 60 * 1_000L
         const val HTTP_PARTIAL_CONTENT = 206

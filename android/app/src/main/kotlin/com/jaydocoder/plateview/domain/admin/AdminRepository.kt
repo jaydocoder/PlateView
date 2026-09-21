@@ -48,6 +48,6 @@ interface AdminRepository {
     suspend fun associateWechatImage(accessToken: String, imageId: Long, recordId: Long)
     suspend fun removeWechatImageAssociation(accessToken: String, imageId: Long)
     suspend fun ignoreWechatImage(accessToken: String, imageId: Long)
-    suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String = "preview"): ByteArray
+    suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String = "preview"): CachedAdminAttachment
     suspend fun searchWechatWorkOrders(accessToken: String, keyword: String): List<WechatWorkOrderSearchItem>
 }

@@ -74,7 +74,7 @@ class RoomVehicleCacheRepository @Inject constructor(
     }
 
     private companion object {
-        const val MAXIMUM_CANDIDATES = 20
+        const val MAXIMUM_CANDIDATES = 8
         const val PAGE_SIZE = 200
         const val VERSION_CHECK_INTERVAL_MILLIS = 15 * 60 * 1_000L
     }

@@ -10,7 +10,7 @@
     <string name="search_service_unavailable">无法连接车辆数据服务</string>
     <string name="search_session_expired">登录状态已失效，请重新登录</string>
     <string name="search_retry">重新查询</string>
-    <string name="search_candidates_title">实时匹配</string>
+    <string name="search_candidates_title">匹配车辆</string>
     <string name="search_candidate_description">车牌 %1$s，车辆所属类型 %2$s</string>
     <string name="search_history_title">历史查询</string>
     <string name="search_history_clear">清空</string>

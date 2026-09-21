@@ -37,6 +37,8 @@ private val earlyLatePassagePattern = Regex(
 )
 private val passageRangePattern = Regex("$clockToken\\s*(?:-|—|~|～|至|到)\\s*$clockToken")
 private val beijingZoneId: ZoneId = ZoneId.of("Asia/Shanghai")
+private val wechatImagePlaceholderPattern = Regex("""^\[图片]\s+local_id=\S+\s*$""", RegexOption.IGNORE_CASE)
+private val wechatPdfPlaceholderPattern = Regex("""^\[文件]\s+.+\.pdf(?:\s*\([^)]*\))?\s*$""", RegexOption.IGNORE_CASE)
 
 enum class WorkOrderPassageValidity {
     VALID,
@@ -54,6 +56,23 @@ enum class WorkOrderPassageState {
     UNKNOWN,
     VOID,
     AREA_MISMATCH,
+}
+
+fun WechatMessage.resolvedSenderName(): String = sequenceOf(
+    displayName.takeUnless { it.isBlank() || it == "未知发送者" },
+    senderGroupNickname,
+    senderDisplay,
+    senderUsername,
+).firstOrNull { !it.isNullOrBlank() }?.trim() ?: "未知发送者"
+
+fun WorkOrder.resolvedSenderName(): String = sequenceOf(senderGroupNickname, senderDisplay, senderUsername)
+    .firstOrNull { !it.isNullOrBlank() }?.trim() ?: "未知发送者"
+
+fun WechatMessage.hasAttachmentPlaceholderContent(): Boolean {
+    if (attachments.isEmpty()) return false
+    val content = rawContent.trim()
+    return (wechatImagePlaceholderPattern.matches(content) && attachments.any { it.kind == "IMAGE" }) ||
+        (wechatPdfPlaceholderPattern.matches(content) && attachments.any { it.kind == "PDF" })
 }
 
 fun extractWorkOrderPlateNumbers(rawPlate: String?, rawContent: String? = null): List<String> {
@@ -131,6 +150,7 @@ fun evaluateWorkOrderPassageValidity(
     remarks: String?,
     sentAt: String,
     now: ZonedDateTime = ZonedDateTime.now(beijingZoneId),
+    vehicleType: String? = null,
 ): WorkOrderPassageValidity {
     val beijingNow = now.withZoneSameInstant(beijingZoneId)
     val dateRange = parseWorkOrderDateRange(rawValidTime, sentAt, beijingNow.year)
@@ -138,7 +158,7 @@ fun evaluateWorkOrderPassageValidity(
     val currentDate = beijingNow.toLocalDate()
     if (currentDate.isBefore(dateRange.start)) return WorkOrderPassageValidity.NOT_STARTED
     if (currentDate.isAfter(dateRange.end)) return WorkOrderPassageValidity.EXPIRED
-    val allowedWindows = parseAllowedPassageWindows(remarks) ?: return WorkOrderPassageValidity.VALID
+    val allowedWindows = parseAllowedPassageWindows(remarks, vehicleType) ?: return WorkOrderPassageValidity.VALID
     if (allowedWindows.isEmpty()) return WorkOrderPassageValidity.UNKNOWN
     val currentTime = beijingNow.toLocalTime()
     if (allowedWindows.any { it.contains(currentTime) }) return WorkOrderPassageValidity.VALID
@@ -152,6 +172,7 @@ fun evaluateWorkOrderPassageValidity(
 fun resolveWorkOrderPassageState(
     workOrder: WorkOrder,
     now: ZonedDateTime = ZonedDateTime.now(beijingZoneId),
+    selectedPlate: String? = null,
 ): WorkOrderPassageState {
     if (workOrder.status == "VOID") return WorkOrderPassageState.VOID
     if (!workOrder.location.isNullOrBlank() && !workOrder.location.contains("喀纳斯")) {
@@ -163,6 +184,7 @@ fun resolveWorkOrderPassageState(
             remarks = workOrder.remarks,
             sentAt = workOrder.sentAt,
             now = now,
+            vehicleType = workOrder.vehicleTypeForPlate(selectedPlate),
         )
     ) {
         WorkOrderPassageValidity.VALID -> WorkOrderPassageState.VALID
@@ -198,7 +220,7 @@ fun WorkOrderPassageState.displayLabel(): String = when (this) {
     WorkOrderPassageState.VALID -> "通行时间有效"
     WorkOrderPassageState.EXPIRED -> "通行时间已过期"
     WorkOrderPassageState.NOT_STARTED -> "通行时间未开始"
-    WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS -> "当前不在通行时段"
+    WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS -> "不在通行时间"
     WorkOrderPassageState.UNKNOWN -> "通行时间待核实"
     WorkOrderPassageState.VOID -> "已失效"
     WorkOrderPassageState.AREA_MISMATCH -> "通行区域不符"
@@ -277,16 +299,21 @@ private fun MatchResult.toDateParts(defaultYear: Int): DateParts? {
     return DateParts(year, month, day)
 }
 
-private fun parseAllowedPassageWindows(remarks: String?): List<PassageTimeWindow>? {
-    val value = extractWorkOrderPassageTimeRemark(remarks) ?: return null
+private fun parseAllowedPassageWindows(remarks: String?, vehicleType: String?): List<PassageTimeWindow>? {
+    val value = selectPassageTimeRemarkForVehicle(remarks, vehicleType) ?: return null
     if (value.contains("全天")) return listOf(PassageTimeWindow(LocalTime.MIN, LocalTime.MAX))
     val windows = mutableListOf<PassageTimeWindow>()
     earlyLatePassagePattern.findAll(value).forEach { match ->
         val earlyEnd = parseClock("早", match.groupValues[1], match.groupValues[2], match.groupValues[3])
-        val lateStart = parseClock("晚", match.groupValues[4], match.groupValues[5], match.groupValues[6])
-        if (earlyEnd != null && lateStart != null) {
+        if (earlyEnd != null) {
             windows += PassageTimeWindow(LocalTime.MIN, earlyEnd.minusNanos(1))
-            windows += PassageTimeWindow(lateStart, LocalTime.MAX)
+        }
+        val lateHour = parseChineseNumber(match.groupValues[4])
+        if (lateHour != 12) {
+            val lateStart = parseClock("晚", match.groupValues[4], match.groupValues[5], match.groupValues[6])
+            if (lateStart != null) {
+                windows += PassageTimeWindow(lateStart, LocalTime.MAX)
+            }
         }
     }
     passageRangePattern.findAll(value).forEach { match ->
@@ -299,6 +326,43 @@ private fun parseAllowedPassageWindows(remarks: String?): List<PassageTimeWindow
         }
     }
     return windows.distinct()
+}
+
+private fun selectPassageTimeRemarkForVehicle(remarks: String?, vehicleType: String?): String? {
+    val segments = remarks
+        ?.split(remarkSegmentSeparators)
+        ?.map(String::trim)
+        ?.filter(String::isNotEmpty)
+        ?.filter(passageTimeHintPattern::containsMatchIn)
+        .orEmpty()
+    if (segments.isEmpty()) return null
+    val targetClass = when {
+        vehicleType?.contains("重型") == true -> PassageVehicleClass.HEAVY
+        vehicleType?.contains("轻型") == true -> PassageVehicleClass.LIGHT
+        !vehicleType.isNullOrBlank() && segments.any { it.passageVehicleClass() == PassageVehicleClass.LIGHT } &&
+            segments.any { it.passageVehicleClass() == PassageVehicleClass.HEAVY } -> PassageVehicleClass.LIGHT
+        else -> null
+    }
+    if (targetClass == null) return segments.joinToString("，")
+    return segments
+        .filter { segment -> segment.passageVehicleClass()?.let { it == targetClass } ?: true }
+        .joinToString("，")
+        .takeIf(String::isNotBlank)
+}
+
+private fun String.passageVehicleClass(): PassageVehicleClass? = when {
+    contains("重型") -> PassageVehicleClass.HEAVY
+    contains("轻型") -> PassageVehicleClass.LIGHT
+    else -> null
+}
+
+private fun WorkOrder.vehicleTypeForPlate(selectedPlate: String?): String? {
+    if (selectedPlate.isNullOrBlank()) return vehicleType
+    val normalizedSelectedPlate = PlateQueryNormalizer.normalize(selectedPlate)
+    return vehicles.firstOrNull { vehicle ->
+        PlateQueryNormalizer.normalize(vehicle.normalizedPlate) == normalizedSelectedPlate ||
+            PlateQueryNormalizer.normalize(vehicle.rawPlate) == normalizedSelectedPlate
+    }?.vehicleType ?: vehicleType
 }
 
 private fun parseClock(period: String?, hourText: String, colonMinute: String, pointMinute: String): LocalTime? {
@@ -330,3 +394,4 @@ private data class PassageDateRange(val start: LocalDate, val end: LocalDate)
 private data class PassageTimeWindow(val startInclusive: LocalTime, val endInclusive: LocalTime) {
     fun contains(time: LocalTime): Boolean = !time.isBefore(startInclusive) && !time.isAfter(endInclusive)
 }
+private enum class PassageVehicleClass { LIGHT, HEAVY }

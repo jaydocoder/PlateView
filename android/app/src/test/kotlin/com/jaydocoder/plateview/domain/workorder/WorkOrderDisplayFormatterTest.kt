@@ -1,11 +1,41 @@
 package com.jaydocoder.plateview.domain.workorder
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
 class WorkOrderDisplayFormatterTest {
+    @Test
+    fun `聊天发送者忽略空昵称并回退到原始昵称或稳定账号`() {
+        val message = sampleMessage("测试", "2026-09-21T01:00:00Z")
+
+        assertEquals("三叔", message.copy(displayName = "", senderGroupNickname = "", senderDisplay = "三叔").resolvedSenderName())
+        assertEquals(
+            "wxid_test",
+            message.copy(displayName = "未知发送者", senderGroupNickname = "", senderDisplay = "", senderUsername = "wxid_test").resolvedSenderName(),
+        )
+    }
+
+    @Test
+    fun `纯图片和PDF占位正文由附件缩略图替代`() {
+        val image = WorkOrderAttachment(1, "IMAGE", null, null, "image/jpeg", 100, true, true, "AVAILABLE", null)
+        val pdf = WorkOrderAttachment(2, "PDF", "车辆申请.pdf", null, "application/pdf", 200, true, true, "AVAILABLE", 2)
+        val message = sampleMessage("测试", "2026-09-21T01:00:00Z")
+
+        assertTrue(message.copy(rawContent = "[图片] local_id=1188", attachments = listOf(image)).hasAttachmentPlaceholderContent())
+        assertTrue(message.copy(rawContent = "[文件] 车辆申请.pdf (612.8 KB, pdf)", attachments = listOf(pdf)).hasAttachmentPlaceholderContent())
+        assertFalse(message.copy(rawContent = "[图片] local_id=1188\n请核实", attachments = listOf(image)).hasAttachmentPlaceholderContent())
+        assertFalse(message.copy(rawContent = "[图片] local_id=1188", attachments = emptyList()).hasAttachmentPlaceholderContent())
+    }
+
+    @Test
+    fun `非通行时段使用适合窄屏单行展示的文案`() {
+        assertEquals("不在通行时间", WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS.displayLabel())
+    }
+
     @Test
     fun `无括号车型不会混入车牌显示`() {
         assertEquals(listOf("新A080R6"), extractWorkOrderPlateNumbers("新A080R6四驱皮卡"))
@@ -176,6 +206,33 @@ class WorkOrderDisplayFormatterTest {
         assertEquals(
             WorkOrderPassageValidity.OUTSIDE_ALLOWED_HOURS,
             evaluateWorkOrderPassageValidity("9.20-9.21", remarks, "2026-09-20T01:00:00Z", beijingTime(2026, 9, 20, 18, 0)),
+        )
+    }
+
+    @Test
+    fun `多车型车单按首页展示车牌选择对应时段`() {
+        val workOrder = sampleWorkOrder(status = "ACTIVE", location = "喀纳斯").copy(
+            orderNumber = "0920028",
+            rawPlate = "新H9078E、新AK8F44、新H8931B、新H30765",
+            rawValidTime = "9.20-9.26",
+            remarks = "轻型早八晚九，重型早八晚十二，不得停靠三湾",
+            vehicles = listOf(
+                WorkOrderVehicle("工程保障车辆1 新H9078E", "新H9078E", "新H9078E", "工程保障车辆1"),
+                WorkOrderVehicle("重型半挂牵引车 新H30765", "新H30765", "新H30765", "重型半挂牵引车"),
+            ),
+        )
+
+        assertEquals(
+            WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 21, 15, 28), "新H9078E"),
+        )
+        assertEquals(
+            WorkOrderPassageState.VALID,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 21, 21, 1), "新H9078E"),
+        )
+        assertEquals(
+            WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 21, 15, 28), "新H30765"),
         )
     }
 

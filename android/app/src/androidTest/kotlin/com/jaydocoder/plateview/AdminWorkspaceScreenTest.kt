@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -21,6 +22,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.Density
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
+import com.jaydocoder.plateview.domain.admin.CachedAdminAttachment
 import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.ManagedAuditEntry
 import com.jaydocoder.plateview.domain.admin.ManagedAuditSummary
@@ -259,7 +261,7 @@ class AdminWorkspaceScreenTest {
         composeRule.onNodeWithText("更换头像").assertIsDisplayed()
         composeRule.onNodeWithText("显示排班功能").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_schedule_access_switch").assertIsDisplayed()
-        composeRule.onNodeWithTag("admin_update_policy_switch").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("admin_update_policy_switch").performScrollTo().assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals(UserUpdatePolicy.FORCED, changedEditor?.updatePolicy) }
         composeRule.onNodeWithTag("admin_editor_content").performTouchInput { swipeUp() }
         composeRule.onAllNodesWithTag("admin_other_long_term_access_switch").assertCountEquals(1)
@@ -774,6 +776,104 @@ class AdminWorkspaceScreenTest {
         composeRule.onNodeWithText("图片存在多个关联候选").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("图片存在两个可能的车单").assertIsDisplayed()
         composeRule.onNodeWithText("附件记录：42").assertIsDisplayed()
+    }
+
+    @Test
+    fun 微信同步待处理图片可打开缩放预览() {
+        val previewFile = java.io.File.createTempFile("wechat-preview", ".jpg", composeRule.activity.cacheDir)
+        val issue = WechatSyncIssue(
+            type = "ATTACHMENT_CONFLICT",
+            recordId = null,
+            imageId = 42,
+            sourceName = "票务中心工作群",
+            sentAt = "2026-09-20T01:00:00Z",
+            summary = "图片存在两个可能的车单",
+            attachmentKind = "IMAGE",
+            fileName = "通行单.jpg",
+        )
+        var selectedIssue by mutableStateOf<WechatSyncIssue?>(null)
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.WechatSync,
+                        isLoading = false,
+                        isPrimaryAdministrator = true,
+                        wechatSyncIssues = listOf(issue),
+                        wechatAttachmentFiles = mapOf(42L to CachedAdminAttachment(previewFile, "preview")),
+                        selectedWechatAttachment = selectedIssue,
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {},
+                    onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {}, onSaveVehicle = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {},
+                    onChooseImport = {}, onOpenImportBatch = {}, onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> }, onPublishImport = {}, onRollbackImport = {},
+                    onOpenWechatAttachment = { selectedIssue = it },
+                    onCloseWechatAttachment = { selectedIssue = null },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("wechat_attachment_preview_42").performScrollTo().performClick()
+        composeRule.onNodeWithTag("zoomable_attachment_viewer").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("放大").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("缩小").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("复位缩放").assertIsDisplayed()
+        previewFile.delete()
+    }
+
+    @Test
+    fun 微信同步待处理PDF可分页和缩放预览() {
+        val pdfFile = java.io.File.createTempFile("wechat-preview", ".pdf", composeRule.activity.cacheDir)
+        val document = android.graphics.pdf.PdfDocument()
+        try {
+            repeat(2) { index ->
+                val page = document.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(240, 320, index + 1).create())
+                page.canvas.drawText("第${index + 1}页", 40f, 80f, android.graphics.Paint())
+                document.finishPage(page)
+            }
+            java.io.FileOutputStream(pdfFile).use(document::writeTo)
+        } finally {
+            document.close()
+        }
+        val issue = WechatSyncIssue(
+            type = "ATTACHMENT_CONFLICT",
+            recordId = null,
+            imageId = 43,
+            sourceName = "票务中心工作群",
+            sentAt = "2026-09-20T01:00:00Z",
+            summary = "PDF存在两个可能的车单",
+            attachmentKind = "PDF",
+            fileName = "通行单.pdf",
+            pageCount = 2,
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.WechatSync,
+                        isLoading = false,
+                        isPrimaryAdministrator = true,
+                        wechatAttachmentFiles = mapOf(43L to CachedAdminAttachment(pdfFile, "original")),
+                        selectedWechatAttachment = issue,
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {},
+                    onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {}, onSaveVehicle = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {},
+                    onChooseImport = {}, onOpenImportBatch = {}, onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> }, onPublishImport = {}, onRollbackImport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("zoomable_attachment_viewer").assertIsDisplayed()
+        composeRule.onNodeWithText("第 1 / 2 页").assertIsDisplayed()
+        composeRule.onNodeWithText("下一页").performClick()
+        composeRule.onNodeWithText("第 2 / 2 页").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("放大").assertIsDisplayed()
+        pdfFile.delete()
     }
 
     @Test

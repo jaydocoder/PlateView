@@ -29,6 +29,10 @@ OVERLAP_SECONDS = 24 * 60 * 60
 REGULAR_OVERLAP_SECONDS = 5 * 60
 BATCH_SIZE = 200
 MAX_HISTORY = 100_000
+REQUEST_RETRY_DELAYS = (1, 3, 8)
+IMAGE_RETRY_BASE_SECONDS = 60
+IMAGE_RETRY_MAX_SECONDS = 60 * 60
+MAX_IMAGE_RETRY_ITEMS = 5_000
 
 
 class Collector:
@@ -115,27 +119,54 @@ class Collector:
             raise RuntimeError("微信图片数据可能不完整")
         attachments = sorted(payload.get("attachments") or payload.get("messages") or [], key=self._message_position)
         cursor = (int(source_state.get("image_timestamp", 0)), str(source_state.get("image_id", "")))
-        retry_ids = set(source_state.get("image_retry_ids") or [])
-        pending = [
+        now = int(time.time())
+        retry_items = {
+            str(item.get("attachment_id") or ""): item
+            for item in source_state.get("image_retry_items") or []
+            if item.get("attachment_id")
+        }
+        legacy_retry_ids = set(source_state.get("image_retry_ids") or [])
+        discovered = [
             item for item in attachments
             if full_rescan
             or self._message_position(item) > cursor
-            or str(item.get("local_id") or item.get("message_id") or "") in retry_ids
+            or str(item.get("local_id") or item.get("message_id") or "") in legacy_retry_ids
         ]
+        due_retries = [item for item in retry_items.values() if int(item.get("next_retry_at", 0)) <= now]
+        pending_by_id = {
+            str(item.get("attachment_id") or ""): item
+            for item in (*due_retries, *discovered)
+            if item.get("attachment_id")
+        }
+        pending = sorted(pending_by_id.values(), key=self._message_position)
         for attachment in pending:
             uploaded = self._upload_image(source_key, source_name, attachment)
             timestamp, local_id = max(cursor, self._message_position(attachment))
-            retry_ids = set(source_state.get("image_retry_ids") or [])
-            retry_key = str(attachment.get("local_id") or attachment.get("message_id") or "")
+            retry_key = str(attachment.get("attachment_id") or "")
             if uploaded:
-                retry_ids.discard(retry_key)
+                retry_items.pop(retry_key, None)
             elif retry_key:
-                retry_ids.add(retry_key)
+                attempts = int(retry_items.get(retry_key, {}).get("attempts", 0)) + 1
+                retry_items[retry_key] = self._image_retry_record(attachment, attempts, now)
             source_state["image_timestamp"] = timestamp
             source_state["image_id"] = local_id
             cursor = timestamp, local_id
-            source_state["image_retry_ids"] = sorted(retry_ids)[-5000:]
+            source_state["image_retry_items"] = sorted(
+                retry_items.values(),
+                key=lambda item: (int(item.get("next_retry_at", 0)), str(item.get("attachment_id") or "")),
+            )[-MAX_IMAGE_RETRY_ITEMS:]
+            source_state.pop("image_retry_ids", None)
             self._save_state()
+
+    def _image_retry_record(self, attachment, attempts, now):
+        delay = min(IMAGE_RETRY_MAX_SECONDS, IMAGE_RETRY_BASE_SECONDS * (2 ** min(attempts - 1, 6)))
+        return {
+            "attachment_id": str(attachment.get("attachment_id") or ""),
+            "local_id": str(attachment.get("local_id") or attachment.get("message_id") or ""),
+            "timestamp": self._timestamp(attachment),
+            "attempts": attempts,
+            "next_retry_at": now + delay,
+        }
 
     def _upload_image(self, source_key, source_name, attachment):
         attachment_id = str(attachment.get("attachment_id") or "")
@@ -154,8 +185,8 @@ class Collector:
             original = pathlib.Path(temporary_directory) / "original"
             try:
                 completed = self._run([self.wx_command, "extract", attachment_id, "-o", str(original), "--overwrite", "--json"])
+                report = json.loads(completed.stdout) if completed.stdout.strip().startswith("{") else {}
                 if not original.is_file():
-                    report = json.loads(completed.stdout) if completed.stdout.strip().startswith("{") else {}
                     reported_output = pathlib.Path(str(report.get("output") or ""))
                     if reported_output.is_file() and reported_output.parent == pathlib.Path(temporary_directory):
                         original = reported_output
@@ -164,15 +195,28 @@ class Collector:
                     if len(extracted) != 1:
                         raise FileNotFoundError("微信图片解密后未找到唯一输出文件")
                     original = extracted[0]
+                original = self._prepare_extracted_image(original, report, pathlib.Path(temporary_directory))
                 fields["sha256"] = file_sha256(original)
                 fields["originalContentType"] = mimetypes.guess_type(original.name)[0] or detect_image_type(original)
                 files = {"original": original}
                 files.update(self._create_derivatives(original, pathlib.Path(temporary_directory)))
                 self._request_multipart("/internal/wechat/images", fields, files)
                 return True
-            except subprocess.CalledProcessError:
+            except (OSError, ValueError, subprocess.CalledProcessError):
                 self._request_multipart("/internal/wechat/images", fields, {})
                 return False
+
+    def _prepare_extracted_image(self, original, report, directory):
+        if str(report.get("format") or "").lower() != "hevc":
+            return original
+        converted = directory / "original.jpg"
+        self._run([
+            "ffmpeg", "-v", "error", "-f", "hevc", "-i", str(original),
+            "-frames:v", "1", "-q:v", "2", "-y", str(converted),
+        ])
+        if not converted.is_file() or converted.stat().st_size == 0:
+            raise OSError("微信HEVC图片转换失败")
+        return converted
 
     def _sync_files(self, source_key, source_name, source_state, full_rescan):
         since = self._since_date(source_state.get("file_timestamp"), full_rescan)
@@ -203,6 +247,7 @@ class Collector:
             "sourceKey": source_key,
             "sourceName": source_name,
             "localAttachmentId": f"pdf-{local_id}",
+            "localMessageId": local_id,
             "senderUsername": str(message.get("sender_username") or ""),
             "senderDisplay": str(message.get("sender") or message.get("sender_contact_display") or ""),
             "sentAt": iso_time(self._timestamp(message)),
@@ -314,7 +359,7 @@ class Collector:
             method=method,
             headers={"Content-Type": "application/json", "X-PlateView-Collector-Token": self.token},
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with self._urlopen_with_retry(request, timeout=30) as response:
             content = response.read()
             return json.loads(content) if content else None
 
@@ -337,8 +382,23 @@ class Collector:
             method="POST",
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "X-PlateView-Collector-Token": self.token},
         )
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with self._urlopen_with_retry(request, timeout=120) as response:
             response.read()
+
+    def _urlopen_with_retry(self, request, timeout):
+        for attempt, delay in enumerate((*REQUEST_RETRY_DELAYS, None), start=1):
+            try:
+                return urllib.request.urlopen(request, timeout=timeout)
+            except urllib.error.HTTPError as error:
+                if error.code < 500 or delay is None:
+                    raise
+                logging.warning("服务器暂时不可用，状态码=%d，第%d次请求稍后重试", error.code, attempt)
+            except (urllib.error.URLError, TimeoutError) as error:
+                if delay is None:
+                    raise
+                reason = getattr(error, "reason", error)
+                logging.warning("网络请求暂时失败，原因类型=%s，第%d次请求稍后重试", type(reason).__name__, attempt)
+            time.sleep(delay)
 
     def _load_state(self):
         if not self.state_path.is_file():

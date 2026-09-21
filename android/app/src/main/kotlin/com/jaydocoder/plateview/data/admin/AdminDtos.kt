@@ -46,7 +46,8 @@ data class WechatSyncSourceDto(val sourceKey: String, val displayName: String, v
 data class WechatSyncIssuesResponseDto(val items: List<WechatSyncIssueDto>)
 data class WechatSyncIssueDto(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
-    val attachmentKind: String? = null, val fileName: String? = null, val candidates: List<WechatAttachmentCandidateDto> = emptyList(),
+    val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,
+    val candidates: List<WechatAttachmentCandidateDto> = emptyList(),
 )
 data class WechatAttachmentCandidateDto(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
 data class AdminWorkOrderSearchResponseDto(val catalogVersion: Long, val candidates: List<AdminWorkOrderSearchItemDto>)

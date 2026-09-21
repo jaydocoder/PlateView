@@ -579,7 +579,8 @@ private class FakeAdminRepository(
     override suspend fun associateWechatImage(accessToken: String, imageId: Long, recordId: Long) = Unit
     override suspend fun removeWechatImageAssociation(accessToken: String, imageId: Long) = Unit
     override suspend fun ignoreWechatImage(accessToken: String, imageId: Long) = Unit
-    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): ByteArray = byteArrayOf()
+    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String) =
+        com.jaydocoder.plateview.domain.admin.CachedAdminAttachment(kotlin.io.path.createTempFile().toFile(), variant)
     override suspend fun searchWechatWorkOrders(accessToken: String, keyword: String) = emptyList<com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem>()
     override suspend fun createUser(accessToken: String, command: UserCreateCommand): ManagedUser = error("本测试不创建账号")
     override suspend fun updateUser(accessToken: String, userId: Long, version: Int, command: UserUpdateCommand): ManagedUser {

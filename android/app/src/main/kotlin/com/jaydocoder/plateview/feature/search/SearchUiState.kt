@@ -12,8 +12,19 @@ data class SearchUiState(
     val candidates: List<VehicleCandidate> = emptyList(),
     val workOrderCandidates: List<WorkOrder> = emptyList(),
     val wechatMessages: List<WechatMessage> = emptyList(),
+    val vehicleSectionState: SearchSectionState = SearchSectionState.Idle,
+    val workOrderSectionState: SearchSectionState = SearchSectionState.Idle,
+    val wechatMessageSectionState: SearchSectionState = SearchSectionState.Idle,
     val history: List<SearchHistoryItem> = emptyList(),
 )
+
+sealed interface SearchSectionState {
+    data object Idle : SearchSectionState
+    data object Loading : SearchSectionState
+    data object Success : SearchSectionState
+    data object Empty : SearchSectionState
+    data class Error(val error: AppError) : SearchSectionState
+}
 
 sealed interface SearchResultState {
     data object Idle : SearchResultState

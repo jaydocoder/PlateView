@@ -19,6 +19,7 @@ import com.jaydocoder.plateview.domain.admin.WechatSyncSource
 import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
 import com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem
 import com.jaydocoder.plateview.domain.admin.WechatPassageSender
+import com.jaydocoder.plateview.domain.admin.CachedAdminAttachment
 import com.jaydocoder.plateview.data.network.AppError
 
 data class AdminUiState(
@@ -56,7 +57,10 @@ data class AdminUiState(
     val pendingVehicleStatusChange: PendingVehicleStatusChange? = null,
     val wechatSyncSources: List<WechatSyncSource> = emptyList(),
     val wechatSyncIssues: List<WechatSyncIssue> = emptyList(),
-    val wechatAttachmentPreviews: Map<Long, ByteArray> = emptyMap(),
+    val wechatAttachmentFiles: Map<Long, CachedAdminAttachment> = emptyMap(),
+    val selectedWechatAttachment: WechatSyncIssue? = null,
+    val isWechatAttachmentLoading: Boolean = false,
+    val wechatAttachmentFailure: AppError? = null,
     val wechatWorkOrderCandidates: Map<Long, List<WechatWorkOrderSearchItem>> = emptyMap(),
     val wechatPassageSenders: List<WechatPassageSender> = emptyList(),
 )

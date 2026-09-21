@@ -1,5 +1,7 @@
 package com.jaydocoder.plateview.domain.admin
 
+import java.io.File
+
 data class ManagedVehicleSummary(
     val id: Long,
     val plateNumber: String,
@@ -136,10 +138,12 @@ data class WechatSyncIssue(
     val summary: String,
     val attachmentKind: String? = null,
     val fileName: String? = null,
+    val pageCount: Int? = null,
     val candidates: List<WechatAttachmentCandidate> = emptyList(),
 )
 
 data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
+data class CachedAdminAttachment(val file: File, val variant: String)
 data class WechatWorkOrderSearchItem(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
 data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
 

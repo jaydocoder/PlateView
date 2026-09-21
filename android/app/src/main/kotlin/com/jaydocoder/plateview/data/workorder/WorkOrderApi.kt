@@ -8,6 +8,13 @@ import retrofit2.http.Query
 import retrofit2.Response
 
 interface WorkOrderApi {
+    @GET("work-orders/home-search")
+    suspend fun searchHome(
+        @Header("Authorization") authorization: String,
+        @Query("keyword") keyword: String,
+        @Query("limit") limit: Int,
+    ): WorkOrderHomeSearchResponseDto
+
     @GET("work-orders/search")
     suspend fun search(@Header("Authorization") authorization: String, @Query("keyword") keyword: String): WorkOrderSearchResponseDto
 
@@ -48,6 +55,15 @@ interface WorkOrderApi {
 }
 
 data class WorkOrderSearchResponseDto(val catalogVersion: Long, val candidates: List<WorkOrderDto>)
+data class WorkOrderHomeSearchResponseDto(
+    val workOrderCandidates: List<WorkOrderDto>,
+    val wechatMessages: List<WechatMessageDto>,
+    val workOrderHasMore: Boolean,
+    val wechatMessageHasMore: Boolean,
+    val catalogVersion: Long,
+    val workOrderFailed: Boolean = false,
+    val wechatMessageFailed: Boolean = false,
+)
 data class WorkOrderCatalogVersionDto(val catalogVersion: Long)
 data class WorkOrderChangesDto(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WorkOrderDto>)
 data class WorkOrderHistoryDto(val records: List<WorkOrderDto>)

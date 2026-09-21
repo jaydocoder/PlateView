@@ -61,7 +61,7 @@ class StatisticsScreenTest {
         composeRule.onNodeWithTag("statistics_content_list").performScrollToIndex(4)
         composeRule.onNodeWithTag("statistics_history_vehicle_1").performClick()
         composeRule.runOnIdle { org.junit.Assert.assertEquals(1L, openedVehicleId) }
-        composeRule.onNodeWithTag("statistics_category_selector").performClick()
+        composeRule.onNodeWithTag("statistics_category_selector").performScrollTo().performClick()
         composeRule.onNodeWithTag("statistics_category_option_RESIDENT").performClick()
         composeRule.runOnIdle { org.junit.Assert.assertEquals("RESIDENT", selected) }
         composeRule.onAllNodesWithTag("statistics_category_count_chart").assertCountEquals(0)

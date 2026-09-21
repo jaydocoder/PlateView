@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -14,23 +15,57 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
+import com.jaydocoder.plateview.domain.workorder.CachedWorkOrderImage
+import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment
 import com.jaydocoder.plateview.domain.workorder.WorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderPerson
+import com.jaydocoder.plateview.domain.workorder.WorkOrderVehicle
+import com.jaydocoder.plateview.domain.workorder.WechatMessage
+import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 import com.jaydocoder.plateview.feature.search.SearchScreen
 import com.jaydocoder.plateview.feature.search.SearchUiState
 import com.jaydocoder.plateview.feature.workorder.WorkOrderDetailScreen
 import com.jaydocoder.plateview.feature.workorder.WorkOrderDetailUiState
+import com.jaydocoder.plateview.feature.workorder.WechatMessageDetailScreen
+import com.jaydocoder.plateview.feature.workorder.WechatMessageDetailUiState
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 
 class WorkOrderScreenTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun 首页车辆分区使用匹配车辆标题() {
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(
+                        query = "新H",
+                        candidates = listOf(VehicleCandidate(1, "新H12345", "RESIDENT", "村民车辆")),
+                    ),
+                    onQueryChanged = {},
+                    onCandidateSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("匹配车辆").assertIsDisplayed()
+        composeRule.onAllNodesWithText("实时匹配").assertCountEquals(0)
+    }
 
     @Test
     fun 首页车单候选突出单号车牌并保留通行摘要() {
@@ -254,6 +289,190 @@ class WorkOrderScreenTest {
     }
 
     @Test
+    fun 首页多车型车单按展示车牌判定当前时段() {
+        val zoneId = ZoneId.of("Asia/Shanghai")
+        val now = java.time.ZonedDateTime.now(zoneId)
+        assumeTrue(!now.toLocalTime().isBefore(LocalTime.of(8, 0)) && now.toLocalTime().isBefore(LocalTime.of(21, 0)))
+        val workOrder = sampleWorkOrder().copy(
+            orderNumber = "0920028",
+            rawPlate = "新H9078E、新AK8F44、新H8931B、新H30765",
+            rawValidTime = now.toLocalDate().asWorkOrderDate(),
+            location = "喀纳斯",
+            remarks = "轻型早八晚九，重型早八晚十二，不得停靠三湾",
+            sentAt = now.toLocalDate().atStartOfDay(zoneId).toInstant().toString(),
+            vehicles = listOf(
+                WorkOrderVehicle("工程保障车辆1 新H9078E", "新H9078E", "新H9078E", "工程保障车辆1"),
+                WorkOrderVehicle("重型半挂牵引车 新H30765", "新H30765", "新H30765", "重型半挂牵引车"),
+            ),
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "0920", workOrderCandidates = listOf(workOrder)),
+                    onQueryChanged = {},
+                    onCandidateSelected = {},
+                    onWorkOrderSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("新H·9078E").assertIsDisplayed()
+        composeRule.onNodeWithText("不在通行时间").assertIsDisplayed()
+    }
+
+    @Test
+    fun 首页重点发送者使用三个独立强调样式() {
+        val messages = listOf(
+            sampleWechatMessage(901, "wxid_b0rmsm0lwqjk22", "孙主任"),
+            sampleWechatMessage(902, "xurujun9599", "徐站"),
+            sampleWechatMessage(903, "wxid_2493514935112", "三叔"),
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "通行", wechatMessages = messages),
+                    onQueryChanged = {},
+                    onCandidateSelected = {},
+                    onWorkOrderSelected = {},
+                    onWechatMessageSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("important_sender_director", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("important_sender_station_master", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("important_sender_uncle", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun 首页微信记录在配置称呼为空时仍显示发送者() {
+        val message = sampleWechatMessage(904, "wxid_2493514935112", "三叔").copy(
+            displayName = "",
+            senderGroupNickname = "",
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "通行", wechatMessages = listOf(message)),
+                    onQueryChanged = {}, onCandidateSelected = {}, onWorkOrderSelected = {}, onWechatMessageSelected = {},
+                    onHistorySelected = {}, onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("三叔").assertIsDisplayed()
+    }
+
+    @Test
+    fun 微信图片消息隐藏占位正文并显示发送者和缩略图() {
+        val preview = java.io.File.createTempFile("wechat-image", ".webp", composeRule.activity.cacheDir)
+        val attachment = WorkOrderAttachment(81, "IMAGE", null, null, "image/jpeg", 1024, true, true, "AVAILABLE", null)
+        val message = sampleWechatMessage(905, "wxid_2493514935112", "三叔").copy(
+            rawContent = "[图片] local_id=1188",
+            matchedSnippet = "[图片] local_id=1188",
+            displayName = "",
+            senderGroupNickname = "",
+            attachments = listOf(attachment),
+        )
+        var opened = false
+        composeRule.setContent {
+            PlateViewTheme {
+                WechatMessageDetailScreen(
+                    state = WechatMessageDetailUiState(
+                        isLoading = false,
+                        message = message,
+                        attachmentFiles = mapOf(81L to CachedWorkOrderImage(preview, "preview")),
+                    ),
+                    onNavigateUp = {}, onRetry = {}, onOpenAttachment = { opened = true },
+                    onLoadOriginal = {}, onCloseAttachment = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("[图片] local_id=1188").assertCountEquals(0)
+        composeRule.onAllNodesWithContentDescription("微信图片缩略图").assertCountEquals(2)
+        composeRule.onNodeWithText("发送者：三叔").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("相关附件").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodesWithContentDescription("微信图片缩略图")[0].performClick()
+        composeRule.runOnIdle { assertTrue(opened) }
+        preview.delete()
+    }
+
+    @Test
+    fun 微信PDF消息隐藏占位正文并显示首页缩略图() {
+        val preview = java.io.File.createTempFile("wechat-pdf", ".png", composeRule.activity.cacheDir)
+        val attachment = WorkOrderAttachment(82, "PDF", "车辆申请.pdf", null, "application/pdf", 2048, true, true, "AVAILABLE", 2)
+        val message = sampleWechatMessage(906, "xurujun9599", "徐如军").copy(
+            rawContent = "[文件] 车辆申请.pdf (612.8 KB, pdf)",
+            matchedSnippet = "[文件] 车辆申请.pdf (612.8 KB, pdf)",
+            displayName = "徐站",
+            attachments = listOf(attachment),
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                WechatMessageDetailScreen(
+                    state = WechatMessageDetailUiState(
+                        isLoading = false,
+                        message = message,
+                        attachmentFiles = mapOf(82L to CachedWorkOrderImage(preview, "preview")),
+                    ),
+                    onNavigateUp = {}, onRetry = {}, onOpenAttachment = {}, onLoadOriginal = {}, onCloseAttachment = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("[文件] 车辆申请.pdf (612.8 KB, pdf)").assertCountEquals(0)
+        composeRule.onAllNodesWithContentDescription("PDF首页缩略图").assertCountEquals(2)
+        composeRule.onNodeWithText("发送者：徐站").performScrollTo().assertIsDisplayed()
+        preview.delete()
+    }
+
+    @Test
+    fun 车单详情同步使用缩短后的非通行时段文案() {
+        val zoneId = ZoneId.of("Asia/Shanghai")
+        val now = java.time.ZonedDateTime.now(zoneId)
+        assumeTrue(!now.toLocalTime().isBefore(LocalTime.of(8, 0)) && now.toLocalTime().isBefore(LocalTime.of(21, 0)))
+        val tomorrow = now.toLocalDate().plusDays(1)
+        composeRule.setContent {
+            PlateViewTheme {
+                WorkOrderDetailScreen(
+                    uiState = WorkOrderDetailUiState(
+                        isLoading = false,
+                        sourceQuery = "0920028",
+                        record = sampleWorkOrder().copy(
+                            orderNumber = "0920028",
+                            rawValidTime = "${now.monthValue}.${now.dayOfMonth}-${tomorrow.monthValue}.${tomorrow.dayOfMonth}",
+                            location = "喀纳斯",
+                            remarks = "早八晚九",
+                            sentAt = now.toLocalDate().atStartOfDay(zoneId).toInstant().toString(),
+                        ),
+                    ),
+                    onNavigateUp = {},
+                    onRetry = {},
+                    onOpenImage = {},
+                    onLoadOriginal = {},
+                    onCloseImage = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("不在通行时间").assertIsDisplayed()
+    }
+
+    @Test
     fun 车单详情横幅显示通行时间状态() {
         val zoneId = ZoneId.of("Asia/Shanghai")
         val yesterday = LocalDate.now(zoneId).minusDays(1)
@@ -306,6 +525,22 @@ class WorkOrderScreenTest {
         senderGroupNickname = "值班员",
         people = listOf(WorkOrderPerson("张卫华65432119760417201X", "张卫华", "65432119760417201X")),
         images = listOf(WorkOrderImage(91, null, "image/jpeg", 1024, true, true, "AVAILABLE")),
+    )
+
+    private fun sampleWechatMessage(id: Long, senderUsername: String, displayName: String) = WechatMessage(
+        id = id,
+        businessType = "GENERAL_MESSAGE",
+        rawContent = "测试微信聊天内容",
+        matchedSnippet = "测试微信聊天内容",
+        sentAt = "2026-09-21T01:00:00Z",
+        sourceKey = "31463879194@chatroom",
+        sourceName = "贾登峪车道口",
+        senderUsername = senderUsername,
+        senderDisplay = displayName,
+        senderGroupNickname = null,
+        displayName = displayName,
+        plateNumbers = emptyList(),
+        attachments = emptyList(),
     )
 
     private fun LocalDate.asWorkOrderDate(): String = "$monthValue.$dayOfMonth"

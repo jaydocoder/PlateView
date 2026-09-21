@@ -29,6 +29,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             val businessType = WorkOrderParser.classify(parsed, message.rawContent, passageSenderEnabled)
             val messageId = connection.insertMessage(sourceId, message, businessType, parsed.searchableText)
             if (messageId == null) {
+                connection.enrichMessageSender(sourceId, message)
                 duplicate += 1
             } else {
                 inserted += 1
@@ -72,36 +73,42 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
-    fun search(keyword: String, limit: Int = 20): List<WorkOrderRecord> {
+    fun search(keyword: String, limit: Int = DEFAULT_SEARCH_RESULT_LIMIT): List<WorkOrderRecord> {
         val normalized = WorkOrderParser.normalizeSearchText(keyword)
         if (normalized.isBlank()) return emptyList()
         return dataSource.connection.use { connection ->
-            connection.prepareStatement(SEARCH).use { statement ->
-                statement.setString(1, "%$normalized%")
-                statement.setInt(2, limit.coerceIn(1, 50))
-                statement.executeQuery().use { result -> buildList { while (result.next()) add(connection.readRecord(result)) } }
+            val safeLimit = limit.coerceIn(1, 50)
+            val exactPlate = WorkOrderParser.extractPlateNumbers(keyword).singleOrNull()
+                ?.takeIf { WorkOrderParser.normalizeSearchText(it) == normalized }
+            val exactRecords = when {
+                normalized.matches(WORK_ORDER_NUMBER_PATTERN) -> connection.queryRecords(SEARCH_EXACT_ORDER, normalized, safeLimit)
+                exactPlate != null -> connection.queryRecords(SEARCH_EXACT_PLATE, exactPlate, safeLimit)
+                else -> emptyList()
             }
+            connection.hydrateRecords(
+                exactRecords.ifEmpty { connection.queryRecords(SEARCH, "%$normalized%", safeLimit, keywordParameterCount = 2) },
+            )
         }
     }
 
-    fun searchMessages(keyword: String, offset: Int = 0, limit: Int = 20): WechatMessagePage {
+    fun searchMessages(keyword: String, offset: Int = 0, limit: Int = DEFAULT_SEARCH_RESULT_LIMIT): WechatMessagePage {
         val normalized = WorkOrderParser.normalizeSearchText(keyword)
         if (normalized.isBlank()) return WechatMessagePage(emptyList(), null)
         val safeLimit = limit.coerceIn(1, 50)
         return dataSource.connection.use { connection ->
-            connection.prepareStatement(MESSAGE_SEARCH).use { statement ->
+            val query = if (normalized.length >= MINIMUM_TRIGRAM_QUERY_LENGTH) MESSAGE_INDEXED_SEARCH else MESSAGE_SHORT_SEARCH
+            connection.prepareStatement(query).use { statement ->
                 val contains = "%$normalized%"
-                statement.setString(1, contains)
-                for (index in 2..6) statement.setString(index, contains)
-                statement.setString(7, normalized)
-                statement.setString(8, normalized)
-                statement.setString(9, "$normalized%")
-                statement.setInt(10, safeLimit + 1)
-                statement.setInt(11, offset.coerceAtLeast(0))
+                statement.setString(1, normalized)
+                statement.setString(2, contains)
+                statement.setString(3, "$normalized%")
+                statement.setInt(4, safeLimit + 1)
+                statement.setInt(5, offset.coerceAtLeast(0))
                 val records = statement.executeQuery().use { result ->
-                    buildList { while (result.next()) add(connection.readMessage(result, normalized)) }
+                    buildList { while (result.next()) add(connection.readMessage(result, normalized, includeAttachments = false)) }
                 }
-                WechatMessagePage(records.take(safeLimit), (offset + safeLimit).takeIf { records.size > safeLimit })
+                val pageRecords = connection.hydrateMessages(records.take(safeLimit))
+                WechatMessagePage(pageRecords, (offset + safeLimit).takeIf { records.size > safeLimit })
             }
         }
     }
@@ -226,7 +233,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             """
             SELECT 'UNSEARCHABLE_MESSAGE' AS issue_type, r.id AS record_id, NULL::BIGINT AS image_id,
                    s.display_name, m.sent_at, LEFT(m.raw_content, 240) AS summary,
-                   NULL::VARCHAR AS attachment_kind, NULL::TEXT AS file_name
+                   NULL::VARCHAR AS attachment_kind, NULL::TEXT AS file_name, NULL::INTEGER AS page_count
             FROM work_order_records r
             JOIN wechat_messages m ON m.id = r.message_id
             JOIN wechat_sources s ON s.id = m.source_id
@@ -238,9 +245,9 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         val imageIssues = connection.prepareStatement(
             """
             SELECT CASE WHEN candidate_count > 1 THEN 'ATTACHMENT_CONFLICT' ELSE 'ATTACHMENT_UNAVAILABLE' END AS issue_type,
-                   NULL::BIGINT AS record_id, image_id, display_name, sent_at, summary, attachment_kind, file_name
+                   NULL::BIGINT AS record_id, image_id, display_name, sent_at, summary, attachment_kind, file_name, page_count
             FROM (
-                SELECT i.id AS image_id, s.display_name, i.sent_at, i.attachment_kind, i.file_name,
+                SELECT i.id AS image_id, s.display_name, i.sent_at, i.attachment_kind, i.file_name, i.page_count,
                        COALESCE(i.sender_display, i.sender_username, '未知发送者') AS summary,
                        i.availability,
                        (SELECT COUNT(*)
@@ -596,9 +603,108 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
-    private fun Connection.readRecord(result: ResultSet): WorkOrderRecord {
-        val recordId = result.getLong("record_id")
+    private fun Connection.hydrateRecords(records: List<WorkOrderRecord>): List<WorkOrderRecord> {
+        if (records.isEmpty()) return records
+        val recordIds = createArrayOf("bigint", records.map(WorkOrderRecord::id).toTypedArray())
         val people = prepareStatement(
+            "SELECT record_id, raw_line, person_name, identity_number FROM work_order_people WHERE record_id = ANY (?) ORDER BY record_id, sequence_number",
+        ).use { statement ->
+            statement.setArray(1, recordIds)
+            statement.executeQuery().use { result ->
+                buildMap<Long, MutableList<WorkOrderPerson>> {
+                    while (result.next()) getOrPut(result.getLong("record_id"), ::mutableListOf)
+                        .add(WorkOrderPerson(result.getString("raw_line"), result.getString("person_name"), result.getString("identity_number")))
+                }
+            }
+        }
+        val vehicles = prepareStatement(
+            "SELECT record_id, raw_description, raw_plate, normalized_plate, vehicle_type FROM work_order_vehicles WHERE record_id = ANY (?) ORDER BY record_id, sequence_number",
+        ).use { statement ->
+            statement.setArray(1, recordIds)
+            statement.executeQuery().use { result ->
+                buildMap<Long, MutableList<WorkOrderVehicle>> {
+                    while (result.next()) getOrPut(result.getLong("record_id"), ::mutableListOf).add(
+                        WorkOrderVehicle(result.getString("raw_description"), result.getString("raw_plate"), result.getString("normalized_plate"), result.getString("vehicle_type")),
+                    )
+                }
+            }
+        }
+        val images = prepareStatement(
+            """
+            SELECT linked_record_id, id, sha256, original_content_type, original_size, preview_size,
+                   thumbnail_size, availability, attachment_kind, file_name, page_count
+            FROM work_order_images WHERE linked_record_id = ANY (?) ORDER BY linked_record_id, sent_at, id
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setArray(1, recordIds)
+            statement.executeQuery().use { result ->
+                buildMap<Long, MutableList<WorkOrderImage>> {
+                    while (result.next()) getOrPut(result.getLong("linked_record_id"), ::mutableListOf).add(
+                        WorkOrderImage(
+                            result.getLong("id"), result.getString("sha256"), result.getString("original_content_type"),
+                            result.getLongOrNull("original_size"), result.getLongOrNull("preview_size") != null,
+                            result.getLongOrNull("thumbnail_size") != null, result.getString("availability"),
+                            result.getString("attachment_kind"), result.getString("file_name"), result.getIntOrNull("page_count"),
+                        ),
+                    )
+                }
+            }
+        }
+        recordIds.free()
+        return records.map { record ->
+            record.copy(
+                people = people[record.id].orEmpty(),
+                vehicles = vehicles[record.id].orEmpty(),
+                images = images[record.id].orEmpty(),
+            )
+        }
+    }
+
+    private fun Connection.hydrateMessages(records: List<WechatMessageRecord>): List<WechatMessageRecord> {
+        if (records.isEmpty()) return records
+        val messageIds = createArrayOf("bigint", records.map(WechatMessageRecord::id).toTypedArray())
+        val attachments = prepareStatement(
+            """
+            SELECT linked_message_id, id, attachment_kind, file_name, sha256, original_content_type, original_size,
+                   preview_size, thumbnail_size, availability, page_count
+            FROM work_order_images WHERE linked_message_id = ANY (?) ORDER BY linked_message_id, sent_at, id
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setArray(1, messageIds)
+            statement.executeQuery().use { result ->
+                buildMap<Long, MutableList<WorkOrderAttachment>> {
+                    while (result.next()) getOrPut(result.getLong("linked_message_id"), ::mutableListOf).add(
+                        WorkOrderAttachment(
+                            result.getLong("id"), result.getString("attachment_kind"), result.getString("file_name"),
+                            result.getString("sha256"), result.getString("original_content_type"), result.getLongOrNull("original_size"),
+                            result.getLongOrNull("preview_size") != null, result.getLongOrNull("thumbnail_size") != null,
+                            result.getString("availability"), result.getIntOrNull("page_count"),
+                        ),
+                    )
+                }
+            }
+        }
+        messageIds.free()
+        return records.map { it.copy(attachments = attachments[it.id].orEmpty()) }
+    }
+
+    private fun Connection.queryRecords(
+        sql: String,
+        keyword: String,
+        limit: Int,
+        keywordParameterCount: Int = 1,
+    ): List<WorkOrderRecord> =
+        prepareStatement(sql).use { statement ->
+            repeat(keywordParameterCount) { statement.setString(it + 1, keyword) }
+            statement.setInt(keywordParameterCount + 1, limit)
+            statement.executeQuery().use { result ->
+                buildList { while (result.next()) add(readRecord(result, includeRelations = false)) }
+            }
+        }
+
+    private fun Connection.readRecord(result: ResultSet, includeRelations: Boolean = true): WorkOrderRecord {
+        val recordId = result.getLong("record_id")
+        val people = if (includeRelations) prepareStatement(
             "SELECT raw_line, person_name, identity_number FROM work_order_people WHERE record_id = ? ORDER BY sequence_number",
         ).use { statement ->
             statement.setLong(1, recordId)
@@ -607,8 +713,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     while (peopleResult.next()) add(WorkOrderPerson(peopleResult.getString(1), peopleResult.getString(2), peopleResult.getString(3)))
                 }
             }
-        }
-        val images = prepareStatement(
+        } else emptyList()
+        val images = if (includeRelations) prepareStatement(
             "SELECT id, sha256, original_content_type, original_size, preview_size, thumbnail_size, availability, attachment_kind, file_name, page_count FROM work_order_images WHERE linked_record_id = ? ORDER BY sent_at, id",
         ).use { statement ->
             statement.setLong(1, recordId)
@@ -632,8 +738,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     }
                 }
             }
-        }
-        val vehicles = prepareStatement(
+        } else emptyList()
+        val vehicles = if (includeRelations) prepareStatement(
             "SELECT raw_description, raw_plate, normalized_plate, vehicle_type FROM work_order_vehicles WHERE record_id = ? ORDER BY sequence_number",
         ).use { statement ->
             statement.setLong(1, recordId)
@@ -644,7 +750,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     }
                 }
             }
-        }
+        } else emptyList()
         return WorkOrderRecord(
             id = recordId,
             orderNumber = result.getString("order_number"),
@@ -673,15 +779,21 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         )
     }
 
-    private fun Connection.readMessage(result: ResultSet, normalizedKeyword: String): WechatMessageRecord {
+    private fun Connection.readMessage(
+        result: ResultSet,
+        normalizedKeyword: String,
+        includeAttachments: Boolean = true,
+    ): WechatMessageRecord {
         val messageId = result.getLong("message_id")
         val rawContent = result.getString("raw_content")
         val plates = WorkOrderParser.extractPlateNumbers(rawContent)
-        val displayName = result.getString("display_alias")
-            ?: result.getString("sender_group_nickname")
-            ?: result.getString("sender_display")
-            ?: "未知发送者"
-        val attachments = prepareStatement(
+        val displayName = resolveWechatSenderDisplayName(
+            result.getString("display_alias"),
+            result.getString("sender_group_nickname"),
+            result.getString("sender_display"),
+            result.getString("sender_username"),
+        )
+        val attachments = if (includeAttachments) prepareStatement(
             """
             SELECT id, attachment_kind, file_name, sha256, original_content_type, original_size,
                    preview_size, thumbnail_size, availability, page_count
@@ -709,7 +821,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     }
                 }
             }
-        }
+        } else emptyList()
         return WechatMessageRecord(
             id = messageId,
             businessType = result.getString("business_type"),
@@ -770,6 +882,25 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         statement.executeQuery().use { result -> if (result.next()) result.getLong(1) else null }
     }
 
+    private fun Connection.enrichMessageSender(sourceId: Long, message: WorkOrderIncomingMessage) {
+        prepareStatement(
+            """
+            UPDATE wechat_messages SET
+                sender_username = COALESCE(NULLIF(?, ''), sender_username),
+                sender_display = COALESCE(NULLIF(?, ''), sender_display),
+                sender_group_nickname = COALESCE(NULLIF(?, ''), sender_group_nickname)
+            WHERE source_id = ? AND local_message_id = ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setString(1, message.senderUsername)
+            statement.setString(2, message.senderDisplay)
+            statement.setString(3, message.senderGroupNickname)
+            statement.setLong(4, sourceId)
+            statement.setString(5, message.localMessageId)
+            statement.executeUpdate()
+        }
+    }
+
     private fun Connection.nextCatalogRevision(): Long = prepareStatement(
         "UPDATE work_order_catalog_state SET revision = revision + 1 WHERE id = 1 RETURNING revision",
     ).use { statement -> statement.executeQuery().use { result -> result.next(); result.getLong(1) } }
@@ -804,6 +935,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     summary = result.getString("summary"),
                     attachmentKind = result.getString("attachment_kind"),
                     fileName = result.getString("file_name"),
+                    pageCount = result.getIntOrNull("page_count"),
                 ),
             )
         }
@@ -831,6 +963,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
     }
 
     private companion object {
+        const val DEFAULT_SEARCH_RESULT_LIMIT = 8
         val KNOWN_SOURCES = mapOf(
             "44367002464@chatroom" to "票务中心工作群",
             "31463879194@chatroom" to "贾登峪车道口",
@@ -846,19 +979,56 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             JOIN wechat_sources s ON s.id = m.source_id
         """
         const val DETAIL = "$BASE_SELECT WHERE r.id = ?"
-        const val SEARCH = """
-            WITH ranked AS (
-                SELECT r.id, ROW_NUMBER() OVER (
-                    PARTITION BY COALESCE(r.order_number, '#' || r.id::text)
-                    ORDER BY m.sent_at DESC, m.local_message_id DESC, r.id DESC
-                ) AS position
+        const val SEARCH_EXACT_ORDER = """
+            WITH latest AS (
+                SELECT r.id
                 FROM work_order_records r
                 JOIN wechat_messages m ON m.id = r.message_id
-                WHERE r.searchable_text LIKE ?
+                WHERE r.order_number = ?
+                ORDER BY m.sent_at DESC, m.local_message_id DESC, r.id DESC
+                LIMIT 1
             )
             $BASE_SELECT
-            JOIN ranked ON ranked.id = r.id
-            WHERE ranked.position = 1
+            JOIN latest ON latest.id = r.id
+            LIMIT ?
+        """
+        const val SEARCH_EXACT_PLATE = """
+            WITH latest AS (
+                SELECT DISTINCT ON (COALESCE(r.order_number, '#' || r.id::text)) r.id, m.sent_at
+                FROM work_order_records r
+                JOIN wechat_messages m ON m.id = r.message_id
+                JOIN work_order_vehicles v ON v.record_id = r.id
+                WHERE v.normalized_plate = ?
+                ORDER BY COALESCE(r.order_number, '#' || r.id::text), m.sent_at DESC, m.local_message_id DESC, r.id DESC
+            )
+            $BASE_SELECT
+            JOIN latest ON latest.id = r.id
+            ORDER BY
+                CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$' THEN 0 ELSE 1 END,
+                CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$'
+                     THEN r.order_number::INTEGER END DESC,
+                latest.sent_at DESC,
+                r.id DESC
+            LIMIT ?
+        """
+        const val SEARCH = """
+            WITH candidates AS MATERIALIZED (
+                SELECT id AS record_id
+                FROM work_order_records
+                WHERE searchable_text LIKE ?
+                UNION
+                SELECT record_id
+                FROM work_order_vehicles
+                WHERE normalized_plate LIKE ?
+            ), latest AS MATERIALIZED (
+                SELECT DISTINCT ON (COALESCE(r.order_number, '#' || r.id::text)) r.id
+                FROM work_order_records r
+                JOIN wechat_messages m ON m.id = r.message_id
+                JOIN candidates c ON c.record_id = r.id
+                ORDER BY COALESCE(r.order_number, '#' || r.id::text), m.sent_at DESC, m.local_message_id DESC, r.id DESC
+            )
+            $BASE_SELECT
+            JOIN latest ON latest.id = r.id
             ORDER BY
                 CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$' THEN 0 ELSE 1 END,
                 CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$'
@@ -875,27 +1045,97 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             JOIN wechat_sources s ON s.id = m.source_id
             LEFT JOIN wechat_passage_senders ps ON ps.sender_username = m.sender_username AND ps.enabled = TRUE
         """
-        const val MESSAGE_SEARCH = """
+        const val MESSAGE_SHORT_SEARCH = """
+            WITH input AS (
+                SELECT ?::TEXT AS exact, ?::TEXT AS contains, ?::TEXT AS prefix
+            ), attachment_matches AS MATERIALIZED (
+                SELECT linked_message_id,
+                       MIN(CASE WHEN UPPER(COALESCE(file_name, '')) LIKE input.prefix THEN 2 ELSE 3 END) AS match_rank
+                FROM work_order_images, input
+                WHERE linked_message_id IS NOT NULL AND UPPER(COALESCE(file_name, '')) LIKE input.contains
+                GROUP BY linked_message_id
+            )
             $MESSAGE_BASE_SELECT
+            LEFT JOIN attachment_matches am ON am.linked_message_id = m.id
+            CROSS JOIN input
             WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
               AND (
-                m.normalized_content LIKE ? OR
-                UPPER(COALESCE(m.sender_display, '')) LIKE ? OR
-                UPPER(COALESCE(m.sender_group_nickname, '')) LIKE ? OR
-                UPPER(COALESCE(ps.display_alias, '')) LIKE ? OR
-                UPPER(s.display_name) LIKE ? OR
-                EXISTS (
-                    SELECT 1 FROM work_order_images a
-                    WHERE a.linked_message_id = m.id AND UPPER(COALESCE(a.file_name, '')) LIKE ?
-                )
+                m.normalized_content LIKE input.contains OR
+                UPPER(COALESCE(m.sender_display, '')) LIKE input.contains OR
+                UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.contains OR
+                UPPER(COALESCE(ps.display_alias, '')) LIKE input.contains OR
+                UPPER(s.display_name) LIKE input.contains OR
+                am.linked_message_id IS NOT NULL
               )
             ORDER BY
-                CASE WHEN m.normalized_content = ? THEN 0
-                     WHEN UPPER(COALESCE(ps.display_alias, m.sender_group_nickname, m.sender_display, '')) = ? THEN 1
-                     WHEN m.normalized_content LIKE ? THEN 2 ELSE 3 END,
+                CASE WHEN m.normalized_content = input.exact THEN 0
+                     WHEN UPPER(COALESCE(ps.display_alias, m.sender_group_nickname, m.sender_display, '')) = input.exact
+                       OR UPPER(s.display_name) = input.exact THEN 1
+                     WHEN m.normalized_content LIKE input.prefix
+                       OR UPPER(COALESCE(m.sender_display, '')) LIKE input.prefix
+                       OR UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.prefix
+                       OR UPPER(COALESCE(ps.display_alias, '')) LIKE input.prefix
+                       OR UPPER(s.display_name) LIKE input.prefix
+                       OR am.match_rank = 2 THEN 2 ELSE 3 END,
                 m.sent_at DESC, m.id DESC
             LIMIT ? OFFSET ?
         """
+        const val MESSAGE_INDEXED_SEARCH = """
+            WITH input AS (
+                SELECT ?::TEXT AS exact, ?::TEXT AS contains, ?::TEXT AS prefix
+            ), matches AS MATERIALIZED (
+                SELECT message_id, MIN(match_rank) AS match_rank
+                FROM (
+                    SELECT m.id AS message_id,
+                           CASE WHEN m.normalized_content = input.exact THEN 0
+                                WHEN m.normalized_content LIKE input.prefix THEN 2 ELSE 3 END AS match_rank
+                    FROM wechat_messages m, input
+                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                      AND m.normalized_content LIKE input.contains
+                    UNION ALL
+                    SELECT m.id, CASE WHEN UPPER(COALESCE(m.sender_display, '')) = input.exact THEN 1
+                                      WHEN UPPER(COALESCE(m.sender_display, '')) LIKE input.prefix THEN 2 ELSE 3 END
+                    FROM wechat_messages m, input
+                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                      AND UPPER(COALESCE(m.sender_display, '')) LIKE input.contains
+                    UNION ALL
+                    SELECT m.id, CASE WHEN UPPER(COALESCE(m.sender_group_nickname, '')) = input.exact THEN 1
+                                      WHEN UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.prefix THEN 2 ELSE 3 END
+                    FROM wechat_messages m, input
+                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                      AND UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.contains
+                    UNION ALL
+                    SELECT m.id, CASE WHEN UPPER(ps.display_alias) = input.exact THEN 1
+                                      WHEN UPPER(ps.display_alias) LIKE input.prefix THEN 2 ELSE 3 END
+                    FROM wechat_passage_senders ps
+                    JOIN wechat_messages m ON m.sender_username = ps.sender_username
+                    CROSS JOIN input
+                    WHERE ps.enabled AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                      AND UPPER(ps.display_alias) LIKE input.contains
+                    UNION ALL
+                    SELECT m.id, CASE WHEN UPPER(s.display_name) = input.exact THEN 1
+                                      WHEN UPPER(s.display_name) LIKE input.prefix THEN 2 ELSE 3 END
+                    FROM wechat_sources s
+                    JOIN wechat_messages m ON m.source_id = s.id
+                    CROSS JOIN input
+                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                      AND UPPER(s.display_name) LIKE input.contains
+                    UNION ALL
+                    SELECT a.linked_message_id,
+                           CASE WHEN UPPER(COALESCE(a.file_name, '')) LIKE input.prefix THEN 2 ELSE 3 END
+                    FROM work_order_images a, input
+                    WHERE a.linked_message_id IS NOT NULL
+                      AND UPPER(COALESCE(a.file_name, '')) LIKE input.contains
+                ) candidates
+                GROUP BY message_id
+            )
+            $MESSAGE_BASE_SELECT
+            JOIN matches ON matches.message_id = m.id
+            ORDER BY matches.match_rank, m.sent_at DESC, m.id DESC
+            LIMIT ? OFFSET ?
+        """
+        val WORK_ORDER_NUMBER_PATTERN = Regex("^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$")
+        const val MINIMUM_TRIGRAM_QUERY_LENGTH = 3
     }
 }
 
@@ -974,7 +1214,8 @@ internal data class WechatMessagePage(val records: List<WechatMessageRecord>, va
 internal data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
 internal data class WechatSyncIssue(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: Instant, val summary: String,
-    val attachmentKind: String? = null, val fileName: String? = null, val candidates: List<WechatAttachmentCandidate> = emptyList(),
+    val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,
+    val candidates: List<WechatAttachmentCandidate> = emptyList(),
 )
 internal data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String?, val sentAt: Instant, val summary: String)
 internal data class WorkOrderCorrection(
@@ -994,3 +1235,6 @@ internal class WorkOrderNotFoundException : RuntimeException("微信车单不存
 
 private fun ResultSet.getIntOrNull(column: String): Int? = getInt(column).takeUnless { wasNull() }
 private fun ResultSet.getLongOrNull(column: String): Long? = getLong(column).takeUnless { wasNull() }
+
+internal fun resolveWechatSenderDisplayName(vararg candidates: String?): String =
+    candidates.firstOrNull { !it.isNullOrBlank() }?.trim() ?: "未知发送者"

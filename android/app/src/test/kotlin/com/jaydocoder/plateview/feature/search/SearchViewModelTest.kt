@@ -15,11 +15,14 @@ import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.WorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 import com.jaydocoder.plateview.domain.workorder.WorkOrderSyncResult
+import com.jaydocoder.plateview.domain.workorder.WechatMessage
+import com.jaydocoder.plateview.domain.workorder.WechatMessagePage
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.data.network.AppErrorKind
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -66,9 +69,9 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `本地候选优先展示且不调用远程搜索`() = runTest {
+    fun `本地候选展示后仍使用远程结果刷新`() = runTest {
         val cached = VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆")
-        val vehicleRepository = FakeVehicleRepository()
+        val vehicleRepository = FakeVehicleRepository(searchResult = listOf(cached))
         val viewModel = createViewModel(
             vehicleRepository = vehicleRepository,
             vehicleCacheRepository = FakeVehicleCacheRepository(localCandidates = listOf(cached)),
@@ -79,7 +82,7 @@ class SearchViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf(cached), viewModel.uiState.value.candidates)
-        assertTrue(vehicleRepository.searchKeywords.isEmpty())
+        assertEquals(listOf("新A"), vehicleRepository.searchKeywords)
     }
 
     @Test
@@ -155,6 +158,69 @@ class SearchViewModelTest {
         assertEquals(SearchEvent.OpenWorkOrder(workOrder.id, "H27274"), event.await())
     }
 
+    @Test
+    fun `三类首页候选各自最多显示八条`() = runTest {
+        val vehicles = (1L..12L).map { VehicleCandidate(it, "新A${it.toString().padStart(5, '0')}", "RESIDENT", "村民车辆") }
+        val workOrders = (1L..12L).map { sampleWorkOrder().copy(id = it, orderNumber = "0920${it.toString().padStart(3, '0')}") }
+        val messages = (1L..12L).map { sampleWechatMessage(it) }
+        val viewModel = createViewModel(
+            vehicleRepository = FakeVehicleRepository(searchResult = vehicles),
+            workOrderRepository = FakeWorkOrderRepository(remoteResults = workOrders, remoteMessages = messages),
+            sessionProvider = FakeAuthSessionProvider(wechatAccessEnabled = true),
+        )
+
+        viewModel.updateQuery("新")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertEquals(8, viewModel.uiState.value.candidates.size)
+        assertEquals(8, viewModel.uiState.value.workOrderCandidates.size)
+        assertEquals(8, viewModel.uiState.value.wechatMessages.size)
+    }
+
+    @Test
+    fun `本地匹配车辆无需等待远程微信查询即可显示`() = runTest {
+        val cached = VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆")
+        val remoteGate = CompletableDeferred<Unit>()
+        val workOrderRepository = FakeWorkOrderRepository(remoteGate = remoteGate)
+        val viewModel = createViewModel(
+            vehicleRepository = FakeVehicleRepository(searchResult = listOf(cached)),
+            vehicleCacheRepository = FakeVehicleCacheRepository(localCandidates = listOf(cached)),
+            workOrderRepository = workOrderRepository,
+            sessionProvider = FakeAuthSessionProvider(wechatAccessEnabled = true),
+        )
+
+        viewModel.updateQuery("新A")
+        advanceTimeBy(250)
+        runCurrent()
+
+        assertEquals(listOf(cached), viewModel.uiState.value.candidates)
+        assertEquals(1, workOrderRepository.homeSearchCalls)
+
+        remoteGate.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `微信车单查询失败不影响聊天记录显示`() = runTest {
+        val message = sampleWechatMessage(41)
+        val viewModel = createViewModel(
+            workOrderRepository = FakeWorkOrderRepository(
+                remoteMessages = listOf(message),
+                remoteWorkOrderFailed = true,
+            ),
+            sessionProvider = FakeAuthSessionProvider(wechatAccessEnabled = true),
+        )
+
+        viewModel.updateQuery("测试")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.workOrderSectionState is SearchSectionState.Error)
+        assertEquals(SearchSectionState.Success, viewModel.uiState.value.wechatMessageSectionState)
+        assertEquals(listOf(message), viewModel.uiState.value.wechatMessages)
+    }
+
     private fun createViewModel(
         vehicleRepository: FakeVehicleRepository = FakeVehicleRepository(),
         vehicleCacheRepository: VehicleCacheRepository = FakeVehicleCacheRepository(),
@@ -170,12 +236,32 @@ class SearchViewModelTest {
     )
 }
 
-private class FakeWorkOrderRepository(private val remoteResults: List<WorkOrder> = emptyList()) : WorkOrderRepository {
+private class FakeWorkOrderRepository(
+    private val remoteResults: List<WorkOrder> = emptyList(),
+    private val remoteMessages: List<WechatMessage> = emptyList(),
+    private val remoteGate: CompletableDeferred<Unit>? = null,
+    private val remoteWorkOrderFailed: Boolean = false,
+    private val remoteWechatFailed: Boolean = false,
+) : WorkOrderRepository {
+    var homeSearchCalls = 0
     override suspend fun searchCached(keyword: String): List<WorkOrder> = emptyList()
     override suspend fun searchRemote(accessToken: String, keyword: String): List<WorkOrder> = remoteResults
     override suspend fun searchMessagesCached(keyword: String) = emptyList<com.jaydocoder.plateview.domain.workorder.WechatMessage>()
     override suspend fun searchMessagesRemote(accessToken: String, keyword: String, offset: Int) =
-        com.jaydocoder.plateview.domain.workorder.WechatMessagePage(emptyList(), null)
+        WechatMessagePage(remoteMessages, null)
+    override suspend fun searchHomeRemote(accessToken: String, keyword: String): com.jaydocoder.plateview.domain.workorder.WorkOrderHomeSearchResult {
+        homeSearchCalls += 1
+        remoteGate?.await()
+        return com.jaydocoder.plateview.domain.workorder.WorkOrderHomeSearchResult(
+            workOrders = remoteResults,
+            wechatMessages = remoteMessages,
+            workOrderHasMore = false,
+            wechatMessageHasMore = false,
+            catalogVersion = 1,
+            workOrderFailed = remoteWorkOrderFailed,
+            wechatMessageFailed = remoteWechatFailed,
+        )
+    }
     override suspend fun getMessageDetail(accessToken: String, messageId: Long): com.jaydocoder.plateview.domain.workorder.WechatMessage =
         error("本测试不读取微信聊天详情")
     override suspend fun synchronize(accessToken: String, forceVersionCheck: Boolean) = WorkOrderSyncResult(false)
@@ -296,4 +382,20 @@ private fun sampleWorkOrder() = WorkOrder(
     senderGroupNickname = null,
     people = emptyList(),
     images = emptyList(),
+)
+
+private fun sampleWechatMessage(id: Long) = WechatMessage(
+    id = id,
+    businessType = "GENERAL_MESSAGE",
+    rawContent = "新A00001测试消息$id",
+    matchedSnippet = "新A00001测试消息$id",
+    sentAt = "2026-09-21T01:00:00Z",
+    sourceKey = "31463879194@chatroom",
+    sourceName = "贾登峪车道口",
+    senderUsername = "wxid_test_$id",
+    senderDisplay = "测试发送者$id",
+    senderGroupNickname = null,
+    displayName = "测试发送者$id",
+    plateNumbers = listOf("新A00001"),
+    attachments = emptyList(),
 )

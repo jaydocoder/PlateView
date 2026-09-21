@@ -7,6 +7,13 @@ import kotlin.test.assertTrue
 
 class WorkOrderParserTest {
     @Test
+    fun `发送者称呼忽略空字符串并回退到稳定账号`() {
+        assertEquals("三叔", resolveWechatSenderDisplayName(null, "", "三叔", "wxid_2493514935112"))
+        assertEquals("wxid_test", resolveWechatSenderDisplayName(null, "", "", "wxid_test"))
+        assertEquals("未知发送者", resolveWechatSenderDisplayName(null, "", null, ""))
+    }
+
+    @Test
     fun `标准车单保留前导零车牌原文和完整身份证`() {
         val parsed = WorkOrderParser.parse(
             """
@@ -106,5 +113,23 @@ class WorkOrderParserTest {
 
         assertEquals("GENERAL_MESSAGE", WorkOrderParser.classify(parsed, "今天下班后请关闭设备", false))
         assertEquals("PASSAGE_MESSAGE", WorkOrderParser.classify(WorkOrderParser.parse("新AFP3867，贾登峪车道口予以通行"), "新AFP3867，贾登峪车道口予以通行", true))
+    }
+
+    @Test
+    fun `重点发送者包含车牌和明确出行语义时归类为放行消息`() {
+        val enterKanas = "新H18928，喀旅考斯特，今天早上进喀纳斯，下午去白哈巴。"
+        val travelNotice = "吉林省文旅厅一行21人，喀旅考斯特新H27277，今天前往喀纳斯景区。"
+
+        assertEquals("PASSAGE_MESSAGE", WorkOrderParser.classify(WorkOrderParser.parse(enterKanas), enterKanas, true))
+        assertEquals("PASSAGE_MESSAGE", WorkOrderParser.classify(WorkOrderParser.parse(travelNotice), travelNotice, true))
+    }
+
+    @Test
+    fun `重点发送者的普通聊天不会误归类为放行消息`() {
+        val noPlate = "今天早上进入喀纳斯开会"
+        val noPassageIntent = "新H18928车辆资料已收到"
+
+        assertEquals("GENERAL_MESSAGE", WorkOrderParser.classify(WorkOrderParser.parse(noPlate), noPlate, true))
+        assertEquals("GENERAL_MESSAGE", WorkOrderParser.classify(WorkOrderParser.parse(noPassageIntent), noPassageIntent, true))
     }
 }

@@ -1,5 +1,7 @@
 package com.jaydocoder.plateview.data.admin
 
+import android.content.Context
+import com.jaydocoder.plateview.domain.admin.CachedAdminAttachment
 import com.jaydocoder.plateview.domain.admin.AdminRepository
 import com.jaydocoder.plateview.domain.admin.AuditFilter
 import com.jaydocoder.plateview.domain.admin.ImportBatchStats
@@ -30,14 +32,18 @@ import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
 import java.util.Locale
+import java.io.File
+import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 
 @Singleton
 class NetworkAdminRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val api: AdminApi,
 ) : AdminRepository {
     override suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities = api
@@ -192,6 +198,7 @@ class NetworkAdminRepository @Inject constructor(
         .map {
             WechatSyncIssue(
                 it.type, it.recordId, it.imageId, it.sourceName, it.sentAt, it.summary, it.attachmentKind, it.fileName,
+                it.pageCount,
                 it.candidates.map { candidate -> com.jaydocoder.plateview.domain.admin.WechatAttachmentCandidate(candidate.recordId, candidate.orderNumber, candidate.sentAt, candidate.summary) },
             )
         }
@@ -223,8 +230,29 @@ class NetworkAdminRepository @Inject constructor(
         api.ignoreWechatImage(bearer(accessToken), imageId)
     }
 
-    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): ByteArray =
-        api.downloadWechatAttachment(bearer(accessToken), imageId, variant).bytes()
+    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): CachedAdminAttachment {
+        val body = api.downloadWechatAttachment(bearer(accessToken), imageId, variant)
+        val extension = when (body.contentType()?.subtype) {
+            "jpeg" -> "jpg"
+            "png" -> "png"
+            "gif" -> "gif"
+            "pdf" -> "pdf"
+            else -> "webp"
+        }
+        val directory = File(context.cacheDir, "admin-wechat-attachments").also { check(it.exists() || it.mkdirs()) }
+        val target = File(directory, "$imageId-$variant.$extension")
+        val temporary = File(directory, "$imageId-$variant.download")
+        body.use { response ->
+            response.byteStream().use { input ->
+                FileOutputStream(temporary).buffered().use { output -> input.copyTo(output) }
+            }
+        }
+        check(temporary.length() > 0L) { "服务器返回了空附件" }
+        check(temporary.renameTo(target) || run { temporary.copyTo(target, overwrite = true); temporary.delete(); true }) {
+            "无法写入微信附件缓存"
+        }
+        return CachedAdminAttachment(target, variant)
+    }
 
     override suspend fun searchWechatWorkOrders(accessToken: String, keyword: String) =
         api.searchWechatWorkOrders(bearer(accessToken), keyword).candidates.map {

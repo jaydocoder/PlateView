@@ -29,6 +29,10 @@ import io.ktor.utils.io.readRemaining
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 
@@ -67,6 +71,29 @@ internal fun Application.configureWorkOrderFeature() {
 
         authenticate("access-token") {
             route("/work-orders") {
+                get("/home-search") {
+                    call.requireWorkOrderAccess(service)
+                    val keyword = call.request.queryParameters["keyword"].orEmpty()
+                    val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 8).coerceIn(1, 8)
+                    val (workOrderResult, messageResult) = supervisorScope {
+                        val workOrders = async(Dispatchers.IO) { runSearchSection { service.search(keyword, limit + 1) } }
+                        val messages = async(Dispatchers.IO) { runSearchSection { service.searchMessages(keyword, 0, limit) } }
+                        workOrders.await() to messages.await()
+                    }
+                    val workOrders = workOrderResult.getOrDefault(emptyList())
+                    val messages = messageResult.getOrDefault(WechatMessagePage(emptyList(), null))
+                    call.respond(
+                        WorkOrderHomeSearchResponse(
+                            workOrderCandidates = workOrders.take(limit).map(WorkOrderRecord::toResponse),
+                            wechatMessages = messages.records.map(WechatMessageRecord::toResponse),
+                            workOrderHasMore = workOrders.size > limit,
+                            wechatMessageHasMore = messages.nextOffset != null,
+                            catalogVersion = service.catalogVersion(),
+                            workOrderFailed = workOrderResult.isFailure,
+                            wechatMessageFailed = messageResult.isFailure,
+                        ),
+                    )
+                }
                 get("/search") {
                     call.requireWorkOrderAccess(service)
                     val keyword = call.request.queryParameters["keyword"].orEmpty()
@@ -76,7 +103,7 @@ internal fun Application.configureWorkOrderFeature() {
                     call.requireWorkOrderAccess(service)
                     val keyword = call.request.queryParameters["keyword"].orEmpty()
                     val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 8
                     call.respond(service.searchMessages(keyword, offset, limit).toResponse())
                 }
                 get("/messages/{messageId}") {
@@ -328,6 +355,19 @@ private fun Map<String, String>.required(name: String): String = get(name)?.take
 @Serializable private data class WorkOrderIngestResponse(val inserted: Int, val duplicate: Int, val catalogVersion: Long)
 private fun WorkOrderIngestResult.toResponse() = WorkOrderIngestResponse(inserted, duplicate, catalogVersion)
 @Serializable private data class WorkOrderSearchResponse(val catalogVersion: Long, val candidates: List<WorkOrderResponse>)
+@Serializable private data class WorkOrderHomeSearchResponse(
+    val workOrderCandidates: List<WorkOrderResponse>,
+    val wechatMessages: List<WechatMessageResponse>,
+    val workOrderHasMore: Boolean,
+    val wechatMessageHasMore: Boolean,
+    val catalogVersion: Long,
+    val workOrderFailed: Boolean,
+    val wechatMessageFailed: Boolean,
+)
+
+private inline fun <T> runSearchSection(block: () -> T): Result<T> = runCatching(block).onFailure {
+    if (it is CancellationException) throw it
+}
 @Serializable private data class WorkOrderCatalogVersionResponse(val catalogVersion: Long)
 @Serializable private data class WorkOrderChangeResponse(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WorkOrderResponse>)
 private fun WorkOrderChangePage.toResponse() = WorkOrderChangeResponse(catalogVersion, nextVersion, hasMore, records.map(WorkOrderRecord::toResponse))
@@ -401,11 +441,11 @@ private fun WechatSourceStatus.toResponse() = WechatSourceStatusResponse(sourceK
 @Serializable private data class WechatSyncIssuesResponse(val items: List<WechatSyncIssueResponse>)
 @Serializable private data class WechatSyncIssueResponse(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
-    val attachmentKind: String?, val fileName: String?, val candidates: List<WechatAttachmentCandidateResponse>,
+    val attachmentKind: String?, val fileName: String?, val pageCount: Int?, val candidates: List<WechatAttachmentCandidateResponse>,
 )
 @Serializable private data class WechatAttachmentCandidateResponse(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
 private fun WechatSyncIssue.toResponse() = WechatSyncIssueResponse(
-    type, recordId, imageId, sourceName, sentAt.toString(), summary, attachmentKind, fileName,
+    type, recordId, imageId, sourceName, sentAt.toString(), summary, attachmentKind, fileName, pageCount,
     candidates.map { WechatAttachmentCandidateResponse(it.recordId, it.orderNumber, it.sentAt.toString(), it.summary) },
 )
 @Serializable private data class WorkOrderCorrectionRequest(

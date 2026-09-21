@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import com.jaydocoder.plateview.component.CompatFlowRow
+import com.jaydocoder.plateview.component.ZoomableAttachmentViewer
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -194,6 +195,8 @@ fun AdminWorkspaceRoute(
         onAssociateWechatImage = viewModel::associateWechatImage,
         onRemoveWechatImageAssociation = viewModel::removeWechatImageAssociation,
         onIgnoreWechatImage = viewModel::ignoreWechatImage,
+        onOpenWechatAttachment = viewModel::openWechatAttachment,
+        onCloseWechatAttachment = viewModel::closeWechatAttachment,
         onSearchWechatWorkOrders = viewModel::searchWechatWorkOrders,
         onSaveWechatPassageSender = viewModel::saveWechatPassageSender,
         onOpenUpdate = onOpenUpdate,
@@ -249,6 +252,8 @@ fun AdminWorkspaceScreen(
     onAssociateWechatImage: (Long, Long) -> Unit = { _, _ -> },
     onRemoveWechatImageAssociation: (Long) -> Unit = {},
     onIgnoreWechatImage: (Long) -> Unit = {},
+    onOpenWechatAttachment: (WechatSyncIssue) -> Unit = {},
+    onCloseWechatAttachment: () -> Unit = {},
     onSearchWechatWorkOrders: (Long, String) -> Unit = { _, _ -> },
     onSaveWechatPassageSender: (com.jaydocoder.plateview.domain.admin.WechatPassageSender) -> Unit = {},
     onOpenUpdate: (() -> Unit)? = null,
@@ -395,7 +400,7 @@ fun AdminWorkspaceScreen(
                             WechatSyncPane(
                                 items = uiState.wechatSyncSources,
                                 issues = uiState.wechatSyncIssues,
-                                attachmentPreviews = uiState.wechatAttachmentPreviews,
+                                attachmentFiles = uiState.wechatAttachmentFiles,
                                 workOrderCandidates = uiState.wechatWorkOrderCandidates,
                                 senders = uiState.wechatPassageSenders,
                                 isSaving = uiState.isSaving,
@@ -403,6 +408,7 @@ fun AdminWorkspaceScreen(
                                 onAssociateImage = onAssociateWechatImage,
                                 onRemoveImageAssociation = onRemoveWechatImageAssociation,
                                 onIgnoreImage = onIgnoreWechatImage,
+                                onOpenAttachment = onOpenWechatAttachment,
                                 onSearchWorkOrders = onSearchWechatWorkOrders,
                                 onSavePassageSender = onSaveWechatPassageSender,
                             )
@@ -446,6 +452,31 @@ fun AdminWorkspaceScreen(
             onDismiss = onDismissVehicleStatusChange,
             onConfirm = onConfirmVehicleStatusChange,
         )
+    }
+    uiState.selectedWechatAttachment?.let { issue ->
+        val attachment = issue.imageId?.let(uiState.wechatAttachmentFiles::get)
+        LiquidGlassDialog(onDismissRequest = onCloseWechatAttachment) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(issue.fileName ?: if (issue.attachmentKind == "PDF") "PDF附件" else "微信图片", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onCloseWechatAttachment) { Icon(Icons.Outlined.Close, "关闭附件预览") }
+                }
+                ZoomableAttachmentViewer(
+                    file = attachment?.file,
+                    kind = issue.attachmentKind ?: "IMAGE",
+                    variant = attachment?.variant ?: "preview",
+                    pageCount = issue.pageCount ?: 1,
+                )
+                if (uiState.isWechatAttachmentLoading && attachment?.variant != "original") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        CircularProgressIndicator(Modifier.size(28.dp))
+                    }
+                }
+                uiState.wechatAttachmentFailure?.let { failure ->
+                    Text(failure.message, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
     }
     uiState.selectedImportBatch?.let { batch ->
         ImportBatchDialog(
@@ -2479,7 +2510,7 @@ private fun AdminTab.label(): String = when (this) {
 private fun WechatSyncPane(
     items: List<WechatSyncSource>,
     issues: List<WechatSyncIssue>,
-    attachmentPreviews: Map<Long, ByteArray>,
+    attachmentFiles: Map<Long, com.jaydocoder.plateview.domain.admin.CachedAdminAttachment>,
     workOrderCandidates: Map<Long, List<com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem>>,
     senders: List<com.jaydocoder.plateview.domain.admin.WechatPassageSender>,
     isSaving: Boolean,
@@ -2487,6 +2518,7 @@ private fun WechatSyncPane(
     onAssociateImage: (Long, Long) -> Unit,
     onRemoveImageAssociation: (Long) -> Unit,
     onIgnoreImage: (Long) -> Unit,
+    onOpenAttachment: (WechatSyncIssue) -> Unit,
     onSearchWorkOrders: (Long, String) -> Unit,
     onSavePassageSender: (com.jaydocoder.plateview.domain.admin.WechatPassageSender) -> Unit,
 ) {
@@ -2557,11 +2589,15 @@ private fun WechatSyncPane(
                     issue.imageId?.let { Text("附件记录：$it", style = MaterialTheme.typography.labelLarge) }
                     issue.fileName?.let { Text("文件：$it", style = MaterialTheme.typography.bodyMedium) }
                     issue.imageId?.let { imageId ->
-                        attachmentPreviews[imageId]?.let { preview ->
+                        attachmentFiles[imageId]?.let { preview ->
                             coil3.compose.AsyncImage(
-                                model = preview,
+                                model = preview.file,
                                 contentDescription = "附件内容预览",
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 360.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 160.dp, max = 360.dp)
+                                    .testTag("wechat_attachment_preview_$imageId")
+                                    .clickable { onOpenAttachment(issue) },
                                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                             )
                         }

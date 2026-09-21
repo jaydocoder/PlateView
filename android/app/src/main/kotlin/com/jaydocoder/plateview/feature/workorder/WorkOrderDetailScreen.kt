@@ -3,7 +3,6 @@ package com.jaydocoder.plateview.feature.workorder
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,17 +41,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -65,6 +56,7 @@ import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.CompatFlowRow
 import com.jaydocoder.plateview.component.VehiclePlateBadge
+import com.jaydocoder.plateview.component.ZoomableAttachmentViewer
 import com.jaydocoder.plateview.component.rememberCurrentBeijingTime
 import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.component.glass.GlassSurface
@@ -75,6 +67,8 @@ import com.jaydocoder.plateview.domain.workorder.displayLabel
 import com.jaydocoder.plateview.domain.workorder.extractWorkOrderPlateNumbers
 import com.jaydocoder.plateview.domain.workorder.formatWorkOrderPeople
 import com.jaydocoder.plateview.domain.workorder.resolveWorkOrderPassageState
+import com.jaydocoder.plateview.domain.workorder.resolvedSenderName
+import com.jaydocoder.plateview.domain.workorder.selectWorkOrderCandidatePlate
 import com.jaydocoder.plateview.domain.workorder.selectWorkOrderDetailHeaderPlates
 import com.jaydocoder.plateview.domain.vehicle.formatPlateForDisplay
 import java.time.Instant
@@ -131,7 +125,12 @@ fun WorkOrderDetailScreen(
                     Text("车单图片", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     IconButton(onClick = onCloseImage) { Icon(Icons.Outlined.Close, "关闭图片") }
                 }
-                ZoomableImage(cached?.file)
+                ZoomableAttachmentViewer(
+                    file = cached?.file,
+                    kind = selected.kind,
+                    variant = cached?.variant ?: "preview",
+                    pageCount = selected.pageCount ?: 1,
+                )
                 if (cached?.variant != "original") {
                     TextButton(onClick = onLoadOriginal, modifier = Modifier.align(Alignment.End)) { Text("查看原图") }
                 }
@@ -170,7 +169,7 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
                 icon = Icons.Outlined.Forum,
                 fields = listOf(
                     "微信群" to record.sourceName,
-                    "发送者" to (record.senderGroupNickname ?: record.senderDisplay),
+                    "发送者" to record.resolvedSenderName(),
                     "发送时间" to formatBeijingTime(record.sentAt),
                 ),
             )
@@ -256,7 +255,13 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
 
 @Composable
 private fun WorkOrderHeader(record: WorkOrder, sourceQuery: String) {
-    val passageState = resolveWorkOrderPassageState(record, rememberCurrentBeijingTime())
+    val selectedPlate = selectWorkOrderCandidatePlate(
+        rawPlate = record.rawPlate,
+        orderNumber = record.orderNumber,
+        query = sourceQuery,
+        rawContent = record.rawContent,
+    )
+    val passageState = resolveWorkOrderPassageState(record, rememberCurrentBeijingTime(), selectedPlate)
     val plateNumbers = selectWorkOrderDetailHeaderPlates(
         rawPlate = record.rawPlate,
         rawContent = record.rawContent,
@@ -327,6 +332,8 @@ private fun WorkOrderHeader(record: WorkOrder, sourceQuery: String) {
                                 Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                         }
                     }
@@ -438,20 +445,6 @@ private fun WorkOrderField(label: String, value: String, modifier: Modifier = Mo
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
         }
-    }
-}
-
-@Composable
-private fun ZoomableImage(file: java.io.File?) {
-    var scale by remember(file) { mutableFloatStateOf(1f) }
-    var offset by remember(file) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
-    Box(
-        Modifier.fillMaxWidth().height(480.dp).clip(RoundedCornerShape(PlateViewDimensions.cornerMedium)).background(Color.Black)
-            .pointerInput(file) { detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 5f); offset += pan } },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (file == null) CircularProgressIndicator(color = Color.White)
-        else AsyncImage(file, "车单原图", Modifier.fillMaxSize().graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y), contentScale = ContentScale.Fit)
     }
 }
 

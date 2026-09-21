@@ -77,12 +77,22 @@ data class WorkOrderAttachment(
 )
 
 data class WechatMessagePage(val records: List<WechatMessage>, val nextOffset: Int?)
+data class WorkOrderHomeSearchResult(
+    val workOrders: List<WorkOrder>,
+    val wechatMessages: List<WechatMessage>,
+    val workOrderHasMore: Boolean,
+    val wechatMessageHasMore: Boolean,
+    val catalogVersion: Long,
+    val workOrderFailed: Boolean = false,
+    val wechatMessageFailed: Boolean = false,
+)
 
 interface WorkOrderRepository {
     suspend fun searchCached(keyword: String): List<WorkOrder>
     suspend fun searchRemote(accessToken: String, keyword: String): List<WorkOrder>
     suspend fun searchMessagesCached(keyword: String): List<WechatMessage>
     suspend fun searchMessagesRemote(accessToken: String, keyword: String, offset: Int = 0): WechatMessagePage
+    suspend fun searchHomeRemote(accessToken: String, keyword: String): WorkOrderHomeSearchResult
     suspend fun getMessageDetail(accessToken: String, messageId: Long): WechatMessage
     suspend fun synchronize(accessToken: String, forceVersionCheck: Boolean = false): WorkOrderSyncResult
     suspend fun getDetail(accessToken: String, recordId: Long): WorkOrder

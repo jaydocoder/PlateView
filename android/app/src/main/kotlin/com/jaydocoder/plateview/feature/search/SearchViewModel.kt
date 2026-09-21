@@ -35,7 +35,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import retrofit2.HttpException
 
 @HiltViewModel
@@ -140,6 +142,9 @@ class SearchViewModel @Inject constructor(
                     candidates = emptyList(),
                     workOrderCandidates = emptyList(),
                     wechatMessages = emptyList(),
+                    vehicleSectionState = SearchSectionState.Idle,
+                    workOrderSectionState = SearchSectionState.Idle,
+                    wechatMessageSectionState = SearchSectionState.Idle,
                     resultState = if (it.query.isBlank()) {
                         SearchResultState.Idle
                     } else {
@@ -158,112 +163,132 @@ class SearchViewModel @Inject constructor(
             return
         }
 
-        val localWorkOrders = if (session.wechatWorkOrderAccessEnabled) {
-            runCatching { workOrderRepository.searchCached(normalizedQuery) }.getOrDefault(emptyList())
-        } else {
-            runCatching { workOrderRepository.clear(session.userId) }
-            emptyList()
-        }
-        _uiState.update { it.copy(workOrderCandidates = localWorkOrders) }
-        if (session.wechatWorkOrderAccessEnabled) {
-            val localMessages = runCatching { workOrderRepository.searchMessagesCached(normalizedQuery) }.getOrDefault(emptyList())
-            _uiState.update { it.copy(wechatMessages = localMessages) }
-            runCatching { workOrderRepository.searchRemote(session.accessToken, normalizedQuery) }
-                .onSuccess { records -> _uiState.update { it.copy(workOrderCandidates = records) } }
-                .onFailure { error ->
-                    error.rethrowIfCancellation()
-                    if (error is HttpException && error.code() == HTTP_FORBIDDEN) workOrderRepository.clear(session.userId)
-                }
-            runCatching { workOrderRepository.searchMessagesRemote(session.accessToken, normalizedQuery) }
-                .onSuccess { page -> _uiState.update { it.copy(wechatMessages = page.records) } }
-                .onFailure { error ->
-                    error.rethrowIfCancellation()
-                    if (error is HttpException && error.code() == HTTP_FORBIDDEN) workOrderRepository.clear(session.userId)
-                }
-            runCatching { workOrderRepository.synchronize(session.accessToken) }.onFailure(Throwable::rethrowIfCancellation)
-        } else {
-            _uiState.update { it.copy(wechatMessages = emptyList()) }
-        }
-
-        val localCandidates = runCatching {
-            vehicleCacheRepository.search(normalizedQuery)
-        }.getOrElse { error ->
-            error.rethrowIfCancellation()
-            emptyList()
-        }
-        if (localCandidates.isNotEmpty()) {
-            _uiState.update {
-                it.copy(
-                    candidates = localCandidates,
-                    resultState = SearchResultState.Idle,
-                )
-            }
-            runCatching {
-                vehicleCacheRepository.synchronizeCatalog(
-                    accessToken = session.accessToken,
-                )
-            }.onSuccess {
-                val refreshedCandidates = runCatching {
-                    vehicleCacheRepository.search(normalizedQuery)
-                }.getOrElse { error ->
-                    error.rethrowIfCancellation()
-                    emptyList()
-                }
-                _uiState.update {
-                    it.copy(candidates = refreshedCandidates)
-                }
-            }.onFailure { throwable ->
-                throwable.rethrowIfCancellation()
-                if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
-                    sessionProvider.logout()
-                }
-            }
-            return
-        }
-
         _uiState.update {
             it.copy(
                 candidates = emptyList(),
-            resultState = if (it.workOrderCandidates.isEmpty() && it.wechatMessages.isEmpty()) SearchResultState.Loading else SearchResultState.Idle,
+                workOrderCandidates = emptyList(),
+                wechatMessages = emptyList(),
+                vehicleSectionState = SearchSectionState.Loading,
+                workOrderSectionState = if (session.wechatWorkOrderAccessEnabled) SearchSectionState.Loading else SearchSectionState.Idle,
+                wechatMessageSectionState = if (session.wechatWorkOrderAccessEnabled) SearchSectionState.Loading else SearchSectionState.Idle,
+                resultState = SearchResultState.Loading,
             )
         }
-        val remoteResult = runCatching {
-            vehicleRepository.search(session.accessToken, normalizedQuery)
-        }
-        remoteResult.exceptionOrNull()?.rethrowIfCancellation()
-        if (remoteResult.isSuccess) {
-            val candidates = remoteResult.getOrThrow()
-            _uiState.update {
-                it.copy(
-                    candidates = candidates,
-                    resultState = if (candidates.isEmpty() && it.workOrderCandidates.isEmpty() && it.wechatMessages.isEmpty()) SearchResultState.Empty else SearchResultState.Idle,
-                )
-            }
-        }
-        val synchronizationResult = runCatching {
-            vehicleCacheRepository.synchronizeCatalog(
-                accessToken = session.accessToken,
+
+        supervisorScope {
+            val jobs = mutableListOf(
+                launch {
+                    runCatching { vehicleCacheRepository.search(normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                        .onSuccess { local ->
+                            if (local.isNotEmpty()) _uiState.update {
+                                if (it.vehicleSectionState is SearchSectionState.Loading) {
+                                    it.copy(candidates = local, resultState = SearchResultState.Idle)
+                                } else {
+                                    it
+                                }
+                            }
+                        }
+                        .onFailure(Throwable::rethrowIfCancellation)
+                },
+                launch {
+                    runCatching { vehicleRepository.search(session.accessToken, normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                        .onSuccess { remote ->
+                            _uiState.update {
+                                it.copy(
+                                    candidates = remote,
+                                    vehicleSectionState = if (remote.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
+                                )
+                            }
+                        }
+                        .onFailure { error ->
+                            error.rethrowIfCancellation()
+                            if (error is HttpException && error.code() == HTTP_UNAUTHORIZED) sessionProvider.logout()
+                            _uiState.update { it.copy(vehicleSectionState = SearchSectionState.Error(AppErrorMapper.map("查询匹配车辆", error))) }
+                        }
+                },
             )
-        }
-        synchronizationResult.exceptionOrNull()?.rethrowIfCancellation()
-        val synchronizedCandidates = runCatching {
-            vehicleCacheRepository.search(normalizedQuery)
-        }.getOrElse { error ->
-            error.rethrowIfCancellation()
-            emptyList()
-        }
-        when {
-            synchronizedCandidates.isNotEmpty() -> _uiState.update {
-                it.copy(candidates = synchronizedCandidates, resultState = SearchResultState.Idle)
+
+            if (!session.wechatWorkOrderAccessEnabled) {
+                jobs += launch { runCatching { workOrderRepository.clear(session.userId) } }
+            } else {
+                jobs += launch {
+                    runCatching { workOrderRepository.searchCached(normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                        .onSuccess { local ->
+                            if (local.isNotEmpty()) _uiState.update {
+                                if (it.workOrderSectionState is SearchSectionState.Loading) {
+                                    it.copy(workOrderCandidates = local, resultState = SearchResultState.Idle)
+                                } else {
+                                    it
+                                }
+                            }
+                        }
+                        .onFailure(Throwable::rethrowIfCancellation)
+                }
+                jobs += launch {
+                    runCatching { workOrderRepository.searchMessagesCached(normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                        .onSuccess { local ->
+                            if (local.isNotEmpty()) _uiState.update {
+                                if (it.wechatMessageSectionState is SearchSectionState.Loading) {
+                                    it.copy(wechatMessages = local, resultState = SearchResultState.Idle)
+                                } else {
+                                    it
+                                }
+                            }
+                        }
+                        .onFailure(Throwable::rethrowIfCancellation)
+                }
+                jobs += launch {
+                    runCatching { workOrderRepository.searchHomeRemote(session.accessToken, normalizedQuery) }
+                        .onSuccess { remote ->
+                            val sectionFailure = AppErrorMapper.map("查询微信记录", IllegalStateException("搜索分区暂时不可用"))
+                            _uiState.update {
+                                it.copy(
+                                    workOrderCandidates = remote.workOrders.take(MAXIMUM_RESULTS_PER_SECTION),
+                                    wechatMessages = remote.wechatMessages.take(MAXIMUM_RESULTS_PER_SECTION),
+                                    workOrderSectionState = when {
+                                        remote.workOrderFailed -> SearchSectionState.Error(sectionFailure)
+                                        remote.workOrders.isEmpty() -> SearchSectionState.Empty
+                                        else -> SearchSectionState.Success
+                                    },
+                                    wechatMessageSectionState = when {
+                                        remote.wechatMessageFailed -> SearchSectionState.Error(sectionFailure)
+                                        remote.wechatMessages.isEmpty() -> SearchSectionState.Empty
+                                        else -> SearchSectionState.Success
+                                    },
+                                )
+                            }
+                        }
+                        .onFailure { error ->
+                            error.rethrowIfCancellation()
+                            if (error is HttpException && error.code() == HTTP_FORBIDDEN) workOrderRepository.clear(session.userId)
+                            val mapped = AppErrorMapper.map("查询微信记录", error)
+                            _uiState.update {
+                                it.copy(
+                                    workOrderSectionState = SearchSectionState.Error(mapped),
+                                    wechatMessageSectionState = SearchSectionState.Error(mapped),
+                                )
+                            }
+                        }
+                }
             }
+            jobs.joinAll()
+        }
+        syncCatalogInBackground()
+        updateOverallSearchState()
+    }
 
-            remoteResult.isSuccess -> return
-
-            _uiState.value.workOrderCandidates.isNotEmpty() || _uiState.value.wechatMessages.isNotEmpty() -> _uiState.update {
-                it.copy(resultState = SearchResultState.Idle)
-            }
-
-            else -> handleSearchFailure(remoteResult.exceptionOrNull() ?: synchronizationResult.exceptionOrNull())
+    private fun updateOverallSearchState() {
+        _uiState.update { state ->
+            val hasResults = state.candidates.isNotEmpty() || state.workOrderCandidates.isNotEmpty() || state.wechatMessages.isNotEmpty()
+            val errors = listOf(state.vehicleSectionState, state.workOrderSectionState, state.wechatMessageSectionState)
+                .filterIsInstance<SearchSectionState.Error>()
+            state.copy(
+                resultState = when {
+                    hasResults -> SearchResultState.Idle
+                    errors.isNotEmpty() -> SearchResultState.Error(errors.first().error)
+                    else -> SearchResultState.Empty
+                },
+            )
         }
     }
 
@@ -297,6 +322,7 @@ class SearchViewModel @Inject constructor(
 
     private companion object {
         const val QUERY_DEBOUNCE_MILLIS = 250L
+        const val MAXIMUM_RESULTS_PER_SECTION = 8
         const val HTTP_UNAUTHORIZED = 401
         const val HTTP_FORBIDDEN = 403
     }

@@ -45,6 +45,9 @@ internal object WorkOrderParser {
         "[京津沪渝冀豫云辽黑湘皖鲁苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼新使领][A-HJ-NP-Z](?:[DF][A-HJ-NP-Z0-9]{5}|[A-HJ-NP-Z0-9]{5}[DF]|[A-HJ-NP-Z0-9]{5})",
         RegexOption.IGNORE_CASE,
     )
+    private val passageIntentPattern = Regex(
+        "通行|放行|予以|允许|前往|去白哈巴|进(?:入)?(?:喀纳斯|贾登峪|禾木|白哈巴)",
+    )
 
     fun parse(rawContent: String): ParsedWorkOrder {
         val fields = extractFields(rawContent)
@@ -99,7 +102,8 @@ internal object WorkOrderParser {
         parsed.orderNumber != null && (rawContent.contains("【车号】") || rawContent.contains("【时间】") || parsed.rawPlate != null) ->
             "STRUCTURED_WORK_ORDER"
         parsed.orderNumber != null -> "ATTACHMENT_WORK_ORDER"
-        passageSenderEnabled && extractPlateNumbers(rawContent).isNotEmpty() && rawContent.contains("通行") -> "PASSAGE_MESSAGE"
+        passageSenderEnabled && extractPlateNumbers(rawContent).isNotEmpty() && passageIntentPattern.containsMatchIn(rawContent) ->
+            "PASSAGE_MESSAGE"
         else -> "GENERAL_MESSAGE"
     }
 

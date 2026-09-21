@@ -92,6 +92,35 @@ class AdminWorkspaceViewModel @Inject constructor(
         }
     }
 
+    fun openWechatAttachment(issue: com.jaydocoder.plateview.domain.admin.WechatSyncIssue) {
+        val imageId = issue.imageId ?: return
+        _uiState.update { it.copy(selectedWechatAttachment = issue, isWechatAttachmentLoading = true, wechatAttachmentFailure = null) }
+        viewModelScope.launch {
+            val session = sessionProvider.session.first() ?: return@launch
+            runCatching { repository.downloadWechatAttachment(session.accessToken, imageId, "original") }
+                .onSuccess { attachment ->
+                    _uiState.update {
+                        it.copy(
+                            wechatAttachmentFiles = it.wechatAttachmentFiles + (imageId to attachment),
+                            isWechatAttachmentLoading = false,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isWechatAttachmentLoading = false,
+                            wechatAttachmentFailure = AppErrorMapper.map("读取微信附件", error),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun closeWechatAttachment() {
+        _uiState.update { it.copy(selectedWechatAttachment = null, isWechatAttachmentLoading = false, wechatAttachmentFailure = null) }
+    }
+
     fun searchWechatWorkOrders(imageId: Long, keyword: String) {
         if (keyword.trim().length < 2) {
             _uiState.update { it.copy(wechatWorkOrderCandidates = it.wechatWorkOrderCandidates - imageId) }
@@ -138,7 +167,14 @@ class AdminWorkspaceViewModel @Inject constructor(
                     issues.mapNotNull { it.imageId }.distinct().forEach { imageId ->
                         viewModelScope.launch {
                             runCatching { repository.downloadWechatAttachment(accessToken, imageId) }
-                                .onSuccess { bytes -> _uiState.update { state -> state.copy(wechatAttachmentPreviews = state.wechatAttachmentPreviews + (imageId to bytes)) } }
+                                .onSuccess { attachment ->
+                                    _uiState.update { state ->
+                                        val current = state.wechatAttachmentFiles[imageId]
+                                        if (current?.variant == "original") state else state.copy(
+                                            wechatAttachmentFiles = state.wechatAttachmentFiles + (imageId to attachment),
+                                        )
+                                    }
+                                }
                         }
                     }
                 }

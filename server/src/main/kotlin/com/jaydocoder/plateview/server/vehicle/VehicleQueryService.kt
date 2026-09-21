@@ -35,18 +35,17 @@ internal class VehicleQueryService(
     fun search(keyword: String, accessScope: VehicleAccessScope): List<VehicleSearchCandidate> {
         val normalizedKeyword = normalizeSearchKeyword(keyword)
         return dataSource.connection.use { connection ->
+            if (isCompletePlateNumber(normalizedKeyword)) {
+                connection.queryExactPlate(normalizedKeyword, accessScope).takeIf(List<*>::isNotEmpty)?.let { return@use it }
+            }
             connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
-                statement.setString(1, "%$normalizedKeyword%")
-                statement.setString(2, "%$normalizedKeyword%")
-                statement.setString(3, "%$normalizedKeyword%")
-                statement.setString(4, "%$normalizedKeyword%")
+                statement.setString(1, VehicleCategory.RESIDENT.name)
+                statement.setString(2, normalizedKeyword)
+                statement.setString(3, "$normalizedKeyword%")
+                statement.setString(4, normalizedKeyword)
                 statement.setString(5, "%$normalizedKeyword%")
-                statement.setString(6, "%$normalizedKeyword%")
-                statement.setBoolean(7, accessScope.otherLongTermAccessEnabled)
-                statement.setString(8, VehicleCategory.RESIDENT.name)
-                statement.setString(9, normalizedKeyword)
-                statement.setString(10, "$normalizedKeyword%")
-                statement.setInt(11, MAXIMUM_SEARCH_RESULT_COUNT)
+                statement.setBoolean(6, accessScope.otherLongTermAccessEnabled)
+                statement.setInt(7, MAXIMUM_SEARCH_RESULT_COUNT)
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) add(result.toSearchCandidate())
@@ -54,6 +53,17 @@ internal class VehicleQueryService(
                 }
             }
         }
+    }
+
+    private fun Connection.queryExactPlate(
+        normalizedPlate: String,
+        accessScope: VehicleAccessScope,
+    ): List<VehicleSearchCandidate> = prepareStatement(SEARCH_EXACT_PLATE).use { statement ->
+        statement.setString(1, normalizedPlate)
+        statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
+        statement.setString(3, VehicleCategory.RESIDENT.name)
+        statement.setInt(4, MAXIMUM_SEARCH_RESULT_COUNT)
+        statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
     }
 
     fun findDetail(vehicleId: Long, accessScope: VehicleAccessScope): VehicleDetail? {
@@ -189,30 +199,43 @@ internal class VehicleQueryService(
 
     private companion object {
         const val SEARCH_VEHICLES = """
+            WITH candidates AS (
+                SELECT id,
+                       CASE WHEN status = 'ACTIVE' THEN 0 ELSE 1 END AS status_rank,
+                       CASE WHEN category = ? THEN 0 ELSE 1 END AS category_rank,
+                       CASE
+                           WHEN normalized_plate = ? THEN 0
+                           WHEN normalized_plate LIKE ? THEN 1
+                           ELSE 2
+                       END AS match_rank,
+                       LENGTH(normalized_plate) AS plate_length,
+                       normalized_plate
+                FROM vehicles
+                WHERE (normalized_plate = ? OR searchable_text LIKE ?)
+                  AND status <> 'DELETED'
+                  AND (? OR category <> 'OTHER_LONG_TERM')
+                ORDER BY
+                    status_rank, category_rank, match_rank, plate_length, normalized_plate, id
+                LIMIT ?
+            )
+            SELECT v.id, v.plate_number, v.category, v.status, v.attributes ->> 'plateColor' AS plate_color, lp.organization_name
+            FROM candidates c
+            JOIN vehicles v ON v.id = c.id
+            LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
+            ORDER BY
+                c.status_rank, c.category_rank, c.match_rank, c.plate_length, c.normalized_plate, v.id
+        """
+
+        const val SEARCH_EXACT_PLATE = """
             SELECT v.id, v.plate_number, v.category, v.status, v.attributes ->> 'plateColor' AS plate_color, lp.organization_name
             FROM vehicles v
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
-            WHERE (
-                v.normalized_plate LIKE ?
-                OR lp.organization_name ILIKE ?
-                OR lp.pass_holder ILIKE ?
-                OR rp.owner_name ILIKE ?
-                OR lp.remarks ILIKE ?
-                OR rp.remarks ILIKE ?
-            )
-            AND v.status <> 'DELETED'
-            AND (? OR v.category <> 'OTHER_LONG_TERM')
+            WHERE v.normalized_plate = ?
+              AND v.status <> 'DELETED'
+              AND (? OR v.category <> 'OTHER_LONG_TERM')
             ORDER BY
                 CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END,
                 CASE WHEN v.category = ? THEN 0 ELSE 1 END,
-                CASE
-                    WHEN v.normalized_plate = ? THEN 0
-                    WHEN v.normalized_plate LIKE ? THEN 1
-                    ELSE 2
-                END,
-                LENGTH(v.normalized_plate),
-                v.normalized_plate,
                 v.id
             LIMIT ?
         """
