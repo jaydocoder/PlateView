@@ -14,14 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.ZoomIn
-import androidx.compose.material.icons.outlined.ZoomOut
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,18 +29,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Size
 import java.io.File
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -64,43 +58,112 @@ fun ZoomableAttachmentViewer(
         }
         kind == "PDF" && variant == "original" -> PdfFileViewer(file, pageCount, modifier)
         else -> ZoomableViewport(modifier = modifier, contentDescription = if (kind == "PDF") "PDF首页预览" else "微信图片预览") { contentModifier ->
-            AsyncImage(
-                model = file,
-                contentDescription = if (kind == "PDF") "PDF首页预览" else "微信图片预览",
-                modifier = contentModifier,
-                contentScale = ContentScale.Fit,
-            )
+            FullResolutionImage(file, if (kind == "PDF") "PDF首页预览" else "微信图片预览", contentModifier)
         }
     }
 }
 
 @Composable
-private fun PdfFileViewer(file: File, pageCount: Int, modifier: Modifier) {
-    var page by remember(file) { mutableIntStateOf(0) }
-    val safePageCount = pageCount.coerceAtLeast(1)
-    val pageImage by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file, page) {
-        val bitmap = withContext(Dispatchers.IO) { renderPdfPage(file, page) }
-        value = bitmap?.asImageBitmap()
-        try {
-            awaitCancellation()
-        } finally {
-            bitmap?.recycle()
-        }
+fun AttachmentThumbnail(
+    file: File?,
+    kind: String,
+    variant: String,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    when {
+        file == null -> Box(modifier, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        kind == "PDF" && variant == "original" -> RenderedPdfPage(
+            file = file,
+            pageIndex = 0,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            longestEdge = PDF_THUMBNAIL_LONGEST_EDGE,
+        )
+        else -> FullResolutionImage(file, contentDescription, modifier)
     }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ZoomableViewport(contentDescription = "PDF第${page + 1}页") { contentModifier ->
-            pageImage?.let { image ->
-                Image(image, "PDF第${page + 1}页", contentModifier, contentScale = ContentScale.Fit)
-            } ?: CircularProgressIndicator()
+}
+
+@Composable
+private fun PdfFileViewer(file: File, pageCount: Int, modifier: Modifier) {
+    var pageIndex by remember(file) { mutableIntStateOf(0) }
+    val actualPageCount by produceState(pageCount.coerceAtLeast(1), file) {
+        value = withContext(Dispatchers.IO) { readPdfPageCount(file) } ?: pageCount.coerceAtLeast(1)
+    }
+    val safePageIndex = pageIndex.coerceIn(0, actualPageCount - 1)
+    Column(
+        modifier = modifier.fillMaxWidth().height(500.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ZoomableViewport(contentDescription = "PDF第${safePageIndex + 1}页") { contentModifier ->
+            RenderedPdfPage(
+                file = file,
+                pageIndex = safePageIndex,
+                contentDescription = "PDF第${safePageIndex + 1}页",
+                modifier = contentModifier,
+                longestEdge = PDF_RENDER_LONGEST_EDGE,
+            )
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("第 ${page + 1} / $safePageCount 页", style = MaterialTheme.typography.bodySmall)
-            Row {
-                TextButton(enabled = page > 0, onClick = { page-- }) { Text("上一页") }
-                TextButton(enabled = page + 1 < safePageCount, onClick = { page++ }) { Text("下一页") }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                enabled = safePageIndex > 0,
+                onClick = { pageIndex = safePageIndex - 1 },
+            ) {
+                Text("上一页")
+            }
+            Text(
+                "第 ${safePageIndex + 1} / $actualPageCount 页",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(
+                enabled = safePageIndex + 1 < actualPageCount,
+                onClick = { pageIndex = safePageIndex + 1 },
+            ) {
+                Text("下一页")
             }
         }
     }
+}
+
+@Composable
+private fun RenderedPdfPage(
+    file: File,
+    pageIndex: Int,
+    contentDescription: String,
+    modifier: Modifier,
+    longestEdge: Int,
+) {
+    val pageImage by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file, pageIndex, longestEdge) {
+        val bitmap = withContext(Dispatchers.IO) { renderPdfPage(file, pageIndex, longestEdge) }
+        value = bitmap?.asImageBitmap()
+    }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        pageImage?.let { image ->
+            Image(image, contentDescription, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        } ?: CircularProgressIndicator()
+    }
+}
+
+@Composable
+private fun FullResolutionImage(file: File, contentDescription: String, modifier: Modifier) {
+    val context = LocalContext.current
+    val request = remember(file) {
+        ImageRequest.Builder(context)
+            .data(file)
+            .size(Size.ORIGINAL)
+            .build()
+    }
+    AsyncImage(
+        model = request,
+        contentDescription = contentDescription,
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable
@@ -111,6 +174,7 @@ private fun ZoomableViewport(
 ) {
     var scale by remember(contentDescription) { mutableFloatStateOf(1f) }
     var offset by remember(contentDescription) { mutableStateOf(Offset.Zero) }
+    val viewportColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
     fun updateScale(value: Float) {
         scale = value.coerceIn(1f, 5f)
         if (scale == 1f) offset = Offset.Zero
@@ -119,7 +183,7 @@ private fun ZoomableViewport(
         modifier
             .fillMaxWidth()
             .height(420.dp)
-            .background(Color.Black)
+            .background(viewportColor)
             .testTag("zoomable_attachment_viewer")
             .pointerInput(contentDescription) {
                 detectTransformGestures { _, pan, zoom, _ ->
@@ -139,29 +203,22 @@ private fun ZoomableViewport(
                     translationY = offset.y,
                 ),
         )
-        Row(
-            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(Color.Black.copy(alpha = 0.58f)),
-        ) {
-            IconButton(onClick = { updateScale(scale - 0.5f) }, enabled = scale > 1f) {
-                Icon(Icons.Outlined.ZoomOut, "缩小", tint = Color.White)
-            }
-            IconButton(onClick = { updateScale(scale + 0.5f) }, enabled = scale < 5f) {
-                Icon(Icons.Outlined.ZoomIn, "放大", tint = Color.White)
-            }
-            IconButton(onClick = { updateScale(1f) }) {
-                Icon(Icons.Outlined.Refresh, "复位缩放", tint = Color.White)
-            }
-        }
     }
 }
 
-private fun renderPdfPage(file: File, pageIndex: Int): Bitmap? = runCatching {
+private fun readPdfPageCount(file: File): Int? = runCatching {
+    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+        PdfRenderer(descriptor).use { renderer -> renderer.pageCount }
+    }
+}.getOrNull()
+
+private fun renderPdfPage(file: File, pageIndex: Int, targetLongestEdge: Int): Bitmap? = runCatching {
     ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
         PdfRenderer(descriptor).use { renderer ->
             if (pageIndex !in 0 until renderer.pageCount) return@runCatching null
             renderer.openPage(pageIndex).use { page ->
                 val longestEdge = max(page.width, page.height).coerceAtLeast(1)
-                val scale = (PDF_RENDER_LONGEST_EDGE.toFloat() / longestEdge).coerceAtMost(2f)
+                val scale = (targetLongestEdge.toFloat() / longestEdge).coerceAtMost(3f)
                 val width = (page.width * scale).toInt().coerceAtLeast(1)
                 val height = (page.height * scale).toInt().coerceAtLeast(1)
                 Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
@@ -173,4 +230,5 @@ private fun renderPdfPage(file: File, pageIndex: Int): Bitmap? = runCatching {
     }
 }.getOrNull()
 
-private const val PDF_RENDER_LONGEST_EDGE = 1_800
+private const val PDF_RENDER_LONGEST_EDGE = 2_400
+private const val PDF_THUMBNAIL_LONGEST_EDGE = 1_200

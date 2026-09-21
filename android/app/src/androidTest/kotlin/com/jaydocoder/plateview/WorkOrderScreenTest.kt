@@ -166,7 +166,7 @@ class WorkOrderScreenTest {
         composeRule.onNodeWithTag("work_order_detail_list").performScrollToIndex(5)
         composeRule.onNodeWithText("事由与备注").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("work_order_detail_list").performScrollToIndex(6)
-        composeRule.onNodeWithText("相关图片").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("相关附件").performScrollTo().assertIsDisplayed()
     }
 
     @Test

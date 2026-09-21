@@ -43,7 +43,12 @@ data class AdminAuditSummaryDto(val total: Int, val successCount: Int, val abnor
 data class AdminAuditActorDto(val id: Long, val username: String?)
 data class WechatSyncStatusResponseDto(val sources: List<WechatSyncSourceDto>)
 data class WechatSyncSourceDto(val sourceKey: String, val displayName: String, val status: String, val latestMessageAt: String?, val lastHeartbeatAt: String?, val lastUploadedAt: String?, val backlogCount: Int, val errorCode: String?)
-data class WechatSyncIssuesResponseDto(val items: List<WechatSyncIssueDto>)
+data class WechatSyncIssuesResponseDto(
+    val items: List<WechatSyncIssueDto>,
+    val totalAttachmentCount: Int = 0,
+    val completedAttachmentCount: Int = 0,
+    val pendingAttachmentCount: Int = 0,
+)
 data class WechatSyncIssueDto(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
     val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,

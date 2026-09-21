@@ -28,6 +28,7 @@ import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
 import com.jaydocoder.plateview.domain.admin.WechatSyncSource
 import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
+import com.jaydocoder.plateview.domain.admin.WechatSyncOverview
 import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
@@ -192,16 +193,22 @@ class NetworkAdminRepository @Inject constructor(
         .sources
         .map { WechatSyncSource(it.sourceKey, it.displayName, it.status, it.latestMessageAt, it.lastHeartbeatAt, it.lastUploadedAt, it.backlogCount, it.errorCode) }
 
-    override suspend fun getWechatSyncIssues(accessToken: String): List<WechatSyncIssue> = api
-        .getWechatSyncIssues(bearer(accessToken))
-        .items
-        .map {
+    override suspend fun getWechatSyncOverview(accessToken: String): WechatSyncOverview {
+        val response = api.getWechatSyncIssues(bearer(accessToken))
+        val issues = response.items.map {
             WechatSyncIssue(
                 it.type, it.recordId, it.imageId, it.sourceName, it.sentAt, it.summary, it.attachmentKind, it.fileName,
                 it.pageCount,
                 it.candidates.map { candidate -> com.jaydocoder.plateview.domain.admin.WechatAttachmentCandidate(candidate.recordId, candidate.orderNumber, candidate.sentAt, candidate.summary) },
             )
         }
+        return WechatSyncOverview(
+            issues = issues,
+            totalAttachmentCount = response.totalAttachmentCount,
+            completedAttachmentCount = response.completedAttachmentCount,
+            pendingAttachmentCount = response.pendingAttachmentCount,
+        )
+    }
 
     override suspend fun getWechatPassageSenders(accessToken: String) = api.getWechatPassageSenders(bearer(accessToken)).items.map {
         com.jaydocoder.plateview.domain.admin.WechatPassageSender(it.senderUsername, it.originalDisplayName, it.displayAlias, it.enabled)
@@ -231,6 +238,10 @@ class NetworkAdminRepository @Inject constructor(
     }
 
     override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): CachedAdminAttachment {
+        val directory = File(context.filesDir, "admin-wechat-attachments").also { check(it.exists() || it.mkdirs()) }
+        directory.listFiles()
+            ?.firstOrNull { file -> file.isFile && file.name.startsWith("$imageId-$variant.") }
+            ?.let { return CachedAdminAttachment(it, variant) }
         val body = api.downloadWechatAttachment(bearer(accessToken), imageId, variant)
         val extension = when (body.contentType()?.subtype) {
             "jpeg" -> "jpg"
@@ -239,7 +250,6 @@ class NetworkAdminRepository @Inject constructor(
             "pdf" -> "pdf"
             else -> "webp"
         }
-        val directory = File(context.cacheDir, "admin-wechat-attachments").also { check(it.exists() || it.mkdirs()) }
         val target = File(directory, "$imageId-$variant.$extension")
         val temporary = File(directory, "$imageId-$variant.download")
         body.use { response ->

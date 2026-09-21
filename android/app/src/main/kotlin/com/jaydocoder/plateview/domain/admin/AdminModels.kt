@@ -142,6 +142,13 @@ data class WechatSyncIssue(
     val candidates: List<WechatAttachmentCandidate> = emptyList(),
 )
 
+data class WechatSyncOverview(
+    val issues: List<WechatSyncIssue>,
+    val totalAttachmentCount: Int,
+    val completedAttachmentCount: Int,
+    val pendingAttachmentCount: Int,
+)
+
 data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
 data class CachedAdminAttachment(val file: File, val variant: String)
 data class WechatWorkOrderSearchItem(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)

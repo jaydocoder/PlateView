@@ -46,10 +46,9 @@ class WorkOrderDetailViewModel @Inject constructor(
             runCatching { repository.getDetail(session.accessToken, recordId) }
                 .onSuccess { record ->
                     _uiState.update { it.copy(isLoading = false, record = record) }
-                    record.images.filter(WorkOrderImage::thumbnailAvailable).forEach { loadImage(record, it, "thumbnail") }
-                    record.images.filter(WorkOrderImage::previewAvailable).take(PREVIEW_PREFETCH_LIMIT).forEach {
-                        loadImage(record, it, "preview")
-                    }
+                    record.images
+                        .filter { it.availability == "AVAILABLE" }
+                        .forEach { loadImage(record, it, "original") }
                     viewModelScope.launch {
                         runCatching { repository.getHistory(session.accessToken, recordId) }
                             .onSuccess { history -> _uiState.update { it.copy(history = history) } }
@@ -60,8 +59,8 @@ class WorkOrderDetailViewModel @Inject constructor(
     }
 
     fun openImage(image: WorkOrderImage) {
-        _uiState.update { it.copy(selectedImage = image) }
-        _uiState.value.record?.let { record -> loadImage(record, image, if (image.previewAvailable) "preview" else "original") }
+        _uiState.update { it.copy(selectedImage = image, imageFailures = it.imageFailures - image.id) }
+        _uiState.value.record?.let { record -> loadImage(record, image, "original") }
     }
 
     fun loadOriginal() {
@@ -74,6 +73,7 @@ class WorkOrderDetailViewModel @Inject constructor(
     fun closeImage() { _uiState.update { it.copy(selectedImage = null) } }
 
     private fun loadImage(record: WorkOrder, image: WorkOrderImage, variant: String) {
+        _uiState.update { it.copy(imageFailures = it.imageFailures - image.id) }
         viewModelScope.launch {
             val session = sessionProvider.session.first() ?: return@launch
             runCatching { repository.image(session.accessToken, session.userId, record.id, image, variant) }
@@ -82,6 +82,9 @@ class WorkOrderDetailViewModel @Inject constructor(
                         val files = state.imageFiles + (image.id to preferred(state.imageFiles[image.id], cached))
                         state.copy(imageFiles = files)
                     }
+                }
+                .onFailure {
+                    _uiState.update { state -> state.copy(imageFailures = state.imageFailures + image.id) }
                 }
         }
     }
@@ -94,9 +97,6 @@ class WorkOrderDetailViewModel @Inject constructor(
 
     private fun rank(variant: String) = when (variant) { "original" -> 3; "preview" -> 2; else -> 1 }
 
-    private companion object {
-        const val PREVIEW_PREFETCH_LIMIT = 3
-    }
 }
 
 data class WorkOrderDetailUiState(
@@ -105,6 +105,7 @@ data class WorkOrderDetailUiState(
     val record: WorkOrder? = null,
     val history: List<WorkOrder> = emptyList(),
     val imageFiles: Map<Long, CachedWorkOrderImage> = emptyMap(),
+    val imageFailures: Set<Long> = emptySet(),
     val selectedImage: WorkOrderImage? = null,
     val error: AppError? = null,
 )

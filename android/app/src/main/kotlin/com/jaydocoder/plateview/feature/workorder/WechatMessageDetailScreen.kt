@@ -31,9 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import com.jaydocoder.plateview.component.AttachmentThumbnail
 import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -170,7 +169,6 @@ internal fun WechatMessageDetailScreen(
                         )
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        if (cached?.variant != "original") TextButton(onClick = onLoadOriginal) { Text("查看原文件") }
                         TextButton(onClick = onCloseAttachment) { Text("关闭") }
                     }
                 }
@@ -188,17 +186,17 @@ private fun AttachmentPreviewList(
 ) {
     attachments.forEach { attachment ->
         val cached = files[attachment.id]
-        val canDisplayPreview = cached != null && (attachment.kind != "PDF" || cached.variant != "original")
         Column(
             modifier = Modifier.fillMaxWidth().clickable { onOpenAttachment(attachment) },
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (canDisplayPreview) {
-                AsyncImage(
-                    model = cached.file,
+            if (attachment.availability == "AVAILABLE") {
+                AttachmentThumbnail(
+                    file = cached?.file,
+                    kind = attachment.kind,
+                    variant = cached?.variant ?: "original",
                     contentDescription = if (attachment.kind == "PDF") "PDF首页缩略图" else "微信图片缩略图",
                     modifier = Modifier.fillMaxWidth().height(if (prominent) 220.dp else 150.dp),
-                    contentScale = ContentScale.Fit,
                 )
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -211,10 +209,11 @@ private fun AttachmentPreviewList(
                     Text(attachment.fileName ?: if (attachment.kind == "PDF") "PDF 文件" else "原始微信图片")
                     Text(
                         when {
-                            attachment.kind == "PDF" -> "${attachment.pageCount ?: 1} 页 · 点击查看 PDF"
-                            cached != null -> "点击查看原始微信图片"
+                            attachment.kind == "PDF" && cached?.variant == "original" -> "${attachment.pageCount ?: 1} 页 · 原文件已缓存"
+                            attachment.kind == "PDF" -> "正在缓存原 PDF 文件"
+                            cached?.variant == "original" -> "原始微信图片已缓存"
                             attachment.availability != "AVAILABLE" -> "原图暂不可用，采集器将继续重试"
-                            else -> "正在加载图片缩略图"
+                            else -> "正在缓存原始微信图片"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -64,7 +64,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 recordId,
                 WorkOrderCorrectionCommand(orderNumber.trim().ifEmpty { null }, rawPlate.trim().ifEmpty { null }),
             )
-            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+            refreshWechatSyncOverview(accessToken, isSaving = false)
         }
     }
 
@@ -72,7 +72,7 @@ class AdminWorkspaceViewModel @Inject constructor(
         launchAdminAction { accessToken ->
             _uiState.update { it.copy(isSaving = true, failure = null) }
             repository.associateWechatImage(accessToken, imageId, recordId)
-            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+            refreshWechatSyncOverview(accessToken, isSaving = false)
         }
     }
 
@@ -80,7 +80,7 @@ class AdminWorkspaceViewModel @Inject constructor(
         launchAdminAction { accessToken ->
             _uiState.update { it.copy(isSaving = true, failure = null) }
             repository.removeWechatImageAssociation(accessToken, imageId)
-            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+            refreshWechatSyncOverview(accessToken, isSaving = false)
         }
     }
 
@@ -88,13 +88,22 @@ class AdminWorkspaceViewModel @Inject constructor(
         launchAdminAction { accessToken ->
             _uiState.update { it.copy(isSaving = true, failure = null) }
             repository.ignoreWechatImage(accessToken, imageId)
-            _uiState.update { it.copy(wechatSyncIssues = repository.getWechatSyncIssues(accessToken), isSaving = false) }
+            refreshWechatSyncOverview(accessToken, isSaving = false)
         }
     }
 
     fun openWechatAttachment(issue: com.jaydocoder.plateview.domain.admin.WechatSyncIssue) {
         val imageId = issue.imageId ?: return
-        _uiState.update { it.copy(selectedWechatAttachment = issue, isWechatAttachmentLoading = true, wechatAttachmentFailure = null) }
+        val cachedOriginal = _uiState.value.wechatAttachmentFiles[imageId]?.takeIf { it.variant == "original" }
+        _uiState.update {
+            it.copy(
+                selectedWechatAttachment = issue,
+                isWechatAttachmentLoading = cachedOriginal == null,
+                wechatAttachmentFailure = null,
+                wechatAttachmentFailures = it.wechatAttachmentFailures - imageId,
+            )
+        }
+        if (cachedOriginal != null) return
         viewModelScope.launch {
             val session = sessionProvider.session.first() ?: return@launch
             runCatching { repository.downloadWechatAttachment(session.accessToken, imageId, "original") }
@@ -102,6 +111,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             wechatAttachmentFiles = it.wechatAttachmentFiles + (imageId to attachment),
+                            wechatAttachmentFailures = it.wechatAttachmentFailures - imageId,
                             isWechatAttachmentLoading = false,
                         )
                     }
@@ -111,6 +121,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         it.copy(
                             isWechatAttachmentLoading = false,
                             wechatAttachmentFailure = AppErrorMapper.map("读取微信附件", error),
+                            wechatAttachmentFailures = it.wechatAttachmentFailures + imageId,
                         )
                     }
                 }
@@ -156,23 +167,32 @@ class AdminWorkspaceViewModel @Inject constructor(
                 AdminTab.WechatSync -> {
                     val session = sessionProvider.session.first()
                     if (session?.username != "admin" || session.role != "ADMIN") throw IllegalStateException("仅admin账号可以查看微信同步")
-                    val issues = repository.getWechatSyncIssues(accessToken)
+                    val overview = repository.getWechatSyncOverview(accessToken)
+                    val issues = overview.issues
                     _uiState.update {
                         it.copy(
                             wechatSyncSources = repository.getWechatSyncStatus(accessToken),
                             wechatSyncIssues = issues,
+                            totalWechatAttachmentCount = overview.totalAttachmentCount,
+                            completedWechatAttachmentCount = overview.completedAttachmentCount,
+                            pendingWechatAttachmentCount = overview.pendingAttachmentCount,
                             wechatPassageSenders = repository.getWechatPassageSenders(accessToken),
                         )
                     }
-                    issues.mapNotNull { it.imageId }.distinct().forEach { imageId ->
-                        viewModelScope.launch {
-                            runCatching { repository.downloadWechatAttachment(accessToken, imageId) }
+                    viewModelScope.launch {
+                        issues.mapNotNull { it.imageId }.distinct().forEach { imageId ->
+                            runCatching { repository.downloadWechatAttachment(accessToken, imageId, "original") }
                                 .onSuccess { attachment ->
                                     _uiState.update { state ->
-                                        val current = state.wechatAttachmentFiles[imageId]
-                                        if (current?.variant == "original") state else state.copy(
+                                        state.copy(
                                             wechatAttachmentFiles = state.wechatAttachmentFiles + (imageId to attachment),
+                                            wechatAttachmentFailures = state.wechatAttachmentFailures - imageId,
                                         )
+                                    }
+                                }
+                                .onFailure {
+                                    _uiState.update { state ->
+                                        state.copy(wechatAttachmentFailures = state.wechatAttachmentFailures + imageId)
                                     }
                                 }
                         }
@@ -191,6 +211,19 @@ class AdminWorkspaceViewModel @Inject constructor(
             )
         }
         refreshVehicles(delayMillis = VEHICLE_SEARCH_DEBOUNCE_MILLIS)
+    }
+
+    private suspend fun refreshWechatSyncOverview(accessToken: String, isSaving: Boolean) {
+        val overview = repository.getWechatSyncOverview(accessToken)
+        _uiState.update {
+            it.copy(
+                wechatSyncIssues = overview.issues,
+                totalWechatAttachmentCount = overview.totalAttachmentCount,
+                completedWechatAttachmentCount = overview.completedAttachmentCount,
+                pendingWechatAttachmentCount = overview.pendingAttachmentCount,
+                isSaving = isSaving,
+            )
+        }
     }
 
     fun updateVehicleStatusFilter(filter: VehicleStatusFilter) {

@@ -748,11 +748,14 @@ class AdminWorkspaceScreenTest {
         composeRule.setContent {
             PlateViewTheme {
                 AdminWorkspaceScreen(
-                    uiState = AdminUiState(
-                        tab = AdminTab.WechatSync,
-                        isLoading = false,
-                        isPrimaryAdministrator = true,
-                        wechatSyncIssues = listOf(
+                        uiState = AdminUiState(
+                            tab = AdminTab.WechatSync,
+                            isLoading = false,
+                            isPrimaryAdministrator = true,
+                            totalWechatAttachmentCount = 18,
+                            completedWechatAttachmentCount = 11,
+                            pendingWechatAttachmentCount = 7,
+                            wechatSyncIssues = listOf(
                             WechatSyncIssue(
                                 type = "IMAGE_CONFLICT",
                                 recordId = null,
@@ -774,12 +777,18 @@ class AdminWorkspaceScreenTest {
         }
 
         composeRule.onNodeWithText("图片存在多个关联候选").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("关联文件总数").assertIsDisplayed()
+        composeRule.onNodeWithText("18").assertIsDisplayed()
+        composeRule.onNodeWithText("已完成").assertIsDisplayed()
+        composeRule.onNodeWithText("11").assertIsDisplayed()
+        composeRule.onNodeWithText("待处理").assertIsDisplayed()
+        composeRule.onNodeWithText("7").assertIsDisplayed()
         composeRule.onNodeWithText("图片存在两个可能的车单").assertIsDisplayed()
         composeRule.onNodeWithText("附件记录：42").assertIsDisplayed()
     }
 
     @Test
-    fun 微信同步待处理图片可打开缩放预览() {
+    fun 微信同步待处理图片使用原件并隐藏缩放控制按钮() {
         val previewFile = java.io.File.createTempFile("wechat-preview", ".jpg", composeRule.activity.cacheDir)
         val issue = WechatSyncIssue(
             type = "ATTACHMENT_CONFLICT",
@@ -800,7 +809,7 @@ class AdminWorkspaceScreenTest {
                         isLoading = false,
                         isPrimaryAdministrator = true,
                         wechatSyncIssues = listOf(issue),
-                        wechatAttachmentFiles = mapOf(42L to CachedAdminAttachment(previewFile, "preview")),
+                        wechatAttachmentFiles = mapOf(42L to CachedAdminAttachment(previewFile, "original")),
                         selectedWechatAttachment = selectedIssue,
                     ),
                     onNavigateUp = {}, onTabSelected = {}, onRefresh = {},
@@ -817,14 +826,14 @@ class AdminWorkspaceScreenTest {
 
         composeRule.onNodeWithTag("wechat_attachment_preview_42").performScrollTo().performClick()
         composeRule.onNodeWithTag("zoomable_attachment_viewer").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("放大").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("缩小").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("复位缩放").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("放大").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("缩小").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("复位缩放").assertDoesNotExist()
         previewFile.delete()
     }
 
     @Test
-    fun 微信同步待处理PDF可分页和缩放预览() {
+    fun 微信同步待处理PDF可通过按钮逐页查看() {
         val pdfFile = java.io.File.createTempFile("wechat-preview", ".pdf", composeRule.activity.cacheDir)
         val document = android.graphics.pdf.PdfDocument()
         try {
@@ -868,11 +877,15 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithTag("zoomable_attachment_viewer").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("zoomable_attachment_viewer").assertCountEquals(1)
         composeRule.onNodeWithText("第 1 / 2 页").assertIsDisplayed()
         composeRule.onNodeWithText("下一页").performClick()
         composeRule.onNodeWithText("第 2 / 2 页").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("放大").assertIsDisplayed()
+        composeRule.onNodeWithText("上一页").performClick()
+        composeRule.onNodeWithText("第 1 / 2 页").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("放大").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("缩小").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("复位缩放").assertDoesNotExist()
         pdfFile.delete()
     }
 

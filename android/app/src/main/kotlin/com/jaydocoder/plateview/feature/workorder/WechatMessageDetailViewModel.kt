@@ -47,8 +47,9 @@ class WechatMessageDetailViewModel @Inject constructor(
             runCatching { repository.getMessageDetail(session.accessToken, messageId) }
                 .onSuccess { message ->
                     _uiState.update { it.copy(isLoading = false, message = message) }
-                    message.attachments.filter { it.thumbnailAvailable }.forEach { loadAttachment(message.id, it, "thumbnail") }
-                    message.attachments.filter { it.previewAvailable }.take(3).forEach { loadAttachment(message.id, it, "preview") }
+                    message.attachments
+                        .filter { it.availability == "AVAILABLE" }
+                        .forEach { loadAttachment(message.id, it, "original") }
                 }
                 .onFailure { error -> _uiState.update { it.copy(isLoading = false, error = AppErrorMapper.map("读取微信聊天记录", error)) } }
         }
@@ -57,7 +58,7 @@ class WechatMessageDetailViewModel @Inject constructor(
     fun openAttachment(attachment: WorkOrderAttachment) {
         _uiState.update { it.copy(selectedAttachment = attachment) }
         _uiState.value.message?.let { message ->
-            loadAttachment(message.id, attachment, if (attachment.previewAvailable) "preview" else "original")
+            loadAttachment(message.id, attachment, "original")
         }
     }
 

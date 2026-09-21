@@ -185,6 +185,38 @@ class WorkOrderDisplayFormatterTest {
     }
 
     @Test
+    fun `早八晚八表示早八点前或晚八点后允许通行`() {
+        assertEquals(
+            WorkOrderPassageValidity.VALID,
+            evaluateWorkOrderPassageValidity("9.20-9.21", "早八晚八", "2026-09-20T01:00:00Z", beijingTime(2026, 9, 20, 7, 59)),
+        )
+        assertEquals(
+            WorkOrderPassageValidity.OUTSIDE_ALLOWED_HOURS,
+            evaluateWorkOrderPassageValidity("9.20-9.21", "早八晚八", "2026-09-20T01:00:00Z", beijingTime(2026, 9, 20, 8, 0)),
+        )
+        assertEquals(
+            WorkOrderPassageValidity.OUTSIDE_ALLOWED_HOURS,
+            evaluateWorkOrderPassageValidity("9.20-9.21", "早八晚八", "2026-09-20T01:00:00Z", beijingTime(2026, 9, 20, 19, 59)),
+        )
+        assertEquals(
+            WorkOrderPassageValidity.VALID,
+            evaluateWorkOrderPassageValidity("9.20-9.21", "早八晚八", "2026-09-20T01:00:00Z", beijingTime(2026, 9, 20, 20, 0)),
+        )
+    }
+
+    @Test
+    fun `早八晚八在最后有效日晚八点后仍然有效`() {
+        assertEquals(
+            WorkOrderPassageValidity.OUTSIDE_ALLOWED_HOURS,
+            evaluateWorkOrderPassageValidity("9.20", "早八晚八", "2026-09-20T01:00:00Z", beijingTime(2026, 9, 20, 19, 59)),
+        )
+        assertEquals(
+            WorkOrderPassageValidity.VALID,
+            evaluateWorkOrderPassageValidity("9.20", "早八晚八", "2026-09-20T01:00:00Z", beijingTime(2026, 9, 20, 20, 1)),
+        )
+    }
+
+    @Test
     fun `中午两点到四点按下午四点判断结束时间`() {
         assertEquals(
             WorkOrderPassageValidity.VALID,

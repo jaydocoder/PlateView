@@ -26,6 +26,7 @@ import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
 import com.jaydocoder.plateview.domain.admin.VehicleCreationCapabilities
 import com.jaydocoder.plateview.domain.admin.WechatSyncSource
 import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
+import com.jaydocoder.plateview.domain.admin.WechatSyncOverview
 import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
@@ -87,6 +88,27 @@ class AdminWorkspaceViewModelTest {
         advanceUntilIdle()
 
         assertTrue(!viewModel.uiState.value.isPrimaryAdministrator)
+    }
+
+    @Test
+    fun `进入微信同步页会主动缓存全部附件原件`() = runTest {
+        val repository = FakeAdminRepository(
+            wechatIssues = listOf(
+                WechatSyncIssue("ATTACHMENT_CONFLICT", null, 41, "工作群", "2026-09-20T01:00:00Z", "图片待关联", "IMAGE"),
+                WechatSyncIssue("ATTACHMENT_CONFLICT", null, 42, "工作群", "2026-09-20T01:01:00Z", "PDF待关联", "PDF"),
+            ),
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.WechatSync)
+        advanceUntilIdle()
+
+        assertEquals(listOf(41L to "original", 42L to "original"), repository.downloadedWechatAttachments)
+        assertEquals(setOf(41L, 42L), viewModel.uiState.value.wechatAttachmentFiles.keys)
+        assertEquals(2, viewModel.uiState.value.totalWechatAttachmentCount)
+        assertEquals(1, viewModel.uiState.value.completedWechatAttachmentCount)
+        assertEquals(1, viewModel.uiState.value.pendingWechatAttachmentCount)
     }
 
     @Test
@@ -516,6 +538,7 @@ private class FakeAdminRepository(
         creatableCategories = listOf("RESIDENT", "SCENIC_UNIT", "SCENIC_ENTERPRISE", "CADRE", "KANAS_TOURISM_DEVELOPMENT", "OTHER_LONG_TERM"),
         canChangeVehicleCategory = true,
     ),
+    private val wechatIssues: List<WechatSyncIssue> = emptyList(),
 ) : AdminRepository {
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
@@ -526,6 +549,7 @@ private class FakeAdminRepository(
     val importFilters = mutableListOf<ImportRowFilter>()
     val auditOffsets = mutableListOf<Int>()
     val auditFilters = mutableListOf<AuditFilter>()
+    val downloadedWechatAttachments = mutableListOf<Pair<Long, String>>()
 
     private val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
     private val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
@@ -572,15 +596,22 @@ private class FakeAdminRepository(
     }
     override suspend fun listUsers(accessToken: String): List<ManagedUser> = listOf(user)
     override suspend fun getWechatSyncStatus(accessToken: String): List<WechatSyncSource> = emptyList()
-    override suspend fun getWechatSyncIssues(accessToken: String): List<WechatSyncIssue> = emptyList()
+    override suspend fun getWechatSyncOverview(accessToken: String) = WechatSyncOverview(
+        issues = wechatIssues,
+        totalAttachmentCount = 2,
+        completedAttachmentCount = 1,
+        pendingAttachmentCount = 1,
+    )
     override suspend fun getWechatPassageSenders(accessToken: String) = emptyList<com.jaydocoder.plateview.domain.admin.WechatPassageSender>()
     override suspend fun saveWechatPassageSender(accessToken: String, sender: com.jaydocoder.plateview.domain.admin.WechatPassageSender) = Unit
     override suspend fun correctWechatWorkOrder(accessToken: String, recordId: Long, command: WorkOrderCorrectionCommand) = Unit
     override suspend fun associateWechatImage(accessToken: String, imageId: Long, recordId: Long) = Unit
     override suspend fun removeWechatImageAssociation(accessToken: String, imageId: Long) = Unit
     override suspend fun ignoreWechatImage(accessToken: String, imageId: Long) = Unit
-    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String) =
-        com.jaydocoder.plateview.domain.admin.CachedAdminAttachment(kotlin.io.path.createTempFile().toFile(), variant)
+    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): com.jaydocoder.plateview.domain.admin.CachedAdminAttachment {
+        downloadedWechatAttachments += imageId to variant
+        return com.jaydocoder.plateview.domain.admin.CachedAdminAttachment(kotlin.io.path.createTempFile().toFile(), variant)
+    }
     override suspend fun searchWechatWorkOrders(accessToken: String, keyword: String) = emptyList<com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem>()
     override suspend fun createUser(accessToken: String, command: UserCreateCommand): ManagedUser = error("本测试不创建账号")
     override suspend fun updateUser(accessToken: String, userId: Long, version: Int, command: UserUpdateCommand): ManagedUser {

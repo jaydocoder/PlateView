@@ -165,7 +165,15 @@ internal fun Application.configureWorkOrderFeature() {
                 }
                 get("/issues") {
                     call.requirePrimaryAdministrator(dataSource)
-                    call.respond(WechatSyncIssuesResponse(service.syncIssues().map(WechatSyncIssue::toResponse)))
+                    val stats = service.syncAttachmentAssociationStats()
+                    call.respond(
+                        WechatSyncIssuesResponse(
+                            items = service.syncIssues().map(WechatSyncIssue::toResponse),
+                            totalAttachmentCount = stats.total,
+                            completedAttachmentCount = stats.completed,
+                            pendingAttachmentCount = stats.pending,
+                        ),
+                    )
                 }
                 get("/records/search") {
                     call.requirePrimaryAdministrator(dataSource)
@@ -438,7 +446,12 @@ private fun WechatPassageSender.toResponse() = WechatPassageSenderResponse(sende
 @Serializable private data class WechatSyncStatusResponse(val sources: List<WechatSourceStatusResponse>)
 @Serializable private data class WechatSourceStatusResponse(val sourceKey: String, val displayName: String, val status: String, val latestMessageAt: String?, val lastHeartbeatAt: String?, val lastUploadedAt: String?, val backlogCount: Int, val errorCode: String?)
 private fun WechatSourceStatus.toResponse() = WechatSourceStatusResponse(sourceKey, displayName, status, latestMessageAt?.toString(), lastHeartbeatAt?.toString(), lastUploadedAt?.toString(), backlogCount, errorCode)
-@Serializable private data class WechatSyncIssuesResponse(val items: List<WechatSyncIssueResponse>)
+@Serializable private data class WechatSyncIssuesResponse(
+    val items: List<WechatSyncIssueResponse>,
+    val totalAttachmentCount: Int,
+    val completedAttachmentCount: Int,
+    val pendingAttachmentCount: Int,
+)
 @Serializable private data class WechatSyncIssueResponse(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
     val attachmentKind: String?, val fileName: String?, val pageCount: Int?, val candidates: List<WechatAttachmentCandidateResponse>,

@@ -33,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -57,6 +58,7 @@ import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.CompatFlowRow
 import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.component.ZoomableAttachmentViewer
+import com.jaydocoder.plateview.component.AttachmentThumbnail
 import com.jaydocoder.plateview.component.rememberCurrentBeijingTime
 import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.component.glass.GlassSurface
@@ -125,14 +127,17 @@ fun WorkOrderDetailScreen(
                     Text("车单图片", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     IconButton(onClick = onCloseImage) { Icon(Icons.Outlined.Close, "关闭图片") }
                 }
-                ZoomableAttachmentViewer(
-                    file = cached?.file,
-                    kind = selected.kind,
-                    variant = cached?.variant ?: "preview",
-                    pageCount = selected.pageCount ?: 1,
-                )
-                if (cached?.variant != "original") {
-                    TextButton(onClick = onLoadOriginal, modifier = Modifier.align(Alignment.End)) { Text("查看原图") }
+                if (selected.id in uiState.imageFailures) {
+                    OutlinedButton(onClick = onLoadOriginal, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                        Text("原文件加载失败，重新加载")
+                    }
+                } else {
+                    ZoomableAttachmentViewer(
+                        file = cached?.file,
+                        kind = selected.kind,
+                        variant = cached?.variant ?: "original",
+                        pageCount = selected.pageCount ?: 1,
+                    )
                 }
             }
         }
@@ -205,24 +210,33 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
         }
         if (record.images.isNotEmpty()) {
             item {
-                WorkOrderSection("相关图片", Icons.Outlined.Image) {
+                WorkOrderSection("相关附件", Icons.Outlined.Image) {
                     record.images.forEach { image ->
-                        val file = uiState.imageFiles[image.id]?.file
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(190.dp)
-                                .clickable(enabled = file != null) { onOpenImage(image) }
-                                .testTag("work_order_image_${image.id}"),
-                            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-                            color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
-                        ) {
-                            if (file != null) {
-                                AsyncImage(file, "车单相关图片", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                            } else {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Outlined.Image, "图片加载中", Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
-                                }
+                        val cached = uiState.imageFiles[image.id]
+                        if (image.id in uiState.imageFailures) {
+                            OutlinedButton(
+                                onClick = { onOpenImage(image) },
+                                modifier = Modifier.fillMaxWidth().testTag("work_order_image_retry_${image.id}"),
+                            ) {
+                                Text("原文件加载失败，重新加载")
+                            }
+                        } else {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(190.dp)
+                                    .clickable(enabled = cached != null) { onOpenImage(image) }
+                                    .testTag("work_order_image_${image.id}"),
+                                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                                color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
+                            ) {
+                                AttachmentThumbnail(
+                                    file = cached?.file,
+                                    kind = image.kind,
+                                    variant = cached?.variant ?: "original",
+                                    contentDescription = if (image.kind == "PDF") "PDF首页缩略图" else "车单相关图片",
+                                    modifier = Modifier.fillMaxSize(),
+                                )
                             }
                         }
                     }

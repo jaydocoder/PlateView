@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import com.jaydocoder.plateview.component.CompatFlowRow
 import com.jaydocoder.plateview.component.ZoomableAttachmentViewer
+import com.jaydocoder.plateview.component.AttachmentThumbnail
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -401,6 +402,10 @@ fun AdminWorkspaceScreen(
                                 items = uiState.wechatSyncSources,
                                 issues = uiState.wechatSyncIssues,
                                 attachmentFiles = uiState.wechatAttachmentFiles,
+                                attachmentFailures = uiState.wechatAttachmentFailures,
+                                totalAttachmentCount = uiState.totalWechatAttachmentCount,
+                                completedAttachmentCount = uiState.completedWechatAttachmentCount,
+                                pendingAttachmentCount = uiState.pendingWechatAttachmentCount,
                                 workOrderCandidates = uiState.wechatWorkOrderCandidates,
                                 senders = uiState.wechatPassageSenders,
                                 isSaving = uiState.isSaving,
@@ -2511,6 +2516,10 @@ private fun WechatSyncPane(
     items: List<WechatSyncSource>,
     issues: List<WechatSyncIssue>,
     attachmentFiles: Map<Long, com.jaydocoder.plateview.domain.admin.CachedAdminAttachment>,
+    attachmentFailures: Set<Long>,
+    totalAttachmentCount: Int,
+    completedAttachmentCount: Int,
+    pendingAttachmentCount: Int,
     workOrderCandidates: Map<Long, List<com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem>>,
     senders: List<com.jaydocoder.plateview.domain.admin.WechatPassageSender>,
     isSaving: Boolean,
@@ -2576,6 +2585,13 @@ private fun WechatSyncPane(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AttachmentAssociationMetric("关联文件总数", totalAttachmentCount, Modifier.weight(1f))
+                AttachmentAssociationMetric("已完成", completedAttachmentCount, Modifier.weight(1f))
+                AttachmentAssociationMetric("待处理", pendingAttachmentCount, Modifier.weight(1f))
+            }
+        }
         items(issues, key = { "${it.type}-${it.recordId}-${it.imageId}" }) { issue ->
             var orderNumber by rememberSaveable(issue.recordId) { androidx.compose.runtime.mutableStateOf("") }
             var plateNumber by rememberSaveable(issue.recordId) { androidx.compose.runtime.mutableStateOf("") }
@@ -2589,17 +2605,26 @@ private fun WechatSyncPane(
                     issue.imageId?.let { Text("附件记录：$it", style = MaterialTheme.typography.labelLarge) }
                     issue.fileName?.let { Text("文件：$it", style = MaterialTheme.typography.bodyMedium) }
                     issue.imageId?.let { imageId ->
-                        attachmentFiles[imageId]?.let { preview ->
-                            coil3.compose.AsyncImage(
-                                model = preview.file,
-                                contentDescription = "附件内容预览",
+                        val original = attachmentFiles[imageId]
+                        if (original != null || imageId !in attachmentFailures) {
+                            AttachmentThumbnail(
+                                file = original?.file,
+                                kind = issue.attachmentKind ?: "IMAGE",
+                                variant = original?.variant ?: "original",
+                                contentDescription = if (issue.attachmentKind == "PDF") "PDF首页缩略图" else "附件原图",
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(min = 160.dp, max = 360.dp)
                                     .testTag("wechat_attachment_preview_$imageId")
                                     .clickable { onOpenAttachment(issue) },
-                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                             )
+                        } else {
+                            OutlinedButton(
+                                onClick = { onOpenAttachment(issue) },
+                                modifier = Modifier.fillMaxWidth().testTag("wechat_attachment_retry_$imageId"),
+                            ) {
+                                Text("原文件加载失败，重新加载")
+                            }
                         }
                     }
                     if (issue.recordId != null) {
@@ -2622,9 +2647,10 @@ private fun WechatSyncPane(
                         ) { Text("保存结构化字段") }
                     }
                     if (issue.imageId != null && issue.type in setOf("ATTACHMENT_CONFLICT", "IMAGE_CONFLICT")) {
+                        Text("选择下方候选后会立即关联", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         issue.candidates.forEach { candidate ->
                             Surface(
-                                modifier = Modifier.fillMaxWidth().clickable(enabled = !isSaving) { onAssociateImage(issue.imageId, candidate.recordId) },
+                                modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
                             ) {
@@ -2632,13 +2658,18 @@ private fun WechatSyncPane(
                                     Text(candidate.orderNumber ?: "未识别单号", fontWeight = FontWeight.Bold)
                                     Text(candidate.summary, maxLines = 3, style = MaterialTheme.typography.bodyMedium)
                                     Text(formatAuditTime(candidate.sentAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Button(
+                                        onClick = { onAssociateImage(issue.imageId, candidate.recordId) },
+                                        enabled = !isSaving,
+                                        modifier = Modifier.align(Alignment.End),
+                                    ) { Text("关联到 ${candidate.orderNumber ?: "此车单"}") }
                                 }
                             }
                         }
                         LiquidGlassInput(
                             value = targetRecordId,
                             onValueChange = { targetRecordId = it.filter(Char::isDigit) },
-                            label = { Text("输入车单编号后关联") },
+                            label = { Text("输入单号查找其他车单") },
                             singleLine = true,
                         )
                         workOrderCandidates[issue.imageId]?.forEach { candidate ->
@@ -2661,6 +2692,20 @@ private fun WechatSyncPane(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentAssociationMetric(label: String, value: Int, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) {
+            Text(value.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

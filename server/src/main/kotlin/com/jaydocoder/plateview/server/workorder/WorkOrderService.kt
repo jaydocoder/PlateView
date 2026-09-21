@@ -262,11 +262,46 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             ) candidates
             WHERE candidate_count > 1 OR (candidate_count = 1 AND availability <> 'AVAILABLE')
             ORDER BY sent_at DESC, image_id DESC
-            LIMIT 100
             """.trimIndent(),
         ).use { statement -> statement.executeQuery().use(::readIssues) }
         (messageIssues + imageIssues).sortedByDescending(WechatSyncIssue::sentAt).map { issue ->
             if (issue.imageId == null) issue else issue.copy(candidates = connection.attachmentCandidates(issue.imageId))
+        }
+    }
+
+    fun syncAttachmentAssociationStats(): WechatAttachmentAssociationStats = dataSource.connection.use { connection ->
+        connection.prepareStatement(
+            """
+            WITH relevant_attachments AS (
+                SELECT i.linked_record_id
+                FROM work_order_images i
+                WHERE i.ignored_at IS NULL
+                  AND (
+                      i.linked_record_id IS NOT NULL
+                      OR EXISTS (
+                          SELECT 1
+                          FROM work_order_records r
+                          JOIN wechat_messages m ON m.id = r.message_id
+                          WHERE m.source_id = i.source_id
+                            AND m.sender_username = i.sender_username
+                            AND m.sent_at BETWEEN i.sent_at - INTERVAL '2 minutes' AND i.sent_at + INTERVAL '2 minutes'
+                      )
+                  )
+            )
+            SELECT COUNT(*) AS total_count,
+                   COUNT(*) FILTER (WHERE linked_record_id IS NOT NULL) AS completed_count,
+                   COUNT(*) FILTER (WHERE linked_record_id IS NULL) AS pending_count
+            FROM relevant_attachments
+            """.trimIndent(),
+        ).use { statement ->
+            statement.executeQuery().use { result ->
+                check(result.next()) { "无法读取微信附件关联统计" }
+                WechatAttachmentAssociationStats(
+                    total = result.getInt("total_count"),
+                    completed = result.getInt("completed_count"),
+                    pending = result.getInt("pending_count"),
+                )
+            }
         }
     }
 
@@ -1212,6 +1247,8 @@ internal data class WechatMessageRecord(
 )
 internal data class WechatMessagePage(val records: List<WechatMessageRecord>, val nextOffset: Int?)
 internal data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
+internal data class WechatAttachmentAssociationStats(val total: Int, val completed: Int, val pending: Int)
+
 internal data class WechatSyncIssue(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: Instant, val summary: String,
     val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,
