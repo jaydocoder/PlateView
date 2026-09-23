@@ -241,6 +241,26 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         )
     }
 
+    fun messageChanges(afterVersion: Long, limit: Int): WechatMessageChangePage = dataSource.connection.use { connection ->
+        val safeLimit = limit.coerceIn(1, 200)
+        val records = connection.prepareStatement(
+            "$MESSAGE_BASE_SELECT WHERE m.catalog_revision > ? AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE') ORDER BY m.catalog_revision, m.id LIMIT ?",
+        ).use { statement ->
+            statement.setLong(1, afterVersion.coerceAtLeast(0))
+            statement.setInt(2, safeLimit + 1)
+            statement.executeQuery().use { result ->
+                buildList { while (result.next()) add(connection.readMessage(result, "", includeAttachments = false)) }
+            }
+        }
+        val pageItems = records.take(safeLimit)
+        WechatMessageChangePage(
+            catalogVersion = connection.catalogRevision(),
+            nextVersion = pageItems.maxOfOrNull(WechatMessageRecord::catalogRevision) ?: afterVersion,
+            hasMore = records.size > safeLimit,
+            records = connection.hydrateMessages(pageItems),
+        )
+    }
+
     fun syncStatus(): List<WechatSourceStatus> = dataSource.connection.use { connection ->
         connection.prepareStatement(
             """
@@ -1120,6 +1140,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             displayName = displayName,
             plateNumbers = plates,
             attachments = attachments,
+            catalogRevision = result.getLong("catalog_revision"),
         )
     }
 
@@ -1414,7 +1435,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             LIMIT ?
         """
         const val MESSAGE_BASE_SELECT = """
-            SELECT m.id AS message_id, m.business_type, m.raw_content, m.sent_at, m.sender_username,
+            SELECT m.id AS message_id, m.business_type, m.raw_content, m.sent_at, m.sender_username, m.catalog_revision,
                    m.sender_display, m.sender_group_nickname, s.source_key, s.display_name AS source_name,
                    ps.display_alias
             FROM wechat_messages m
@@ -1643,8 +1664,10 @@ internal data class WechatMessageRecord(
     val displayName: String,
     val plateNumbers: List<String>,
     val attachments: List<WorkOrderAttachment>,
+    val catalogRevision: Long,
 )
 internal data class WechatMessagePage(val records: List<WechatMessageRecord>, val nextOffset: Int?)
+internal data class WechatMessageChangePage(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WechatMessageRecord>)
 internal data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
 internal data class WechatAttachmentAssociationStats(val total: Int, val completed: Int, val pending: Int)
 internal data class WechatSyncIntegrity(

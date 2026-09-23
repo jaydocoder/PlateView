@@ -36,25 +36,35 @@ class WorkOrderDetailViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = it.record == null, isRefreshing = it.record != null, error = null) }
             val session = sessionProvider.session.first()
             if (session == null || !session.wechatWorkOrderAccessEnabled) {
                 repository.clear(session?.userId)
                 _uiState.update { it.copy(isLoading = false, error = AppErrorMapper.map("读取微信车单", IllegalStateException("当前账号没有微信车单访问权限"))) }
                 return@launch
             }
-            runCatching { repository.getDetail(session.accessToken, recordId) }
+            val cached = runCatching { repository.getCachedWorkOrder(session.userId, recordId) }.getOrNull()
+            if (cached != null) showRecord(cached, fromCache = true)
+            runCatching { repository.refreshWorkOrder(session.accessToken, session.userId, recordId) }
                 .onSuccess { record ->
-                    _uiState.update { it.copy(isLoading = false, record = record) }
-                    record.images
-                        .filter { it.availability in setOf("AVAILABLE", "THUMBNAIL_ONLY") }
-                        .forEach { image -> loadImage(record, image, image.preferredVariant()) }
+                    showRecord(record, fromCache = false)
                     viewModelScope.launch {
                         runCatching { repository.getHistory(session.accessToken, recordId) }
                             .onSuccess { history -> _uiState.update { it.copy(history = history) } }
                     }
                 }
-                .onFailure { error -> _uiState.update { it.copy(isLoading = false, error = AppErrorMapper.map("读取微信车单", error)) } }
+                .onFailure { error ->
+                    _uiState.update {
+                        if (it.record != null) it.copy(isLoading = false, isRefreshing = false, isOfflineCache = true)
+                        else it.copy(isLoading = false, isRefreshing = false, error = AppErrorMapper.map("读取微信车单", error))
+                    }
+                }
+        }
+    }
+
+    private fun showRecord(record: WorkOrder, fromCache: Boolean) {
+        _uiState.update {
+            it.copy(isLoading = false, isRefreshing = false, isOfflineCache = fromCache, record = record, error = null)
         }
     }
 
@@ -104,6 +114,8 @@ private fun WorkOrderImage.preferredVariant(): String =
 
 data class WorkOrderDetailUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
+    val isOfflineCache: Boolean = false,
     val sourceQuery: String = "",
     val record: WorkOrder? = null,
     val history: List<WorkOrder> = emptyList(),

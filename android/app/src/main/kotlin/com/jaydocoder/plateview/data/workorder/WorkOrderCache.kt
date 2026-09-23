@@ -10,9 +10,10 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 
-@Entity(tableName = "work_order_cache")
+@Entity(tableName = "work_order_cache", primaryKeys = ["userId", "recordId"])
 data class WorkOrderCacheEntity(
-    @PrimaryKey val recordId: Long,
+    val userId: Long,
+    val recordId: Long,
     val orderNumber: String?,
     val rawPlate: String?,
     val status: String,
@@ -22,20 +23,31 @@ data class WorkOrderCacheEntity(
     val sentAt: String,
     val searchableText: String,
     val catalogRevision: Long,
+    val cachedAt: Long,
+    val lastValidatedAt: Long,
     val detailJson: String,
 )
 
 @Entity(tableName = "work_order_catalog_state")
-data class WorkOrderCatalogStateEntity(@PrimaryKey val id: Int = 1, val catalogVersion: Long, val checkedAtEpochMillis: Long)
+data class WorkOrderCatalogStateEntity(
+    @PrimaryKey val userId: Long,
+    val catalogVersion: Long,
+    val messageCatalogVersion: Long,
+    val checkedAtEpochMillis: Long,
+)
 
-@Entity(tableName = "wechat_message_cache")
+@Entity(tableName = "wechat_message_cache", primaryKeys = ["userId", "messageId"])
 data class WechatMessageCacheEntity(
-    @PrimaryKey val messageId: Long,
+    val userId: Long,
+    val messageId: Long,
     val businessType: String,
     val displayName: String,
     val sourceName: String,
     val sentAt: String,
     val searchableText: String,
+    val catalogRevision: Long,
+    val cachedAt: Long,
+    val lastValidatedAt: Long,
     val detailJson: String,
 )
 
@@ -72,11 +84,11 @@ interface WorkOrderCacheDao {
     @Query(
         """
         SELECT c.* FROM work_order_cache AS c
-        WHERE c.searchableText LIKE '%' || :keyword || '%'
+        WHERE c.userId = :userId AND c.searchableText LIKE '%' || :keyword || '%'
           AND (
             c.orderNumber IS NULL OR NOT EXISTS (
                 SELECT 1 FROM work_order_cache AS n
-                WHERE n.orderNumber = c.orderNumber
+                WHERE n.userId = c.userId AND n.orderNumber = c.orderNumber
                   AND (n.sentAt > c.sentAt OR (n.sentAt = c.sentAt AND n.recordId > c.recordId))
             )
           )
@@ -96,16 +108,16 @@ interface WorkOrderCacheDao {
         LIMIT :limit
         """,
     )
-    suspend fun search(keyword: String, limit: Int): List<WorkOrderCacheEntity>
+    suspend fun search(userId: Long, keyword: String, limit: Int): List<WorkOrderCacheEntity>
 
-    @Query("SELECT * FROM work_order_cache WHERE recordId = :recordId")
-    suspend fun get(recordId: Long): WorkOrderCacheEntity?
+    @Query("SELECT * FROM work_order_cache WHERE userId = :userId AND recordId = :recordId")
+    suspend fun get(userId: Long, recordId: Long): WorkOrderCacheEntity?
 
-    @Query("SELECT * FROM wechat_message_cache WHERE searchableText LIKE '%' || :keyword || '%' ORDER BY sentAt DESC, messageId DESC LIMIT :limit")
-    suspend fun searchMessages(keyword: String, limit: Int): List<WechatMessageCacheEntity>
+    @Query("SELECT * FROM wechat_message_cache WHERE userId = :userId AND searchableText LIKE '%' || :keyword || '%' ORDER BY sentAt DESC, messageId DESC LIMIT :limit")
+    suspend fun searchMessages(userId: Long, keyword: String, limit: Int): List<WechatMessageCacheEntity>
 
-    @Query("SELECT * FROM wechat_message_cache WHERE messageId = :messageId")
-    suspend fun getMessage(messageId: Long): WechatMessageCacheEntity?
+    @Query("SELECT * FROM wechat_message_cache WHERE userId = :userId AND messageId = :messageId")
+    suspend fun getMessage(userId: Long, messageId: Long): WechatMessageCacheEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMessages(records: List<WechatMessageCacheEntity>)
@@ -113,26 +125,41 @@ interface WorkOrderCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(records: List<WorkOrderCacheEntity>)
 
-    @Query("SELECT * FROM work_order_catalog_state WHERE id = 1")
-    suspend fun state(): WorkOrderCatalogStateEntity?
+    @Query("SELECT * FROM work_order_catalog_state WHERE userId = :userId")
+    suspend fun state(userId: Long): WorkOrderCatalogStateEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun updateState(state: WorkOrderCatalogStateEntity)
 
+    @Query("DELETE FROM work_order_cache WHERE userId = :userId")
+    suspend fun clearRecords(userId: Long)
+
+    @Query("DELETE FROM work_order_catalog_state WHERE userId = :userId")
+    suspend fun clearState(userId: Long)
+
+    @Query("DELETE FROM wechat_message_cache WHERE userId = :userId")
+    suspend fun clearMessages(userId: Long)
+
     @Query("DELETE FROM work_order_cache")
-    suspend fun clearRecords()
+    suspend fun clearAllRecords()
 
     @Query("DELETE FROM work_order_catalog_state")
-    suspend fun clearState()
+    suspend fun clearAllStates()
 
     @Query("DELETE FROM wechat_message_cache")
-    suspend fun clearMessages()
+    suspend fun clearAllMessages()
+
+    @Query("DELETE FROM wechat_attachment_download_tasks")
+    suspend fun clearAllAttachmentTasks()
 
     @Transaction
-    suspend fun clear() { clearRecords(); clearState(); clearMessages() }
+    suspend fun clear(userId: Long) { clearRecords(userId); clearState(userId); clearMessages(userId); clearAttachmentTasks(userId) }
+
+    @Transaction
+    suspend fun clearAll() { clearAllRecords(); clearAllStates(); clearAllMessages(); clearAllAttachmentTasks() }
 }
 
-@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 3, exportSchema = true)
+@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 4, exportSchema = true)
 abstract class WorkOrderCacheDatabase : RoomDatabase() {
     abstract fun dao(): WorkOrderCacheDao
 }

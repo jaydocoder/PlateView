@@ -22,6 +22,31 @@ internal class AdminManagementService(
 ) {
     fun isPrimaryAdministrator(actorId: Long): Boolean = dataSource.connection.use { it.isPrimaryAdministrator(actorId) }
 
+    fun dashboardSummary(actorId: Long): AdminDashboardSummary = dataSource.connection.use { connection ->
+        val primaryAdministrator = connection.isPrimaryAdministrator(actorId)
+        connection.prepareStatement(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM vehicles) AS vehicle_count,
+                (SELECT COUNT(*) FROM users) AS user_count,
+                (SELECT COUNT(*) FROM import_batches) AS import_batch_count
+            """.trimIndent(),
+        ).use { statement ->
+            statement.executeQuery().use { result ->
+                check(result.next()) { "管理概览统计未返回结果" }
+                AdminDashboardSummary(
+                    vehicleCount = result.getInt("vehicle_count"),
+                    userCount = if (primaryAdministrator) result.getInt("user_count") else 0,
+                    importBatchCount = result.getInt("import_batch_count"),
+                    isPrimaryAdministrator = primaryAdministrator,
+                    showSchedulePlanner = primaryAdministrator,
+                    showWechatSync = primaryAdministrator,
+                    updatedAt = Instant.now(),
+                )
+            }
+        }
+    }
+
     fun listVehicles(keyword: String?, status: AdminVehicleStatus?, limit: Int, offset: Int): AdminVehiclePage {
         val normalizedKeyword = keyword?.takeIf(String::isNotBlank)?.let(::normalizePlate)
         return dataSource.connection.use { connection ->
@@ -760,6 +785,16 @@ internal data class AdminVehicleCommand(
 internal data class AdminVehicleCreationCapabilities(
     val creatableCategories: List<VehicleCategory>,
     val canChangeVehicleCategory: Boolean,
+)
+
+internal data class AdminDashboardSummary(
+    val vehicleCount: Int,
+    val userCount: Int,
+    val importBatchCount: Int,
+    val isPrimaryAdministrator: Boolean,
+    val showSchedulePlanner: Boolean,
+    val showWechatSync: Boolean,
+    val updatedAt: Instant,
 )
 
 internal object AdminVehicleCreationPolicy {

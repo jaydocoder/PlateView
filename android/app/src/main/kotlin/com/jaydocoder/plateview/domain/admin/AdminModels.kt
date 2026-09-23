@@ -56,6 +56,17 @@ data class ManagedVehiclePage(
     val total: Int,
 )
 
+data class AdminDashboardSummary(
+    val vehicleCount: Int,
+    val userCount: Int,
+    val importBatchCount: Int,
+    val isPrimaryAdministrator: Boolean,
+    val showSchedulePlanner: Boolean,
+    val showWechatSync: Boolean,
+    val updatedAt: String,
+    val revision: Long,
+)
+
 data class VehicleCreationCapabilities(
     val creatableCategories: List<String>,
     val canChangeVehicleCategory: Boolean,

@@ -129,6 +129,13 @@ internal fun Application.configureWorkOrderFeature() {
                     val messageId = call.parameters["messageId"]?.toLongOrNull() ?: throw IllegalArgumentException("微信消息标识无效")
                     call.respond(service.messageDetail(messageId).toResponse())
                 }
+                get("/messages/catalog/changes") {
+                    val userId = call.requireWorkOrderAccess(service)
+                    if (policyService.resultLimits(userId).wechatMessage == 0) throw WorkOrderPermissionException()
+                    val afterVersion = call.request.queryParameters["afterVersion"]?.toLongOrNull() ?: 0L
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
+                    call.respond(service.messageChanges(afterVersion, limit).toResponse())
+                }
                 get("/messages/{messageId}/attachments/{attachmentId}") {
                     val userId = call.requireWorkOrderAccess(service)
                     if (policyService.resultLimits(userId).wechatMessage == 0) throw WorkOrderPermissionException()
@@ -544,6 +551,8 @@ private fun WorkOrderRecord.toResponse() = WorkOrderResponse(
 )
 @Serializable private data class WechatMessagePageResponse(val records: List<WechatMessageResponse>, val nextOffset: Int?)
 private fun WechatMessagePage.toResponse() = WechatMessagePageResponse(records.map(WechatMessageRecord::toResponse), nextOffset)
+@Serializable private data class WechatMessageChangeResponse(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WechatMessageResponse>)
+private fun WechatMessageChangePage.toResponse() = WechatMessageChangeResponse(catalogVersion, nextVersion, hasMore, records.map(WechatMessageRecord::toResponse))
 @Serializable private data class WechatMessageResponse(
     val id: Long,
     val businessType: String,
@@ -558,10 +567,11 @@ private fun WechatMessagePage.toResponse() = WechatMessagePageResponse(records.m
     val displayName: String,
     val plateNumbers: List<String>,
     val attachments: List<WorkOrderAttachmentResponse>,
+    val catalogRevision: Long,
 )
 private fun WechatMessageRecord.toResponse() = WechatMessageResponse(
     id, businessType, rawContent, matchedSnippet, sentAt.toString(), sourceKey, sourceName, senderUsername,
-    senderDisplay, senderGroupNickname, displayName, plateNumbers, attachments.map(WorkOrderAttachment::toResponse),
+    senderDisplay, senderGroupNickname, displayName, plateNumbers, attachments.map(WorkOrderAttachment::toResponse), catalogRevision,
 )
 @Serializable private data class WorkOrderAttachmentResponse(
     val id: Long,

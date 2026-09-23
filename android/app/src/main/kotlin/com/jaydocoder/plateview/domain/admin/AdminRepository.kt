@@ -1,6 +1,7 @@
 package com.jaydocoder.plateview.domain.admin
 
 interface AdminRepository {
+    suspend fun getDashboardSummary(accessToken: String): AdminDashboardSummary
     suspend fun getClientPolicy(accessToken: String): ClientPolicy = error("当前仓库未实现客户端策略")
     suspend fun updateClientPolicy(accessToken: String, command: ClientPolicyUpdateCommand): ClientPolicy = error("当前仓库未实现客户端策略")
     suspend fun updateClientPolicyLimits(accessToken: String, command: ClientPolicyLimitsCommand): ClientPolicy = error("当前仓库未实现客户端数量策略")

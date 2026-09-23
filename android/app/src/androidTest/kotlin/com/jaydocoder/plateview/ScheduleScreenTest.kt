@@ -127,7 +127,7 @@ class ScheduleScreenTest {
         val template = ScheduleTemplateSummary(1, "demo01", 1, 1, 9, listOf(3), null, null, "INACTIVE")
         composeRule.setContent {
             PlateViewTheme {
-                SchedulePlannerScreen(SchedulePlannerState(templates = listOf(template), loading = false), {}, {}, {}, {}, {}, {}, { _, _ -> }, {})
+                SchedulePlannerScreen(SchedulePlannerState(templates = listOf(template), loading = false), {}, {}, {}, {}, {}, {}, { _, _, _ -> }, {})
             }
         }
 
@@ -144,7 +144,7 @@ class ScheduleScreenTest {
             PlateViewTheme {
                 SchedulePlannerScreen(
                     state = SchedulePlannerState(loading = false, applicationSuccessMessage = "模板已从2026年9月1日开始生效"),
-                    onNavigateUp = {}, onNew = {}, onEdit = {}, onChanged = {}, onSave = {}, onDismiss = {}, onApply = { _, _ -> }, onDelete = {},
+                    onNavigateUp = {}, onNew = {}, onEdit = {}, onChanged = {}, onSave = {}, onDismiss = {}, onApply = { _, _, _ -> }, onDelete = {},
                 )
             }
         }
@@ -163,7 +163,7 @@ class ScheduleScreenTest {
                     state = SchedulePlannerState(configuration = SchedulePlanningConfiguration(9, emptyList(), listOf(liu, xu)), editor = ScheduleTemplateEditor(), loading = false),
                     onNavigateUp = {}, onNew = {}, onEdit = {},
                     onChanged = { transform -> latestEditor = transform(ScheduleTemplateEditor()) },
-                    onSave = {}, onDismiss = {}, onApply = { _, _ -> }, onDelete = {},
+                    onSave = {}, onDismiss = {}, onApply = { _, _, _ -> }, onDelete = {},
                 )
             }
         }

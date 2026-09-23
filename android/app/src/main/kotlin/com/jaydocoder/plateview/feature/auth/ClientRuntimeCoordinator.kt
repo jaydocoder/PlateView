@@ -39,8 +39,8 @@ class ClientRuntimeCoordinator @Inject constructor(
             vehicleCacheRepository.clearSnapshot()
             searchHistoryRepository.clear(session.username)
         }
-        if (active.workOrderResultLimit == 0) workOrderRepository.clearWorkOrders()
-        if (active.wechatMessageResultLimit == 0) workOrderRepository.clearMessages()
+        if (active.workOrderResultLimit == 0) workOrderRepository.clearWorkOrders(session.userId)
+        if (active.wechatMessageResultLimit == 0) workOrderRepository.clearMessages(session.userId)
         if (active.workOrderResultLimit == 0 && active.wechatMessageResultLimit == 0) {
             workOrderRepository.clear(session.userId)
         }
@@ -82,7 +82,7 @@ class ClientRuntimeCoordinator @Inject constructor(
             runCatching { vehicleCacheRepository.synchronizeCatalog(session.accessToken, forceVersionCheck = true) }
         }
         if (session.wechatWorkOrderAccessEnabled && (policy.workOrderResultLimit > 0 || policy.wechatMessageResultLimit > 0)) {
-            runCatching { workOrderRepository.synchronize(session.accessToken, forceVersionCheck = true) }
+            runCatching { workOrderRepository.synchronize(session.accessToken, session.userId, forceVersionCheck = true) }
             runCatching { workOrderRepository.synchronizeAttachments(session.accessToken, session.userId) }
         }
     }

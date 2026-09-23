@@ -14,6 +14,9 @@ import retrofit2.http.Query
 import okhttp3.ResponseBody
 
 interface AdminApi {
+    @GET("admin/dashboard-summary")
+    suspend fun getDashboardSummary(@Header("Authorization") authorization: String): AdminDashboardSummaryDto
+
     @GET("admin/client-policy")
     suspend fun getClientPolicy(@Header("Authorization") authorization: String): ClientPolicyDto
 
@@ -253,3 +256,14 @@ interface AdminApi {
         @Query("variant") variant: String = "preview",
     ): retrofit2.Response<ResponseBody>
 }
+
+data class AdminDashboardSummaryDto(
+    val vehicleCount: Int,
+    val userCount: Int,
+    val importBatchCount: Int,
+    val isPrimaryAdministrator: Boolean,
+    val showSchedulePlanner: Boolean,
+    val showWechatSync: Boolean,
+    val updatedAt: String,
+    val revision: Long,
+)

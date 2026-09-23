@@ -366,10 +366,10 @@ fun AdminWorkspaceScreen(
                     when (uiState.tab) {
                         AdminTab.Dashboard -> DashboardPane(
                             vehiclesCount = uiState.vehicleTotalCount,
-                            usersCount = uiState.users.size,
-                            importsCount = uiState.importBatches.size,
-                            showSchedulePlanner = uiState.isPrimaryAdministrator,
-                            showWechatSync = uiState.isPrimaryAdministrator,
+                            usersCount = uiState.dashboardUserCount,
+                            importsCount = uiState.dashboardImportCount,
+                            showSchedulePlanner = uiState.showSchedulePlanner,
+                            showWechatSync = uiState.showWechatSync,
                             showPrimaryAdministration = uiState.isPrimaryAdministrator,
                             onTabSelected = onTabSelected,
                             onOpenSchedulePlanner = onOpenSchedulePlanner,

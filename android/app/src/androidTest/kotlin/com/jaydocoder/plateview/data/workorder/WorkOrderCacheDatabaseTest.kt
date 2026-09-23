@@ -43,12 +43,13 @@ class WorkOrderCacheDatabaseTest {
             ),
         )
 
-        val result = database.dao().search("测试", 20)
+        val result = database.dao().search(7, "测试", 20)
 
         assertEquals(listOf("0916024", "0916002", "0915029", "格式异常"), result.map { it.orderNumber })
     }
 
     private fun entity(id: Long, orderNumber: String, sentAt: String) = WorkOrderCacheEntity(
+        userId = 7,
         recordId = id,
         orderNumber = orderNumber,
         rawPlate = "新H27274",
@@ -59,6 +60,8 @@ class WorkOrderCacheDatabaseTest {
         sentAt = sentAt,
         searchableText = "测试$orderNumber",
         catalogRevision = id,
+        cachedAt = id,
+        lastValidatedAt = id,
         detailJson = "{}",
     )
 }

@@ -35,7 +35,7 @@ class WechatMessageDetailViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = it.message == null, isRefreshing = it.message != null, error = null) }
             val session = sessionProvider.session.first()
             if (session == null || !session.wechatWorkOrderAccessEnabled) {
                 repository.clear(session?.userId)
@@ -44,16 +44,24 @@ class WechatMessageDetailViewModel @Inject constructor(
                 }
                 return@launch
             }
-            runCatching { repository.getMessageDetail(session.accessToken, messageId) }
+            val cached = runCatching { repository.getCachedWechatMessage(session.userId, messageId) }.getOrNull()
+            if (cached != null) showMessage(cached, fromCache = true)
+            runCatching { repository.refreshWechatMessage(session.accessToken, session.userId, messageId) }
                 .onSuccess { message ->
-                    _uiState.update { it.copy(isLoading = false, message = message) }
-                    message.attachments
-                        .filter { it.availability in setOf("AVAILABLE", "THUMBNAIL_ONLY") }
-                        .forEach { attachment ->
-                            loadAttachment(message.id, attachment, attachment.preferredVariant())
-                        }
+                    showMessage(message, fromCache = false)
                 }
-                .onFailure { error -> _uiState.update { it.copy(isLoading = false, error = AppErrorMapper.map("读取微信聊天记录", error)) } }
+                .onFailure { error ->
+                    _uiState.update {
+                        if (it.message != null) it.copy(isLoading = false, isRefreshing = false, isOfflineCache = true)
+                        else it.copy(isLoading = false, isRefreshing = false, error = AppErrorMapper.map("读取微信聊天记录", error))
+                    }
+                }
+        }
+    }
+
+    private fun showMessage(message: WechatMessage, fromCache: Boolean) {
+        _uiState.update {
+            it.copy(isLoading = false, isRefreshing = false, isOfflineCache = fromCache, message = message, error = null)
         }
     }
 
@@ -119,6 +127,8 @@ private fun WorkOrderAttachment.preferredVariant(): String =
 
 data class WechatMessageDetailUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
+    val isOfflineCache: Boolean = false,
     val message: WechatMessage? = null,
     val attachmentFiles: Map<Long, CachedWorkOrderImage> = emptyMap(),
     val attachmentLoading: Set<Long> = emptySet(),

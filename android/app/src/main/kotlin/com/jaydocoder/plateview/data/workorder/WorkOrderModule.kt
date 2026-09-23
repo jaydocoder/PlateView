@@ -30,6 +30,7 @@ object WorkOrderDataModule {
             .openHelperFactory(SupportFactory(passphrase.getOrCreate()))
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_1_2)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_2_3)
+            .addMigrations(WORK_ORDER_CACHE_MIGRATION_3_4)
             .build()
 
     @Provides
@@ -76,6 +77,23 @@ private val WORK_ORDER_CACHE_MIGRATION_2_3 = object : Migration(2, 3) {
                 PRIMARY KEY(`userId`, `attachmentId`, `variant`, `sha256`)
             )
             """.trimIndent(),
+        )
+    }
+}
+
+private val WORK_ORDER_CACHE_MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("DROP TABLE IF EXISTS `work_order_cache`")
+        database.execSQL("DROP TABLE IF EXISTS `wechat_message_cache`")
+        database.execSQL("DROP TABLE IF EXISTS `work_order_catalog_state`")
+        database.execSQL(
+            "CREATE TABLE `work_order_cache` (`userId` INTEGER NOT NULL, `recordId` INTEGER NOT NULL, `orderNumber` TEXT, `rawPlate` TEXT, `status` TEXT NOT NULL, `sourceName` TEXT NOT NULL, `location` TEXT, `rawValidTime` TEXT, `sentAt` TEXT NOT NULL, `searchableText` TEXT NOT NULL, `catalogRevision` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `lastValidatedAt` INTEGER NOT NULL, `detailJson` TEXT NOT NULL, PRIMARY KEY(`userId`, `recordId`))",
+        )
+        database.execSQL(
+            "CREATE TABLE `wechat_message_cache` (`userId` INTEGER NOT NULL, `messageId` INTEGER NOT NULL, `businessType` TEXT NOT NULL, `displayName` TEXT NOT NULL, `sourceName` TEXT NOT NULL, `sentAt` TEXT NOT NULL, `searchableText` TEXT NOT NULL, `catalogRevision` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, `lastValidatedAt` INTEGER NOT NULL, `detailJson` TEXT NOT NULL, PRIMARY KEY(`userId`, `messageId`))",
+        )
+        database.execSQL(
+            "CREATE TABLE `work_order_catalog_state` (`userId` INTEGER NOT NULL, `catalogVersion` INTEGER NOT NULL, `messageCatalogVersion` INTEGER NOT NULL, `checkedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`userId`))",
         )
     }
 }

@@ -52,6 +52,19 @@ import java.net.SocketTimeoutException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminWorkspaceViewModelTest {
+    @Test
+    fun `管理概览不加载完整业务列表`() = runTest {
+        val repository = FakeAdminRepository()
+
+        createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        assertEquals(0, repository.creationCapabilitiesRequestCount)
+        assertEquals(0, repository.vehicleListRequestCount)
+        assertEquals(0, repository.userListRequestCount)
+        assertEquals(0, repository.importListRequestCount)
+    }
+
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
@@ -61,15 +74,15 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
-    fun `管理员打开工作台时加载概览数据`() = runTest {
+    fun `管理员打开工作台时加载概览统计`() = runTest {
         val repository = FakeAdminRepository()
         val viewModel = createViewModel(repository = repository)
 
         advanceUntilIdle()
 
-        assertEquals(1, viewModel.uiState.value.vehicles.size)
-        assertEquals(1, viewModel.uiState.value.users.size)
-        assertEquals(1, viewModel.uiState.value.importBatches.size)
+        assertEquals(1, viewModel.uiState.value.vehicleTotalCount)
+        assertEquals(1, viewModel.uiState.value.dashboardUserCount)
+        assertEquals(1, viewModel.uiState.value.dashboardImportCount)
     }
 
     @Test
@@ -91,7 +104,7 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
-    fun `进入微信同步页会主动缓存全部附件原件`() = runTest {
+    fun `进入微信同步页不会主动下载全部附件原件`() = runTest {
         val repository = FakeAdminRepository(
             wechatIssues = listOf(
                 WechatSyncIssue("ATTACHMENT_CONFLICT", null, 41, "工作群", "2026-09-20T01:00:00Z", "图片待关联", "IMAGE"),
@@ -104,8 +117,8 @@ class AdminWorkspaceViewModelTest {
         viewModel.selectTab(AdminTab.WechatSync)
         advanceUntilIdle()
 
-        assertEquals(listOf(41L to "original", 42L to "original"), repository.downloadedWechatAttachments)
-        assertEquals(setOf(41L, 42L), viewModel.uiState.value.wechatAttachmentFiles.keys)
+        assertTrue(repository.downloadedWechatAttachments.isEmpty())
+        assertTrue(viewModel.uiState.value.wechatAttachmentFiles.isEmpty())
         assertEquals(2, viewModel.uiState.value.totalWechatAttachmentCount)
         assertEquals(1, viewModel.uiState.value.completedWechatAttachmentCount)
         assertEquals(1, viewModel.uiState.value.pendingWechatAttachmentCount)
@@ -149,6 +162,8 @@ class AdminWorkspaceViewModelTest {
         val viewModel = createViewModel(repository = repository)
         advanceUntilIdle()
 
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
         viewModel.createVehicle()
         viewModel.updateVehicleEditor { it.copy(plateNumber = "新A12345") }
         viewModel.saveVehicle()
@@ -165,6 +180,8 @@ class AdminWorkspaceViewModelTest {
         val viewModel = createViewModel(repository = repository)
         advanceUntilIdle()
 
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
         viewModel.createVehicle()
         viewModel.updateVehicleEditor { it.copy(plateNumber = "新A12345") }
         viewModel.saveVehicle()
@@ -181,6 +198,8 @@ class AdminWorkspaceViewModelTest {
         val viewModel = createViewModel(repository = repository)
         advanceUntilIdle()
 
+        viewModel.selectTab(AdminTab.Vehicles)
+        advanceUntilIdle()
         viewModel.createVehicle()
 
         assertEquals("OTHER_LONG_TERM", viewModel.uiState.value.vehicleEditor?.category)
@@ -193,6 +212,8 @@ class AdminWorkspaceViewModelTest {
         val viewModel = createViewModel(repository = repository)
         advanceUntilIdle()
 
+        viewModel.selectTab(AdminTab.Users)
+        advanceUntilIdle()
         viewModel.editUser(11)
         viewModel.saveUser()
         advanceUntilIdle()
@@ -218,7 +239,7 @@ class AdminWorkspaceViewModelTest {
 
         assertEquals(2, viewModel.uiState.value.vehicleTotalCount)
         assertEquals(listOf(firstVehicle, secondVehicle), viewModel.uiState.value.vehicles)
-        assertEquals(listOf(0, 0, 1), repository.vehicleOffsets)
+        assertEquals(listOf(0, 1), repository.vehicleOffsets)
     }
 
     @Test
@@ -259,7 +280,7 @@ class AdminWorkspaceViewModelTest {
         val repository = FakeAdminRepository(
             vehiclePageProvider = { _, _, _ ->
                 requests += 1
-                if (requests == 2) throw SocketTimeoutException("首次筛选失败")
+                if (requests == 1) throw SocketTimeoutException("首次筛选失败")
                 ManagedVehiclePage(listOf(expected), 1)
             },
         )
@@ -269,7 +290,7 @@ class AdminWorkspaceViewModelTest {
         viewModel.selectTab(AdminTab.Vehicles)
         advanceUntilIdle()
 
-        assertEquals(3, requests)
+        assertEquals(2, requests)
         assertEquals(listOf(expected), viewModel.uiState.value.vehicles)
         assertEquals(null, viewModel.uiState.value.failure)
     }
@@ -308,7 +329,7 @@ class AdminWorkspaceViewModelTest {
         assertTrue(viewModel.uiState.value.vehicles.isEmpty())
         assertTrue(viewModel.uiState.value.isVehiclePageLoading)
         viewModel.loadMoreVehicles()
-        assertEquals(listOf(0, 0, 0), repository.vehicleOffsets)
+        assertEquals(listOf(0, 0), repository.vehicleOffsets)
 
         filteredPage.complete(ManagedVehiclePage(listOf(blacklistedVehicle), 1))
         advanceUntilIdle()
@@ -321,9 +342,7 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
-    fun `切入车辆页后概览的旧列表结果不会覆盖当前数据`() = runTest {
-        val dashboardPage = CompletableDeferred<ManagedVehiclePage>()
-        val dashboardVehicle = ManagedVehicleSummary(101, "新A11111", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
+    fun `切入车辆页后只加载当前列表`() = runTest {
         val vehiclePage = ManagedVehiclePage(
             listOf(ManagedVehicleSummary(202, "新A22222", "RESIDENT", "村民车辆", "BLACKLISTED", 0, null)),
             1,
@@ -332,19 +351,18 @@ class AdminWorkspaceViewModelTest {
         val repository = FakeAdminRepository(
             vehiclePageProvider = { _, _, _ ->
                 requestCount += 1
-                if (requestCount == 1) dashboardPage.await() else vehiclePage
+                vehiclePage
             },
         )
         val viewModel = createViewModel(repository = repository)
-        runCurrent()
+        advanceUntilIdle()
 
         viewModel.selectTab(AdminTab.Vehicles)
-        advanceUntilIdle()
-        dashboardPage.complete(ManagedVehiclePage(listOf(dashboardVehicle), 1))
         advanceUntilIdle()
 
         assertEquals(vehiclePage.items, viewModel.uiState.value.vehicles)
         assertEquals(vehiclePage.total, viewModel.uiState.value.vehicleTotalCount)
+        assertEquals(1, requestCount)
     }
 
     @Test
@@ -540,6 +558,10 @@ private class FakeAdminRepository(
     ),
     private val wechatIssues: List<WechatSyncIssue> = emptyList(),
 ) : AdminRepository {
+    var creationCapabilitiesRequestCount = 0
+    var vehicleListRequestCount = 0
+    var userListRequestCount = 0
+    var importListRequestCount = 0
     var createdVehicleCount = 0
     val vehicleOffsets = mutableListOf<Int>()
     val vehicleKeywords = mutableListOf<String?>()
@@ -555,7 +577,21 @@ private class FakeAdminRepository(
     private val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
     private val batch = ManagedImportBatchSummary(1, "测试.xlsx", "VALIDATED", 1, 1, 0, 0, 0, null, null, null)
 
-    override suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities = creationCapabilities
+    override suspend fun getDashboardSummary(accessToken: String) = com.jaydocoder.plateview.domain.admin.AdminDashboardSummary(
+        vehicleCount = vehicleTotal,
+        userCount = 1,
+        importBatchCount = 1,
+        isPrimaryAdministrator = true,
+        showSchedulePlanner = true,
+        showWechatSync = true,
+        updatedAt = "2026-09-23T00:00:00Z",
+        revision = 1,
+    )
+
+    override suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities {
+        creationCapabilitiesRequestCount += 1
+        return creationCapabilities
+    }
 
     override suspend fun listVehicles(
         accessToken: String,
@@ -564,6 +600,7 @@ private class FakeAdminRepository(
         limit: Int,
         offset: Int,
     ): ManagedVehiclePage {
+        vehicleListRequestCount += 1
         vehicleOffsets += offset
         vehicleKeywords += keyword
         vehicleStatuses += status
@@ -594,7 +631,10 @@ private class FakeAdminRepository(
             longTermProfile = null,
         )
     }
-    override suspend fun listUsers(accessToken: String): List<ManagedUser> = listOf(user)
+    override suspend fun listUsers(accessToken: String): List<ManagedUser> {
+        userListRequestCount += 1
+        return listOf(user)
+    }
     override suspend fun getWechatSyncStatus(accessToken: String): List<WechatSyncSource> = emptyList()
     override suspend fun getWechatSyncOverview(accessToken: String) = WechatSyncOverview(
         issues = wechatIssues,
@@ -625,7 +665,10 @@ private class FakeAdminRepository(
         updateUserFailure?.let { throw it }
         return user
     }
-    override suspend fun listImportBatches(accessToken: String): List<ManagedImportBatchSummary> = listOf(batch)
+    override suspend fun listImportBatches(accessToken: String): List<ManagedImportBatchSummary> {
+        importListRequestCount += 1
+        return listOf(batch)
+    }
     override suspend fun getImportBatch(
         accessToken: String,
         batchId: Long,

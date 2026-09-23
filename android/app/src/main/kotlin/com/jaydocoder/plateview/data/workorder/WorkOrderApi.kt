@@ -29,6 +29,13 @@ interface WorkOrderApi {
     @GET("work-orders/messages/{messageId}")
     suspend fun messageDetail(@Header("Authorization") authorization: String, @Path("messageId") messageId: Long): WechatMessageDto
 
+    @GET("work-orders/messages/catalog/changes")
+    suspend fun messageChanges(
+        @Header("Authorization") authorization: String,
+        @Query("afterVersion") afterVersion: Long,
+        @Query("limit") limit: Int,
+    ): WechatMessageChangesDto
+
     @GET("work-orders/catalog/version")
     suspend fun catalogVersion(@Header("Authorization") authorization: String): WorkOrderCatalogVersionDto
 
@@ -96,6 +103,7 @@ data class WorkOrderHomeSearchResponseDto(
 )
 data class WorkOrderCatalogVersionDto(val catalogVersion: Long)
 data class WorkOrderChangesDto(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WorkOrderDto>)
+data class WechatMessageChangesDto(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WechatMessageDto>)
 data class WorkOrderHistoryDto(val records: List<WorkOrderDto>)
 data class WorkOrderDto(
     val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?,
@@ -127,6 +135,7 @@ data class WechatMessageDto(
     val displayName: String,
     val plateNumbers: List<String> = emptyList(),
     val attachments: List<WorkOrderAttachmentDto> = emptyList(),
+    val catalogRevision: Long = 0,
 )
 data class WorkOrderAttachmentDto(
     val id: Long,

@@ -164,6 +164,7 @@ class AdminWorkspaceViewModel @Inject constructor(
 
     fun refresh() {
         if (_uiState.value.tab == AdminTab.Vehicles) {
+            launchAdminAction { accessToken -> loadVehicleCreationCapabilities(accessToken) }
             refreshVehicles()
             return
         }
@@ -189,33 +190,6 @@ class AdminWorkspaceViewModel @Inject constructor(
                             pendingWechatAttachmentCount = overview.pendingAttachmentCount,
                             wechatPassageSenders = repository.getWechatPassageSenders(accessToken),
                         )
-                    }
-                    viewModelScope.launch {
-                        issues.mapNotNull { issue -> issue.imageId?.let { it to issue } }.distinctBy { it.first }.forEach { (imageId, issue) ->
-                            runCatching {
-                                repository.downloadWechatAttachment(
-                                    accessToken,
-                                    session.userId,
-                                    imageId,
-                                    "original",
-                                    issue.sha256,
-                                    issue.sourceQuality,
-                                )
-                            }
-                                .onSuccess { attachment ->
-                                    _uiState.update { state ->
-                                        state.copy(
-                                            wechatAttachmentFiles = state.wechatAttachmentFiles + (imageId to attachment),
-                                            wechatAttachmentFailures = state.wechatAttachmentFailures - imageId,
-                                        )
-                                    }
-                                }
-                                .onFailure {
-                                    _uiState.update { state ->
-                                        state.copy(wechatAttachmentFailures = state.wechatAttachmentFailures + imageId)
-                                    }
-                                }
-                        }
                     }
                 }
                 AdminTab.DataAccess -> {
@@ -695,22 +669,21 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun loadDashboard(accessToken: String) {
+        _uiState.update { it.copy(isDashboardRefreshing = true) }
         val session = sessionProvider.session.first() ?: return
-        val capabilities = repository.getVehicleCreationCapabilities(accessToken)
-        val vehiclePage = repository.listVehicles(accessToken)
-        val isPrimaryAdministrator = session.role == "ADMIN" && session.username == "admin"
-        val users = if (isPrimaryAdministrator) repository.listUsers(accessToken) else emptyList()
-        val batches = repository.listImportBatches(accessToken)
+        val summary = repository.getDashboardSummary(accessToken)
+        val isPrimaryAdministrator = summary.isPrimaryAdministrator && session.role == "ADMIN" && session.username == "admin"
         if (_uiState.value.tab != AdminTab.Dashboard) return
         _uiState.update {
             it.copy(
-                vehicles = vehiclePage.items,
-                vehicleTotalCount = vehiclePage.total,
-                creatableVehicleCategories = capabilities.creatableCategories,
-                canChangeVehicleCategory = capabilities.canChangeVehicleCategory,
-                users = users,
-                importBatches = batches,
+                vehicleTotalCount = summary.vehicleCount,
+                dashboardUserCount = summary.userCount,
+                dashboardImportCount = summary.importBatchCount,
                 isPrimaryAdministrator = isPrimaryAdministrator,
+                showSchedulePlanner = summary.showSchedulePlanner && isPrimaryAdministrator,
+                showWechatSync = summary.showWechatSync && isPrimaryAdministrator,
+                dashboardUpdatedAt = summary.updatedAt,
+                isDashboardRefreshing = false,
             )
         }
     }

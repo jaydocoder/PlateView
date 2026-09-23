@@ -189,98 +189,49 @@ class SearchViewModel @Inject constructor(
             val jobs = mutableListOf<kotlinx.coroutines.Job>()
             if (limits.vehicleResultLimit == 0) {
                 jobs += launch { vehicleCacheRepository.clearSnapshot() }
-            } else jobs += listOf(
-                launch {
-                    runCatching { vehicleCacheRepository.search(normalizedQuery, limits.vehicleResultLimit) }
-                        .onSuccess { local ->
-                            if (local.isNotEmpty()) _uiState.update {
-                                if (it.vehicleSectionState is SearchSectionState.Loading) {
-                                    it.copy(candidates = local, resultState = SearchResultState.Idle)
-                                } else {
-                                    it
-                                }
-                            }
+            } else jobs += launch {
+                runCatching { vehicleCacheRepository.search(normalizedQuery, limits.vehicleResultLimit) }
+                    .onSuccess { local ->
+                        _uiState.update {
+                            it.copy(
+                                candidates = local,
+                                vehicleSectionState = if (local.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
+                            )
                         }
-                        .onFailure(Throwable::rethrowIfCancellation)
-                },
-                launch {
-                    runCatching { vehicleRepository.search(session.accessToken, normalizedQuery).take(limits.vehicleResultLimit) }
-                        .onSuccess { remote ->
-                            _uiState.update {
-                                it.copy(
-                                    candidates = remote,
-                                    vehicleSectionState = if (remote.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
-                                )
-                            }
-                        }
-                        .onFailure { error ->
-                            error.rethrowIfCancellation()
-                            if (error is HttpException && error.code() == HTTP_UNAUTHORIZED) sessionProvider.logout()
-                            _uiState.update { it.copy(vehicleSectionState = SearchSectionState.Error(AppErrorMapper.map("查询匹配车辆", error))) }
-                        }
-                },
-            )
+                    }
+                    .onFailure { error ->
+                        error.rethrowIfCancellation()
+                        _uiState.update { it.copy(vehicleSectionState = SearchSectionState.Error(AppErrorMapper.map("查询本地车辆缓存", error))) }
+                    }
+            }
 
             if (!session.wechatWorkOrderAccessEnabled) {
                 jobs += launch { runCatching { workOrderRepository.clear(session.userId) } }
             } else {
-                if (limits.workOrderResultLimit == 0) jobs += launch { workOrderRepository.clearWorkOrders() } else jobs += launch {
-                    runCatching { workOrderRepository.searchCached(normalizedQuery, limits.workOrderResultLimit) }
-                        .onSuccess { local ->
-                            if (local.isNotEmpty()) _uiState.update {
-                                if (it.workOrderSectionState is SearchSectionState.Loading) {
-                                    it.copy(workOrderCandidates = local, resultState = SearchResultState.Idle)
-                                } else {
-                                    it
-                                }
-                            }
-                        }
-                        .onFailure(Throwable::rethrowIfCancellation)
-                }
-                if (limits.wechatMessageResultLimit == 0) jobs += launch { workOrderRepository.clearMessages() } else jobs += launch {
-                    runCatching { workOrderRepository.searchMessagesCached(normalizedQuery, limits.wechatMessageResultLimit) }
-                        .onSuccess { local ->
-                            if (local.isNotEmpty()) _uiState.update {
-                                if (it.wechatMessageSectionState is SearchSectionState.Loading) {
-                                    it.copy(wechatMessages = local, resultState = SearchResultState.Idle)
-                                } else {
-                                    it
-                                }
-                            }
-                        }
-                        .onFailure(Throwable::rethrowIfCancellation)
-                }
-                if (limits.workOrderResultLimit > 0 || limits.wechatMessageResultLimit > 0) jobs += launch {
-                    runCatching { workOrderRepository.searchHomeRemote(session.accessToken, normalizedQuery, maxOf(limits.workOrderResultLimit, limits.wechatMessageResultLimit)) }
-                        .onSuccess { remote ->
-                            val sectionFailure = AppErrorMapper.map("查询微信记录", IllegalStateException("搜索分区暂时不可用"))
-                            _uiState.update {
-                                it.copy(
-                                    workOrderCandidates = remote.workOrders.take(limits.workOrderResultLimit),
-                                    wechatMessages = remote.wechatMessages.take(limits.wechatMessageResultLimit),
-                                    workOrderSectionState = when {
-                                        remote.workOrderFailed -> SearchSectionState.Error(sectionFailure)
-                                        remote.workOrders.isEmpty() -> SearchSectionState.Empty
-                                        else -> SearchSectionState.Success
-                                    },
-                                    wechatMessageSectionState = when {
-                                        remote.wechatMessageFailed -> SearchSectionState.Error(sectionFailure)
-                                        remote.wechatMessages.isEmpty() -> SearchSectionState.Empty
-                                        else -> SearchSectionState.Success
-                                    },
-                                )
-                            }
-                        }
+                if (limits.workOrderResultLimit == 0) jobs += launch { workOrderRepository.clearWorkOrders(session.userId) } else jobs += launch {
+                    runCatching { workOrderRepository.searchCached(session.userId, normalizedQuery, limits.workOrderResultLimit) }
+                        .onSuccess { local -> _uiState.update {
+                            it.copy(
+                                workOrderCandidates = local,
+                                workOrderSectionState = if (local.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
+                            )
+                        } }
                         .onFailure { error ->
                             error.rethrowIfCancellation()
-                            if (error is HttpException && error.code() == HTTP_FORBIDDEN) workOrderRepository.clear(session.userId)
-                            val mapped = AppErrorMapper.map("查询微信记录", error)
-                            _uiState.update {
-                                it.copy(
-                                    workOrderSectionState = SearchSectionState.Error(mapped),
-                                    wechatMessageSectionState = SearchSectionState.Error(mapped),
-                                )
-                            }
+                            _uiState.update { it.copy(workOrderSectionState = SearchSectionState.Error(AppErrorMapper.map("查询本地微信车单缓存", error))) }
+                        }
+                }
+                if (limits.wechatMessageResultLimit == 0) jobs += launch { workOrderRepository.clearMessages(session.userId) } else jobs += launch {
+                    runCatching { workOrderRepository.searchMessagesCached(session.userId, normalizedQuery, limits.wechatMessageResultLimit) }
+                        .onSuccess { local -> _uiState.update {
+                            it.copy(
+                                wechatMessages = local,
+                                wechatMessageSectionState = if (local.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
+                            )
+                        } }
+                        .onFailure { error ->
+                            error.rethrowIfCancellation()
+                            _uiState.update { it.copy(wechatMessageSectionState = SearchSectionState.Error(AppErrorMapper.map("查询本地微信聊天缓存", error))) }
                         }
                 }
             }
@@ -310,25 +261,29 @@ class SearchViewModel @Inject constructor(
             val session = sessionProvider.session.first() ?: return@launch
             if (runtimePolicyRepository.cacheMaintenanceActive.value) return@launch
             val limits = runtimePolicyRepository.policy.value
+            var catalogChanged = false
             if (limits.vehicleResultLimit > 0) {
                 runCatching {
                     vehicleCacheRepository.synchronizeCatalog(
                         accessToken = session.accessToken,
                         forceVersionCheck = forceVersionCheck,
                     )
+                }.onSuccess { catalogChanged = catalogChanged || it.refreshed
                 }.onFailure(Throwable::rethrowIfCancellation)
             } else {
                 runCatching { vehicleCacheRepository.clearSnapshot() }
             }
-            if (session.wechatWorkOrderAccessEnabled && limits.workOrderResultLimit > 0) {
-                runCatching { workOrderRepository.synchronize(session.accessToken, forceVersionCheck) }
+            if (session.wechatWorkOrderAccessEnabled && (limits.workOrderResultLimit > 0 || limits.wechatMessageResultLimit > 0)) {
+                runCatching { workOrderRepository.synchronize(session.accessToken, session.userId, forceVersionCheck) }
+                    .onSuccess { catalogChanged = catalogChanged || it.refreshed }
                     .onFailure(Throwable::rethrowIfCancellation)
             } else {
-                runCatching { workOrderRepository.clearWorkOrders() }
+                runCatching { workOrderRepository.clearWorkOrders(session.userId) }
             }
             if (!session.wechatWorkOrderAccessEnabled || limits.wechatMessageResultLimit == 0) {
-                runCatching { workOrderRepository.clearMessages() }
+                runCatching { workOrderRepository.clearMessages(session.userId) }
             }
+            if (catalogChanged && query.value.isNotBlank()) retryVersion.update(Int::inc)
         }
     }
 

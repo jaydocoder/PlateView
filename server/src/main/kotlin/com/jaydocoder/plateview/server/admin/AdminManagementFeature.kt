@@ -32,6 +32,10 @@ internal fun Application.configureAdminManagementFeature() {
     routing {
         authenticate("access-token") {
             route("/admin") {
+                get("/dashboard-summary") {
+                    val actorId = call.requireAdministrator() ?: return@get
+                    call.respond(service.dashboardSummary(actorId).toResponse())
+                }
                 route("/vehicles") {
                     get("/creation-capabilities") {
                         val actorId = call.requireAdministrator() ?: return@get
@@ -408,6 +412,16 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 )
 
 @Serializable private data class AdminVehicleListResponse(val items: List<AdminVehicleListItemResponse>, val total: Int)
+@Serializable private data class AdminDashboardSummaryResponse(
+    val vehicleCount: Int,
+    val userCount: Int,
+    val importBatchCount: Int,
+    val isPrimaryAdministrator: Boolean,
+    val showSchedulePlanner: Boolean,
+    val showWechatSync: Boolean,
+    val updatedAt: String,
+    val revision: Long,
+)
 @Serializable private data class AdminVehicleCreationCapabilitiesResponse(
     val creatableCategories: List<String>,
     val canChangeVehicleCategory: Boolean,
@@ -433,6 +447,16 @@ private fun AdminAuditActor.toResponse(): AdminAuditActorResponse = AdminAuditAc
 private fun AdminVehicleCreationCapabilities.toResponse() = AdminVehicleCreationCapabilitiesResponse(
     creatableCategories = creatableCategories.map(VehicleCategory::name),
     canChangeVehicleCategory = canChangeVehicleCategory,
+)
+private fun AdminDashboardSummary.toResponse() = AdminDashboardSummaryResponse(
+    vehicleCount = vehicleCount,
+    userCount = userCount,
+    importBatchCount = importBatchCount,
+    isPrimaryAdministrator = isPrimaryAdministrator,
+    showSchedulePlanner = showSchedulePlanner,
+    showWechatSync = showWechatSync,
+    updatedAt = updatedAt.toString(),
+    revision = updatedAt.toEpochMilli(),
 )
 @Serializable private data class AdminAuditActorResponse(val id: Long, val username: String?)
 

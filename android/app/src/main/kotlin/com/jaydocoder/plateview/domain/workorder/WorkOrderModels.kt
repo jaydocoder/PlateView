@@ -93,24 +93,26 @@ data class WorkOrderHomeSearchResult(
 )
 
 interface WorkOrderRepository {
-    suspend fun searchCached(keyword: String): List<WorkOrder>
-    suspend fun searchCached(keyword: String, limit: Int): List<WorkOrder> = searchCached(keyword).take(limit)
+    suspend fun searchCached(userId: Long, keyword: String): List<WorkOrder>
+    suspend fun searchCached(userId: Long, keyword: String, limit: Int): List<WorkOrder> = searchCached(userId, keyword).take(limit)
     suspend fun searchRemote(accessToken: String, keyword: String): List<WorkOrder>
-    suspend fun searchMessagesCached(keyword: String): List<WechatMessage>
-    suspend fun searchMessagesCached(keyword: String, limit: Int): List<WechatMessage> = searchMessagesCached(keyword).take(limit)
+    suspend fun searchMessagesCached(userId: Long, keyword: String): List<WechatMessage>
+    suspend fun searchMessagesCached(userId: Long, keyword: String, limit: Int): List<WechatMessage> = searchMessagesCached(userId, keyword).take(limit)
     suspend fun searchMessagesRemote(accessToken: String, keyword: String, offset: Int = 0): WechatMessagePage
-    suspend fun searchHomeRemote(accessToken: String, keyword: String): WorkOrderHomeSearchResult
-    suspend fun searchHomeRemote(accessToken: String, keyword: String, limit: Int): WorkOrderHomeSearchResult = searchHomeRemote(accessToken, keyword)
-    suspend fun getMessageDetail(accessToken: String, messageId: Long): WechatMessage
-    suspend fun synchronize(accessToken: String, forceVersionCheck: Boolean = false): WorkOrderSyncResult
+    suspend fun searchHomeRemote(accessToken: String, userId: Long, keyword: String): WorkOrderHomeSearchResult
+    suspend fun searchHomeRemote(accessToken: String, userId: Long, keyword: String, limit: Int): WorkOrderHomeSearchResult = searchHomeRemote(accessToken, userId, keyword)
+    suspend fun getCachedWechatMessage(userId: Long, messageId: Long): WechatMessage?
+    suspend fun refreshWechatMessage(accessToken: String, userId: Long, messageId: Long): WechatMessage
+    suspend fun synchronize(accessToken: String, userId: Long, forceVersionCheck: Boolean = false): WorkOrderSyncResult
     suspend fun synchronizeAttachments(accessToken: String, userId: Long): WorkOrderAttachmentSyncResult =
         WorkOrderAttachmentSyncResult(0, 0, 0)
     suspend fun reportAttachmentCacheStatus(accessToken: String, userId: Long, clientInstanceId: String) = Unit
-    suspend fun getDetail(accessToken: String, recordId: Long): WorkOrder
+    suspend fun getCachedWorkOrder(userId: Long, recordId: Long): WorkOrder?
+    suspend fun refreshWorkOrder(accessToken: String, userId: Long, recordId: Long): WorkOrder
     suspend fun getHistory(accessToken: String, recordId: Long): List<WorkOrder>
     suspend fun image(accessToken: String, userId: Long, recordId: Long, image: WorkOrderImage, variant: String): CachedWorkOrderImage
     suspend fun attachment(accessToken: String, userId: Long, messageId: Long, attachment: WorkOrderAttachment, variant: String): CachedWorkOrderImage
     suspend fun clear(userId: Long? = null)
-    suspend fun clearWorkOrders() = Unit
-    suspend fun clearMessages() = Unit
+    suspend fun clearWorkOrders(userId: Long) = Unit
+    suspend fun clearMessages(userId: Long) = Unit
 }

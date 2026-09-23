@@ -1,6 +1,5 @@
 package com.jaydocoder.plateview.data.admin
 
-import android.content.Context
 import com.jaydocoder.plateview.domain.admin.CachedAdminAttachment
 import com.jaydocoder.plateview.domain.admin.AdminRepository
 import com.jaydocoder.plateview.domain.admin.AuditFilter
@@ -36,22 +35,31 @@ import com.jaydocoder.plateview.domain.admin.ClientPolicyUpdateCommand
 import com.jaydocoder.plateview.domain.admin.ClientPolicyLimitsCommand
 import com.jaydocoder.plateview.domain.admin.CacheResetStatus
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
-import com.jaydocoder.plateview.data.workorder.attachmentCacheKey
-import com.jaydocoder.plateview.data.workorder.downloadAttachmentVariant
+import com.jaydocoder.plateview.data.workorder.WechatAttachmentCacheRepository
 import java.util.Locale
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 
 @Singleton
 class NetworkAdminRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val api: AdminApi,
+    private val attachmentCacheRepository: WechatAttachmentCacheRepository,
 ) : AdminRepository {
+    override suspend fun getDashboardSummary(accessToken: String) = api.getDashboardSummary(bearer(accessToken)).let {
+        com.jaydocoder.plateview.domain.admin.AdminDashboardSummary(
+            it.vehicleCount,
+            it.userCount,
+            it.importBatchCount,
+            it.isPrimaryAdministrator,
+            it.showSchedulePlanner,
+            it.showWechatSync,
+            it.updatedAt,
+            it.revision,
+        )
+    }
     override suspend fun getClientPolicy(accessToken: String): ClientPolicy = api.getClientPolicy(bearer(accessToken)).toDomain()
 
     override suspend fun updateClientPolicy(accessToken: String, command: ClientPolicyUpdateCommand): ClientPolicy = api
@@ -298,13 +306,13 @@ class NetworkAdminRepository @Inject constructor(
         sha256: String?,
         sourceQuality: String,
     ): CachedAdminAttachment {
-        val directory = File(context.filesDir, "work-order-images/$userId").also { check(it.exists() || it.mkdirs()) }
-        val cached = downloadAttachmentVariant(
-            request = { range -> api.downloadWechatAttachment(bearer(accessToken), range, imageId, variant) },
-            directory = directory,
-            cacheKey = attachmentCacheKey(imageId, variant, sha256, sourceQuality),
+        val cached = attachmentCacheRepository.getOrDownload(
+            userId = userId,
+            attachmentId = imageId,
             variant = variant,
-            expectedSha256 = sha256.takeIf { variant == "original" },
+            sha256 = sha256,
+            sourceQuality = sourceQuality,
+            request = { range -> api.downloadWechatAttachment(bearer(accessToken), range, imageId, variant) },
         )
         return CachedAdminAttachment(cached.file, cached.variant)
     }
