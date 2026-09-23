@@ -11,5 +11,5 @@
 # 保留 Room 生成数据库需要的无参入口。
 -keep class * extends androidx.room.RoomDatabase { *; }
 
-# SQLCipher 通过 JNI 按字段名访问数据库句柄，不能让 R8 重命名或移除。
--keep class net.sqlcipher.database.** { *; }
+# SQLCipher 通过 JNI 按类名和字段名访问 Java 层，不能让 R8 重命名或移除。
+-keep class net.sqlcipher.** { *; }
