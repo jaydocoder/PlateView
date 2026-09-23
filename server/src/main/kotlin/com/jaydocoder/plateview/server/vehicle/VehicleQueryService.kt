@@ -32,11 +32,12 @@ internal class VehicleQueryService(
         }
     }
 
-    fun search(keyword: String, accessScope: VehicleAccessScope): List<VehicleSearchCandidate> {
+    fun search(keyword: String, accessScope: VehicleAccessScope, limit: Int = MAXIMUM_SEARCH_RESULT_COUNT): List<VehicleSearchCandidate> {
+        require(limit in 1..MAXIMUM_SEARCH_RESULT_COUNT) { "车辆搜索数量必须在1至50之间" }
         val normalizedKeyword = normalizeSearchKeyword(keyword)
         return dataSource.connection.use { connection ->
             if (isCompletePlateNumber(normalizedKeyword)) {
-                connection.queryExactPlate(normalizedKeyword, accessScope).takeIf(List<*>::isNotEmpty)?.let { return@use it }
+                connection.queryExactPlate(normalizedKeyword, accessScope, limit).takeIf(List<*>::isNotEmpty)?.let { return@use it }
             }
             connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
                 statement.setString(1, VehicleCategory.RESIDENT.name)
@@ -45,7 +46,7 @@ internal class VehicleQueryService(
                 statement.setString(4, normalizedKeyword)
                 statement.setString(5, "%$normalizedKeyword%")
                 statement.setBoolean(6, accessScope.otherLongTermAccessEnabled)
-                statement.setInt(7, MAXIMUM_SEARCH_RESULT_COUNT)
+                statement.setInt(7, limit)
                 statement.executeQuery().use { result ->
                     buildList {
                         while (result.next()) add(result.toSearchCandidate())
@@ -58,11 +59,12 @@ internal class VehicleQueryService(
     private fun Connection.queryExactPlate(
         normalizedPlate: String,
         accessScope: VehicleAccessScope,
+        limit: Int,
     ): List<VehicleSearchCandidate> = prepareStatement(SEARCH_EXACT_PLATE).use { statement ->
         statement.setString(1, normalizedPlate)
         statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
         statement.setString(3, VehicleCategory.RESIDENT.name)
-        statement.setInt(4, MAXIMUM_SEARCH_RESULT_COUNT)
+        statement.setInt(4, limit)
         statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
     }
 

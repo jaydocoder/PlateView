@@ -357,6 +357,29 @@ class WorkOrderScreenTest {
     }
 
     @Test
+    fun 首页重点发送者车单显示发送者称呼和强调样式() {
+        val workOrders = listOf(
+            sampleWorkOrder().copy(id = 911, orderNumber = "0923001", senderUsername = "wxid_b0rmsm0lwqjk22", senderDisplay = "孙主任", senderGroupNickname = null),
+            sampleWorkOrder().copy(id = 912, orderNumber = "0923002", senderUsername = "xurujun9599", senderDisplay = "徐站", senderGroupNickname = null),
+            sampleWorkOrder().copy(id = 913, orderNumber = "0923003", senderUsername = "wxid_2493514935112", senderDisplay = "三叔", senderGroupNickname = null),
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "0923", workOrderCandidates = workOrders),
+                    onQueryChanged = {}, onCandidateSelected = {}, onWorkOrderSelected = {},
+                    onHistorySelected = {}, onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("important_work_order_sender_director", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("important_work_order_sender_station_master", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("important_work_order_sender_uncle", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
     fun 首页微信记录在配置称呼为空时仍显示发送者() {
         val message = sampleWechatMessage(904, "wxid_2493514935112", "三叔").copy(
             displayName = "",
@@ -437,6 +460,32 @@ class WorkOrderScreenTest {
         composeRule.onAllNodesWithText("[文件] 车辆申请.pdf (612.8 KB, pdf)").assertCountEquals(0)
         composeRule.onAllNodesWithContentDescription("PDF首页缩略图").assertCountEquals(2)
         composeRule.onNodeWithText("发送者：徐站").performScrollTo().assertIsDisplayed()
+        preview.delete()
+    }
+
+    @Test
+    fun 微信附件弹窗使用顶部关闭入口且不显示底部关闭按钮() {
+        val preview = java.io.File.createTempFile("wechat-image-dialog", ".png", composeRule.activity.cacheDir)
+        val attachment = WorkOrderAttachment(83, "IMAGE", "通行说明.png", null, "image/png", 1024, true, true, "AVAILABLE", null)
+        val message = sampleWechatMessage(907, "wxid_2493514935112", "三叔").copy(attachments = listOf(attachment))
+        composeRule.setContent {
+            PlateViewTheme {
+                WechatMessageDetailScreen(
+                    state = WechatMessageDetailUiState(
+                        isLoading = false,
+                        message = message,
+                        attachmentFiles = mapOf(83L to CachedWorkOrderImage(preview, "original")),
+                        selectedAttachment = attachment,
+                    ),
+                    onNavigateUp = {}, onRetry = {}, onOpenAttachment = {}, onLoadOriginal = {}, onCloseAttachment = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("attachment_viewer_dialog").assertIsDisplayed()
+        composeRule.onAllNodesWithText("通行说明.png").assertCountEquals(2)
+        composeRule.onNodeWithContentDescription("关闭附件预览").assertIsDisplayed()
+        composeRule.onAllNodesWithText("关闭").assertCountEquals(0)
         preview.delete()
     }
 

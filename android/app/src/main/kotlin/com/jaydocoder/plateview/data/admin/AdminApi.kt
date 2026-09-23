@@ -14,6 +14,51 @@ import retrofit2.http.Query
 import okhttp3.ResponseBody
 
 interface AdminApi {
+    @GET("admin/client-policy")
+    suspend fun getClientPolicy(@Header("Authorization") authorization: String): ClientPolicyDto
+
+    @PUT("admin/client-policy")
+    suspend fun updateClientPolicy(
+        @Header("Authorization") authorization: String,
+        @Body request: ClientPolicyUpdateRequestDto,
+    ): ClientPolicyDto
+
+    @PUT("admin/client-policy/limits")
+    suspend fun updateClientPolicyLimits(
+        @Header("Authorization") authorization: String,
+        @Body request: ClientPolicyLimitsUpdateRequestDto,
+    ): ClientPolicyDto
+
+    @PUT("admin/client-policy/api-endpoint")
+    suspend fun updateApiEndpoint(
+        @Header("Authorization") authorization: String,
+        @Body request: EndpointTestRequestDto,
+    ): ClientPolicyDto
+
+    @PUT("admin/client-policy/update-endpoint")
+    suspend fun updateUpdateEndpoint(
+        @Header("Authorization") authorization: String,
+        @Body request: EndpointTestRequestDto,
+    ): ClientPolicyDto
+
+    @POST("admin/client-policy/api-endpoint/test")
+    suspend fun testApiEndpoint(
+        @Header("Authorization") authorization: String,
+        @Body request: EndpointTestRequestDto,
+    ): EndpointTestResponseDto
+
+    @POST("admin/client-policy/update-endpoint/test")
+    suspend fun testUpdateEndpoint(
+        @Header("Authorization") authorization: String,
+        @Body request: EndpointTestRequestDto,
+    ): EndpointTestResponseDto
+
+    @POST("admin/users/{userId}/cache-reset")
+    suspend fun requestUserCacheReset(
+        @Header("Authorization") authorization: String,
+        @Path("userId") userId: Long,
+    ): CacheResetStatusDto
+
     @GET("admin/vehicles/creation-capabilities")
     suspend fun getVehicleCreationCapabilities(
         @Header("Authorization") authorization: String,
@@ -158,6 +203,9 @@ interface AdminApi {
     @GET("admin/wechat-sync/issues")
     suspend fun getWechatSyncIssues(@Header("Authorization") authorization: String): WechatSyncIssuesResponseDto
 
+    @GET("admin/wechat-sync/cache-status")
+    suspend fun getWechatCacheStatus(@Header("Authorization") authorization: String): WechatCacheStatusSummaryDto
+
     @GET("admin/wechat-sync/records/search")
     suspend fun searchWechatWorkOrders(
         @Header("Authorization") authorization: String,
@@ -200,7 +248,8 @@ interface AdminApi {
     @GET("admin/wechat-sync/images/{imageId}")
     suspend fun downloadWechatAttachment(
         @Header("Authorization") authorization: String,
+        @Header("Range") range: String?,
         @Path("imageId") imageId: Long,
         @Query("variant") variant: String = "preview",
-    ): ResponseBody
+    ): retrofit2.Response<ResponseBody>
 }

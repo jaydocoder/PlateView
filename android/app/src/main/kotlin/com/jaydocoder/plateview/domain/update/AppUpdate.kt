@@ -7,6 +7,9 @@ data class AppUpdate(
     val releaseNotes: String,
     val downloadUrls: List<String>,
     val sha256: String? = null,
+    val architecture: String = ApkArchitecture.UNIVERSAL,
+    val artifactName: String = "PlateView-$versionName.apk",
+    val sizeBytes: Long? = null,
 ) {
     constructor(versionName: String, releaseNotes: String, downloadUrl: String) : this(
         versionName = versionName,
@@ -19,6 +22,18 @@ data class AppUpdate(
     }
 
     val downloadUrl: String get() = downloadUrls.first()
+}
+
+object ApkArchitecture {
+    const val ARM64_V8A = "arm64-v8a"
+    const val ARMEABI_V7A = "armeabi-v7a"
+    const val UNIVERSAL = "universal"
+
+    fun select(supportedAbis: List<String>): String = when {
+        supportedAbis.contains(ARM64_V8A) -> ARM64_V8A
+        supportedAbis.contains(ARMEABI_V7A) -> ARMEABI_V7A
+        else -> UNIVERSAL
+    }
 }
 
 data class UpdateDownloadProgress(

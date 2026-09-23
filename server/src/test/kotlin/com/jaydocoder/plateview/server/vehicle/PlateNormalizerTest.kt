@@ -19,7 +19,7 @@ class PlateNormalizerTest {
     @Test
     fun `查询最小有效字符数固定为一位`() {
         assertEquals(1, MINIMUM_SEARCH_KEYWORD_LENGTH)
-        assertEquals(8, MAXIMUM_SEARCH_RESULT_COUNT)
+        assertEquals(50, MAXIMUM_SEARCH_RESULT_COUNT)
     }
 
     @Test

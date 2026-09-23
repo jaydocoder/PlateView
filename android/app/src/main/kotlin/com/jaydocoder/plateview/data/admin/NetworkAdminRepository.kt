@@ -31,10 +31,15 @@ import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
 import com.jaydocoder.plateview.domain.admin.WechatSyncOverview
 import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
+import com.jaydocoder.plateview.domain.admin.ClientPolicy
+import com.jaydocoder.plateview.domain.admin.ClientPolicyUpdateCommand
+import com.jaydocoder.plateview.domain.admin.ClientPolicyLimitsCommand
+import com.jaydocoder.plateview.domain.admin.CacheResetStatus
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
+import com.jaydocoder.plateview.data.workorder.attachmentCacheKey
+import com.jaydocoder.plateview.data.workorder.downloadAttachmentVariant
 import java.util.Locale
 import java.io.File
-import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -47,6 +52,41 @@ class NetworkAdminRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val api: AdminApi,
 ) : AdminRepository {
+    override suspend fun getClientPolicy(accessToken: String): ClientPolicy = api.getClientPolicy(bearer(accessToken)).toDomain()
+
+    override suspend fun updateClientPolicy(accessToken: String, command: ClientPolicyUpdateCommand): ClientPolicy = api
+        .updateClientPolicy(
+            bearer(accessToken),
+            ClientPolicyUpdateRequestDto(
+                command.vehicleResultLimit,
+                command.workOrderResultLimit,
+                command.wechatMessageResultLimit,
+                command.apiBaseUrl,
+                command.updateBaseUrl,
+            ),
+        ).toDomain()
+
+    override suspend fun updateClientPolicyLimits(accessToken: String, command: ClientPolicyLimitsCommand): ClientPolicy = api
+        .updateClientPolicyLimits(
+            bearer(accessToken),
+            ClientPolicyLimitsUpdateRequestDto(command.vehicleResultLimit, command.workOrderResultLimit, command.wechatMessageResultLimit),
+        ).toDomain()
+
+    override suspend fun updateApiEndpoint(accessToken: String, baseUrl: String): ClientPolicy = api
+        .updateApiEndpoint(bearer(accessToken), EndpointTestRequestDto(baseUrl)).toDomain()
+
+    override suspend fun updateUpdateEndpoint(accessToken: String, baseUrl: String): ClientPolicy = api
+        .updateUpdateEndpoint(bearer(accessToken), EndpointTestRequestDto(baseUrl)).toDomain()
+
+    override suspend fun testApiEndpoint(accessToken: String, baseUrl: String): String = api
+        .testApiEndpoint(bearer(accessToken), EndpointTestRequestDto(baseUrl)).message
+
+    override suspend fun testUpdateEndpoint(accessToken: String, baseUrl: String): String = api
+        .testUpdateEndpoint(bearer(accessToken), EndpointTestRequestDto(baseUrl)).message
+
+    override suspend fun requestUserCacheReset(accessToken: String, userId: Long): CacheResetStatus = api
+        .requestUserCacheReset(bearer(accessToken), userId).toDomain()
+
     override suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities = api
         .getVehicleCreationCapabilities(bearer(accessToken))
         .let { VehicleCreationCapabilities(it.creatableCategories, it.canChangeVehicleCategory) }
@@ -195,10 +235,13 @@ class NetworkAdminRepository @Inject constructor(
 
     override suspend fun getWechatSyncOverview(accessToken: String): WechatSyncOverview {
         val response = api.getWechatSyncIssues(bearer(accessToken))
+        val cacheStatus = api.getWechatCacheStatus(bearer(accessToken))
         val issues = response.items.map {
             WechatSyncIssue(
                 it.type, it.recordId, it.imageId, it.sourceName, it.sentAt, it.summary, it.attachmentKind, it.fileName,
                 it.pageCount,
+                it.sha256,
+                it.sourceQuality,
                 it.candidates.map { candidate -> com.jaydocoder.plateview.domain.admin.WechatAttachmentCandidate(candidate.recordId, candidate.orderNumber, candidate.sentAt, candidate.summary) },
             )
         }
@@ -207,6 +250,16 @@ class NetworkAdminRepository @Inject constructor(
             totalAttachmentCount = response.totalAttachmentCount,
             completedAttachmentCount = response.completedAttachmentCount,
             pendingAttachmentCount = response.pendingAttachmentCount,
+            integrity = com.jaydocoder.plateview.domain.admin.WechatSyncIntegrity(
+                response.integrity.unconfirmedBatchCount,
+                response.integrity.retryTaskCount,
+                response.integrity.metadataOnlyAttachmentCount,
+                response.integrity.failedTaskCount,
+                response.integrity.status,
+            ),
+            cacheStatus = com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary(
+                cacheStatus.clientCount, cacheStatus.completedCount, cacheStatus.pendingCount, cacheStatus.failedCount, cacheStatus.totalBytes,
+            ),
         )
     }
 
@@ -237,31 +290,23 @@ class NetworkAdminRepository @Inject constructor(
         api.ignoreWechatImage(bearer(accessToken), imageId)
     }
 
-    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): CachedAdminAttachment {
-        val directory = File(context.filesDir, "admin-wechat-attachments").also { check(it.exists() || it.mkdirs()) }
-        directory.listFiles()
-            ?.firstOrNull { file -> file.isFile && file.name.startsWith("$imageId-$variant.") }
-            ?.let { return CachedAdminAttachment(it, variant) }
-        val body = api.downloadWechatAttachment(bearer(accessToken), imageId, variant)
-        val extension = when (body.contentType()?.subtype) {
-            "jpeg" -> "jpg"
-            "png" -> "png"
-            "gif" -> "gif"
-            "pdf" -> "pdf"
-            else -> "webp"
-        }
-        val target = File(directory, "$imageId-$variant.$extension")
-        val temporary = File(directory, "$imageId-$variant.download")
-        body.use { response ->
-            response.byteStream().use { input ->
-                FileOutputStream(temporary).buffered().use { output -> input.copyTo(output) }
-            }
-        }
-        check(temporary.length() > 0L) { "服务器返回了空附件" }
-        check(temporary.renameTo(target) || run { temporary.copyTo(target, overwrite = true); temporary.delete(); true }) {
-            "无法写入微信附件缓存"
-        }
-        return CachedAdminAttachment(target, variant)
+    override suspend fun downloadWechatAttachment(
+        accessToken: String,
+        userId: Long,
+        imageId: Long,
+        variant: String,
+        sha256: String?,
+        sourceQuality: String,
+    ): CachedAdminAttachment {
+        val directory = File(context.filesDir, "work-order-images/$userId").also { check(it.exists() || it.mkdirs()) }
+        val cached = downloadAttachmentVariant(
+            request = { range -> api.downloadWechatAttachment(bearer(accessToken), range, imageId, variant) },
+            directory = directory,
+            cacheKey = attachmentCacheKey(imageId, variant, sha256, sourceQuality),
+            variant = variant,
+            expectedSha256 = sha256.takeIf { variant == "original" },
+        )
+        return CachedAdminAttachment(cached.file, cached.variant)
     }
 
     override suspend fun searchWechatWorkOrders(accessToken: String, keyword: String) =
@@ -269,6 +314,16 @@ class NetworkAdminRepository @Inject constructor(
             com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem(it.id, it.orderNumber, it.sentAt, it.rawContent.take(160))
         }
 }
+
+private fun ClientPolicyDto.toDomain() = ClientPolicy(
+    revision, vehicleResultLimit, workOrderResultLimit, wechatMessageResultLimit,
+    apiBaseUrl, previousApiBaseUrl, updateBaseUrl, previousUpdateBaseUrl, updatedAt,
+    clientCount, appliedClientCount, lastConfirmedAt, cacheResetStatuses.map(CacheResetStatusDto::toDomain),
+)
+
+private fun CacheResetStatusDto.toDomain() = CacheResetStatus(
+    userId, revision, expectedClientCount, completedClientCount, status, lastConfirmedAt,
+)
 
 private fun VehicleWriteCommand.toRequest(): AdminVehicleWriteRequestDto = AdminVehicleWriteRequestDto(
     plateNumber = plateNumber,

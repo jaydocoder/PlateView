@@ -25,6 +25,7 @@ SOURCES = {
 }
 SCAN_INTERVAL_SECONDS = 10
 RESCAN_INTERVAL_SECONDS = 60 * 60
+RECONCILE_INTERVAL_SECONDS = 6 * 60 * 60
 OVERLAP_SECONDS = 24 * 60 * 60
 REGULAR_OVERLAP_SECONDS = 5 * 60
 BATCH_SIZE = 200
@@ -33,6 +34,7 @@ REQUEST_RETRY_DELAYS = (1, 3, 8)
 IMAGE_RETRY_BASE_SECONDS = 60
 IMAGE_RETRY_MAX_SECONDS = 60 * 60
 MAX_IMAGE_RETRY_ITEMS = 5_000
+MAX_ATTACHMENT_RETRY_ITEMS = 5_000
 
 
 class Collector:
@@ -72,6 +74,7 @@ class Collector:
 
     def _sync_source(self, source_key, source_name):
         source_state = self.state.setdefault(source_key, {})
+        sync_run_id = self.state.setdefault("_sync_run_id", str(uuid.uuid4()))
         now = int(time.time())
         full_rescan = now - int(source_state.get("last_rescan_at", 0)) >= RESCAN_INTERVAL_SECONDS
         since = self._since_date(source_state.get("message_timestamp"), full_rescan)
@@ -91,18 +94,32 @@ class Collector:
         ]
         self._heartbeat(source_key, source_name, "CATCHING_UP" if pending else "HEALTHY", self._latest_timestamp(messages), len(pending), None)
         for batch in chunks(pending, BATCH_SIZE):
+            requests = [self._message_request(source_key, item) for item in batch]
+            batch_digest = self._batch_digest(requests)
+            batch_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source_key}:{requests[0]['localMessageId']}:{requests[-1]['localMessageId']}:{batch_digest}"))
             body = {
+                "batchId": batch_id,
+                "syncRunId": sync_run_id,
                 "sourceKey": source_key,
                 "sourceName": source_name,
-                "messages": [self._message_request(source_key, item) for item in batch],
+                "fromTimestamp": cursor[0],
+                "fromLocalMessageId": cursor[1],
+                "toTimestamp": int(self._timestamp(batch[-1])),
+                "toLocalMessageId": requests[-1]["localMessageId"],
+                "messageCount": len(requests),
+                "batchSha256": batch_digest,
+                "messages": requests,
             }
-            self._request_json("POST", "/internal/wechat/messages/batch", body)
+            response = self._request_json("POST", "/internal/wechat/messages/batch", body) or {}
+            if response.get("status", "ACCEPTED") != "ACCEPTED":
+                raise RuntimeError("服务端未确认微信消息批次")
             last = batch[-1]
             timestamp, local_id = max(cursor, self._message_position(last))
             source_state["message_timestamp"] = timestamp
             source_state["message_id"] = local_id
             cursor = timestamp, local_id
             self._save_state()
+        self._reconcile_recent(source_key, source_name, source_state, messages, now)
         self._sync_images(source_key, source_name, source_state, full_rescan)
         self._sync_files(source_key, source_name, source_state, full_rescan)
         if full_rescan:
@@ -110,6 +127,31 @@ class Collector:
             self._save_state()
         self._heartbeat(source_key, source_name, "HEALTHY", self._latest_timestamp(messages), 0, None)
         logging.info("群同步完成，群=%s，新增候选=%d", source_name, len(pending))
+
+    def _reconcile_recent(self, source_key, source_name, source_state, messages, now):
+        if now - int(source_state.get("last_reconcile_at", 0)) < RECONCILE_INTERVAL_SECONDS:
+            return
+        window_end = now
+        window_start = now - 7 * 24 * 60 * 60
+        recent = [item for item in messages if window_start <= self._timestamp(item) < window_end and self._message_text(item)]
+        requests = [self._message_request(source_key, item) for item in recent]
+        canonical = "\n".join(
+            f"{item['localMessageId']}\0{item['contentFingerprint']}"
+            for item in sorted(requests, key=lambda value: (value["sentAt"], value["localMessageId"]))
+        )
+        response = self._request_json("POST", "/internal/wechat/sync/reconcile", {
+            "sourceKey": source_key,
+            "from": iso_time(window_start),
+            "to": iso_time(window_end),
+            "localCount": len(requests),
+            "localDigest": hashlib.sha256(canonical.encode()).hexdigest(),
+            "localMessageIds": [item["localMessageId"] for item in requests],
+        }) or {}
+        if not response.get("countMatch", True) or not response.get("digestMatch", True):
+            source_state["reconcile_missing_message_ids"] = response.get("missingLocalMessageIds") or []
+            self._heartbeat(source_key, source_name, "CATCHING_UP", self._latest_timestamp(messages), len(source_state["reconcile_missing_message_ids"]), "RECONCILE_MISMATCH")
+        source_state["last_reconcile_at"] = now
+        self._save_state()
 
     def _sync_images(self, source_key, source_name, source_state, full_rescan):
         since = self._since_date(source_state.get("image_timestamp"), full_rescan)
@@ -180,6 +222,7 @@ class Collector:
             "senderUsername": str(attachment.get("sender_username") or ""),
             "senderDisplay": str(attachment.get("sender") or attachment.get("sender_contact_display") or ""),
             "sentAt": iso_time(self._timestamp(attachment)),
+            "sourceQuality": "UNKNOWN",
         }
         with tempfile.TemporaryDirectory(prefix="plateview-wechat-") as temporary_directory:
             original = pathlib.Path(temporary_directory) / "original"
@@ -196,12 +239,20 @@ class Collector:
                         raise FileNotFoundError("微信图片解密后未找到唯一输出文件")
                     original = extracted[0]
                 original = self._prepare_extracted_image(original, report, pathlib.Path(temporary_directory))
+                source_quality = str(report.get("resource_quality") or "ORIGINAL").upper()
+                if source_quality not in {"ORIGINAL", "HIGH_DEFINITION", "THUMBNAIL"}:
+                    source_quality = "UNKNOWN"
+                fields["sourceQuality"] = source_quality
                 fields["sha256"] = file_sha256(original)
-                fields["originalContentType"] = mimetypes.guess_type(original.name)[0] or detect_image_type(original)
-                files = {"original": original}
-                files.update(self._create_derivatives(original, pathlib.Path(temporary_directory)))
+                derivatives = self._create_derivatives(original, pathlib.Path(temporary_directory))
+                if source_quality == "THUMBNAIL":
+                    files = {"thumbnail": derivatives["thumbnail"]} if derivatives.get("thumbnail") else {}
+                else:
+                    fields["originalContentType"] = mimetypes.guess_type(original.name)[0] or detect_image_type(original)
+                    files = {"original": original}
+                    files.update(derivatives)
                 self._request_multipart("/internal/wechat/images", fields, files)
-                return True
+                return source_quality in {"ORIGINAL", "HIGH_DEFINITION"}
             except (OSError, ValueError, subprocess.CalledProcessError):
                 self._request_multipart("/internal/wechat/images", fields, {})
                 return False
@@ -226,16 +277,36 @@ class Collector:
             raise RuntimeError("微信文件数据可能不完整")
         messages = sorted(payload.get("messages") or [], key=self._message_position)
         cursor = (int(source_state.get("file_timestamp", 0)), str(source_state.get("file_id", "")))
+        retry_items = {str(item.get("attachment_id")): item for item in source_state.get("file_retry_items", []) if item.get("attachment_id")}
         pending = [
             item for item in messages
             if self._pdf_file_name(item) and (full_rescan or self._message_position(item) > cursor)
         ]
-        for message in pending:
-            self._upload_pdf(source_key, source_name, message)
+        pending_by_id = {f"pdf-{item.get('local_id') or item.get('id')}": item for item in pending}
+        now = int(time.time())
+        for retry in retry_items.values():
+            if int(retry.get("next_retry_at", 0)) <= now:
+                message = next((item for item in messages if f"pdf-{item.get('local_id') or item.get('id')}" == retry["attachment_id"]), None)
+                if message is not None:
+                    pending_by_id[retry["attachment_id"]] = message
+        for attachment_id, message in sorted(pending_by_id.items(), key=lambda item: self._message_position(item[1])):
+            try:
+                self._upload_pdf(source_key, source_name, message)
+                retry_items.pop(attachment_id, None)
+            except (OSError, ValueError, subprocess.CalledProcessError):
+                attempts = int(retry_items.get(attachment_id, {}).get("attempts", 0)) + 1
+                retry_items[attachment_id] = {
+                    "attachment_id": attachment_id,
+                    "local_id": str(message.get("local_id") or message.get("id") or ""),
+                    "timestamp": self._timestamp(message),
+                    "attempts": attempts,
+                    "next_retry_at": now + min(IMAGE_RETRY_MAX_SECONDS, IMAGE_RETRY_BASE_SECONDS * (2 ** min(attempts - 1, 6))),
+                }
             timestamp, local_id = max(cursor, self._message_position(message))
             source_state["file_timestamp"] = timestamp
             source_state["file_id"] = local_id
             cursor = timestamp, local_id
+            source_state["file_retry_items"] = sorted(retry_items.values(), key=lambda item: (int(item.get("next_retry_at", 0)), item["attachment_id"]))[-MAX_ATTACHMENT_RETRY_ITEMS:]
             self._save_state()
 
     def _upload_pdf(self, source_key, source_name, message):
@@ -254,11 +325,13 @@ class Collector:
             "attachmentKind": "PDF",
             "fileName": file_name,
             "originalContentType": "application/pdf",
+            "sourceQuality": "UNKNOWN",
         }
         original = self._locate_pdf(message)
         if original is None:
             self._request_multipart("/internal/wechat/attachments", fields, {})
             return
+        fields["sourceQuality"] = "ORIGINAL"
         fields["sha256"] = file_sha256(original)
         with tempfile.TemporaryDirectory(prefix="plateview-wechat-pdf-") as temporary_directory:
             directory = pathlib.Path(temporary_directory)
@@ -329,6 +402,13 @@ class Collector:
             "sentAt": iso_time(self._timestamp(message)),
             "contentFingerprint": fingerprint,
         }
+
+    def _batch_digest(self, messages):
+        canonical = "\n".join(
+            f"{item['localMessageId']}\0{int(dt.datetime.fromisoformat(item['sentAt'].replace('Z', '+00:00')).timestamp())}\0{item['contentFingerprint']}"
+            for item in sorted(messages, key=lambda value: (value["sentAt"], value["localMessageId"]))
+        )
+        return hashlib.sha256(canonical.encode()).hexdigest()
 
     def _heartbeat(self, source_key, source_name, status, latest_timestamp, backlog_count, error_code):
         self._request_json(

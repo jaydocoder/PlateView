@@ -47,8 +47,8 @@ class WorkOrderDetailViewModel @Inject constructor(
                 .onSuccess { record ->
                     _uiState.update { it.copy(isLoading = false, record = record) }
                     record.images
-                        .filter { it.availability == "AVAILABLE" }
-                        .forEach { loadImage(record, it, "original") }
+                        .filter { it.availability in setOf("AVAILABLE", "THUMBNAIL_ONLY") }
+                        .forEach { image -> loadImage(record, image, image.preferredVariant()) }
                     viewModelScope.launch {
                         runCatching { repository.getHistory(session.accessToken, recordId) }
                             .onSuccess { history -> _uiState.update { it.copy(history = history) } }
@@ -60,7 +60,7 @@ class WorkOrderDetailViewModel @Inject constructor(
 
     fun openImage(image: WorkOrderImage) {
         _uiState.update { it.copy(selectedImage = image, imageFailures = it.imageFailures - image.id) }
-        _uiState.value.record?.let { record -> loadImage(record, image, "original") }
+        _uiState.value.record?.let { record -> loadImage(record, image, image.preferredVariant()) }
     }
 
     fun loadOriginal() {
@@ -98,6 +98,9 @@ class WorkOrderDetailViewModel @Inject constructor(
     private fun rank(variant: String) = when (variant) { "original" -> 3; "preview" -> 2; else -> 1 }
 
 }
+
+private fun WorkOrderImage.preferredVariant(): String =
+    if (availability == "AVAILABLE") "original" else "thumbnail"
 
 data class WorkOrderDetailUiState(
     val isLoading: Boolean = true,

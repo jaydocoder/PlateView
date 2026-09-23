@@ -236,15 +236,17 @@ private fun ScheduleDisplaySegment(
             .semantics { this.selected = selected },
         onClick = onClick,
     ) {
-        Text(
-            text = label,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            maxLines = 1,
-        )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -309,11 +311,12 @@ private fun MonthYearWheelPicker(selectedMonth: YearMonth, onMonthSelected: (Yea
             onMonthSelected(YearMonth.of(year, selectedMonthValue))
         }
         WheelPicker(
-            values = months,
+            values = (0 until 60).map { months[it % months.size] },
             selectedValue = selectedMonthValue,
             label = { "${it}月" },
             state = monthState,
             modifier = Modifier.testTag("schedule_month_month_wheel"),
+            selectedIndexOverride = 24 + selectedMonthValue - 1,
         ) { month ->
             selectedMonthValue = month
             onMonthSelected(YearMonth.of(selectedYear, month))
@@ -328,9 +331,10 @@ private fun WheelPicker(
     label: (Int) -> String,
     state: LazyListState,
     modifier: Modifier,
+    selectedIndexOverride: Int? = null,
     onSelected: (Int) -> Unit,
 ) {
-    val selectedIndex = values.indexOf(selectedValue).coerceAtLeast(0)
+    val selectedIndex = (selectedIndexOverride ?: values.indexOf(selectedValue)).coerceIn(0, values.lastIndex)
     val view = LocalView.current
     var lastSelectedIndex by remember { mutableIntStateOf(selectedIndex) }
     LaunchedEffect(selectedIndex) {
@@ -359,7 +363,7 @@ private fun WheelPicker(
         horizontalAlignment = Alignment.CenterHorizontally,
         contentPadding = PaddingValues(vertical = 48.dp),
     ) {
-        items(count = values.size, key = { values[it] }) { index ->
+        items(count = values.size, key = { it }) { index ->
             val value = values[index]
             val selected = value == selectedValue
             val cylinderProgress = state.cylinderProgress(index)

@@ -64,6 +64,7 @@ data class ScheduleTemplateDto(
     val cycleDays: Int,
     val participantIds: List<Long>,
     val effectiveFrom: String?,
+    val effectiveUntil: String?,
     val status: String,
 )
 data class ScheduleTemplateRequestDto(
@@ -73,8 +74,8 @@ data class ScheduleTemplateRequestDto(
     val assignments: List<ScheduleAssignmentDto>,
 )
 data class ScheduleAssignmentDto(val cycleDay: Int, val shiftType: String, val accountIds: List<Long>)
-data class ScheduleApplicationRequestDto(val templateId: Long, val effectiveFrom: String)
-data class ScheduleApplicationDto(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: String)
+data class ScheduleApplicationRequestDto(val templateId: Long, val effectiveFrom: String, val effectiveUntil: String?)
+data class ScheduleApplicationDto(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: String, val effectiveUntil: String?)
 
 @Singleton
 class NetworkScheduleRepository @Inject constructor(private val api: ScheduleApi) : ScheduleRepository {
@@ -87,7 +88,7 @@ class NetworkScheduleRepository @Inject constructor(private val api: ScheduleApi
     override suspend fun updateTemplate(accessToken: String, templateId: Long, command: ScheduleTemplateCommand) = api.updateTemplate(token(accessToken), templateId, command.toDto()).toDomain()
     override suspend fun deleteTemplate(accessToken: String, templateId: Long) = api.deleteTemplate(token(accessToken), templateId)
     override suspend fun preview(accessToken: String, templateId: Long, effectiveFrom: LocalDate) = api.preview(token(accessToken), templateId, effectiveFrom.toString()).toDomain()
-    override suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate) = api.apply(token(accessToken), ScheduleApplicationRequestDto(templateId, effectiveFrom.toString())).toDomain()
+    override suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate, effectiveUntil: LocalDate?) = api.apply(token(accessToken), ScheduleApplicationRequestDto(templateId, effectiveFrom.toString(), effectiveUntil?.toString())).toDomain()
     private fun token(accessToken: String) = "Bearer $accessToken"
 }
 
@@ -96,8 +97,8 @@ private fun ScheduleMonthDto.toDomain() = ScheduleMonth(YearMonth.parse(month), 
 private fun ScheduleShiftDto.toDomain() = ScheduleShift(LocalDate.parse(date), ScheduleShiftType.valueOf(shiftType), persons.map { SchedulePerson(it.id, it.username, it.realName) })
 private fun ScheduleParticipantDto.toDomain() = ScheduleParticipant(id, username, realName, status)
 private fun SchedulePlanningConfigurationDto.toDomain() = SchedulePlanningConfiguration(cycleDays, participants.map { it.toDomain() }, candidates.map { it.toDomain() })
-private fun ScheduleTemplateDto.toDomain() = ScheduleTemplateSummary(id, name, versionId, versionNumber, cycleDays, participantIds, effectiveFrom?.let(LocalDate::parse), status)
-private fun ScheduleApplicationDto.toDomain() = ScheduleApplication(id, templateId, versionNumber, LocalDate.parse(effectiveFrom))
+private fun ScheduleTemplateDto.toDomain() = ScheduleTemplateSummary(id, name, versionId, versionNumber, cycleDays, participantIds, effectiveFrom?.let(LocalDate::parse), effectiveUntil?.let(LocalDate::parse), status)
+private fun ScheduleApplicationDto.toDomain() = ScheduleApplication(id, templateId, versionNumber, LocalDate.parse(effectiveFrom), effectiveUntil?.let(LocalDate::parse))
 private fun SchedulePlanningConfigurationCommand.toDto() = SchedulePlanningConfigurationRequestDto(cycleDays, participantIds)
 private fun ScheduleTemplateCommand.toDto() = ScheduleTemplateRequestDto(name, cycleDays, participantIds, assignments.map { ScheduleAssignmentDto(it.cycleDay, it.type.name, it.accountIds) })
 

@@ -27,6 +27,8 @@ import okhttp3.ResponseBody
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
+import com.jaydocoder.plateview.data.network.ClientPolicyApi
+import com.jaydocoder.plateview.data.network.ClientRuntimePolicy
 
 private val Context.authDataStore by preferencesDataStore("auth_session")
 
@@ -42,9 +44,9 @@ data class AuthSession(
     val wechatWorkOrderAccessEnabled: Boolean = false,
 )
 data class LoginRequest(val username: String, val password: String)
-data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto)
+data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto, val runtimePolicy: ClientRuntimePolicy)
 data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false)
-data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false)
+data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false, val runtimePolicy: ClientRuntimePolicy? = null)
 data class ProfileUpdateRequest(
     val username: String? = null,
     val password: String? = null,
@@ -89,6 +91,7 @@ class AuthRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val api: AuthApi,
     private val workOrderRepository: WorkOrderRepository,
+    private val runtimeCoordinator: ClientRuntimeCoordinator,
 ) : AuthSessionProvider {
     override val session: Flow<AuthSession?> = context.authDataStore.data.map { p ->
         val access = p[ACCESS] ?: return@map null
@@ -122,6 +125,7 @@ class AuthRepository @Inject constructor(
             preferences[UPDATE_POLICY] = response.user.updatePolicy
             preferences[WECHAT_WORK_ORDER_ACCESS] = response.user.wechatWorkOrderAccessEnabled
         }
+        runtimeCoordinator.apply(response.user.toSession(response.accessToken, response.refreshToken), response.runtimePolicy)
     }
 
     override suspend fun logout() {
@@ -138,7 +142,8 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun validateSession(session: AuthSession) {
-        api.profile("Bearer ${session.accessToken}")
+        val profile = api.profile("Bearer ${session.accessToken}")
+        profile.runtimePolicy?.let { runtimeCoordinator.apply(session, it) }
     }
 
     private companion object {
@@ -160,6 +165,10 @@ object AuthModule {
     @Provides
     @Singleton
     fun provideAuthApi(retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideClientPolicyApi(retrofit: Retrofit): ClientPolicyApi = retrofit.create(ClientPolicyApi::class.java)
 }
 
 @Module
@@ -169,3 +178,15 @@ abstract class AuthBindingModule {
     @Singleton
     abstract fun bindAuthSessionProvider(repository: AuthRepository): AuthSessionProvider
 }
+
+private fun UserDto.toSession(accessToken: String, refreshToken: String) = AuthSession(
+    accessToken = accessToken,
+    refreshToken = refreshToken,
+    username = username,
+    role = role,
+    userId = id,
+    avatarVersion = avatarVersion,
+    scheduleEnabled = scheduleEnabled,
+    updatePolicy = updatePolicy,
+    wechatWorkOrderAccessEnabled = wechatWorkOrderAccessEnabled,
+)

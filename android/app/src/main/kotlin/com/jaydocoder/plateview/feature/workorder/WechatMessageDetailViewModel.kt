@@ -48,8 +48,10 @@ class WechatMessageDetailViewModel @Inject constructor(
                 .onSuccess { message ->
                     _uiState.update { it.copy(isLoading = false, message = message) }
                     message.attachments
-                        .filter { it.availability == "AVAILABLE" }
-                        .forEach { loadAttachment(message.id, it, "original") }
+                        .filter { it.availability in setOf("AVAILABLE", "THUMBNAIL_ONLY") }
+                        .forEach { attachment ->
+                            loadAttachment(message.id, attachment, attachment.preferredVariant())
+                        }
                 }
                 .onFailure { error -> _uiState.update { it.copy(isLoading = false, error = AppErrorMapper.map("读取微信聊天记录", error)) } }
         }
@@ -58,7 +60,7 @@ class WechatMessageDetailViewModel @Inject constructor(
     fun openAttachment(attachment: WorkOrderAttachment) {
         _uiState.update { it.copy(selectedAttachment = attachment) }
         _uiState.value.message?.let { message ->
-            loadAttachment(message.id, attachment, "original")
+            loadAttachment(message.id, attachment, attachment.preferredVariant())
         }
     }
 
@@ -66,19 +68,38 @@ class WechatMessageDetailViewModel @Inject constructor(
         val state = _uiState.value
         val message = state.message ?: return
         val attachment = state.selectedAttachment ?: return
-        loadAttachment(message.id, attachment, "original")
+        loadAttachment(message.id, attachment, attachment.preferredVariant())
     }
 
     fun closeAttachment() { _uiState.update { it.copy(selectedAttachment = null) } }
 
     private fun loadAttachment(messageId: Long, attachment: WorkOrderAttachment, variant: String) {
+        if (attachment.id in _uiState.value.attachmentLoading) return
+        _uiState.update {
+            it.copy(
+                attachmentLoading = it.attachmentLoading + attachment.id,
+                attachmentFailures = it.attachmentFailures - attachment.id,
+            )
+        }
         viewModelScope.launch {
             val session = sessionProvider.session.first() ?: return@launch
             runCatching { repository.attachment(session.accessToken, session.userId, messageId, attachment, variant) }
                 .onSuccess { cached ->
                     _uiState.update { state ->
                         val files = state.attachmentFiles + (attachment.id to preferred(state.attachmentFiles[attachment.id], cached))
-                        state.copy(attachmentFiles = files)
+                        state.copy(
+                            attachmentFiles = files,
+                            attachmentLoading = state.attachmentLoading - attachment.id,
+                            attachmentFailures = state.attachmentFailures - attachment.id,
+                        )
+                    }
+                }
+                .onFailure {
+                    _uiState.update { state ->
+                        state.copy(
+                            attachmentLoading = state.attachmentLoading - attachment.id,
+                            attachmentFailures = state.attachmentFailures + attachment.id,
+                        )
                     }
                 }
         }
@@ -93,10 +114,15 @@ class WechatMessageDetailViewModel @Inject constructor(
     private fun rank(variant: String) = when (variant) { "original" -> 3; "preview" -> 2; else -> 1 }
 }
 
+private fun WorkOrderAttachment.preferredVariant(): String =
+    if (availability == "AVAILABLE") "original" else "thumbnail"
+
 data class WechatMessageDetailUiState(
     val isLoading: Boolean = true,
     val message: WechatMessage? = null,
     val attachmentFiles: Map<Long, CachedWorkOrderImage> = emptyMap(),
+    val attachmentLoading: Set<Long> = emptySet(),
+    val attachmentFailures: Set<Long> = emptySet(),
     val selectedAttachment: WorkOrderAttachment? = null,
     val error: AppError? = null,
 )

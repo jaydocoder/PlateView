@@ -2,10 +2,20 @@ package com.jaydocoder.plateview.server.workorder
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WorkOrderParserTest {
+    @Test
+    fun `附件资源质量只能升级不能降级`() {
+        assertTrue(shouldReplaceAttachmentQuality("UNKNOWN", "THUMBNAIL"))
+        assertTrue(shouldReplaceAttachmentQuality("THUMBNAIL", "HIGH_DEFINITION"))
+        assertTrue(shouldReplaceAttachmentQuality("HIGH_DEFINITION", "ORIGINAL"))
+        assertFalse(shouldReplaceAttachmentQuality("ORIGINAL", "HIGH_DEFINITION"))
+        assertFalse(shouldReplaceAttachmentQuality("HIGH_DEFINITION", "THUMBNAIL"))
+    }
+
     @Test
     fun `发送者称呼忽略空字符串并回退到稳定账号`() {
         assertEquals("三叔", resolveWechatSenderDisplayName(null, "", "三叔", "wxid_2493514935112"))

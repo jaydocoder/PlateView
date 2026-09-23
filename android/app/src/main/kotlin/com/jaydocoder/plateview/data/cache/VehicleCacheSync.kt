@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -19,6 +20,8 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 
 class VehicleCatalogSyncWorker(
@@ -32,6 +35,10 @@ class VehicleCatalogSyncWorker(
         )
         val sessionProvider = entryPoint.sessionProvider()
         val session = sessionProvider.session.first() ?: return Result.success()
+        if (entryPoint.runtimePolicyProvider().policy.value.vehicleResultLimit == 0) {
+            entryPoint.cacheRepository().clearSnapshot()
+            return Result.success()
+        }
         return runCatching {
             entryPoint.cacheRepository().synchronizeCatalog(
                 accessToken = session.accessToken,
@@ -39,8 +46,9 @@ class VehicleCatalogSyncWorker(
             )
             Result.success()
         }.getOrElse { throwable ->
-            if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {
-                sessionProvider.logout()
+            if (throwable is HttpException && throwable.code() in listOf(HTTP_UNAUTHORIZED, HTTP_FORBIDDEN)) {
+                entryPoint.cacheRepository().clearSnapshot()
+                if (throwable.code() == HTTP_UNAUTHORIZED) sessionProvider.logout()
                 Result.success()
             } else {
                 Result.retry()
@@ -50,6 +58,7 @@ class VehicleCatalogSyncWorker(
 
     private companion object {
         const val HTTP_UNAUTHORIZED = 401
+        const val HTTP_FORBIDDEN = 403
     }
 }
 
@@ -59,6 +68,7 @@ interface VehicleCacheWorkerEntryPoint {
     fun cacheRepository(): VehicleCacheRepository
 
     fun sessionProvider(): AuthSessionProvider
+    fun runtimePolicyProvider(): ClientRuntimePolicyProvider
 }
 
 @Singleton
@@ -79,6 +89,12 @@ class VehicleCacheSyncScheduler @Inject constructor(
             ExistingPeriodicWorkPolicy.UPDATE,
             request,
         )
+    }
+
+    suspend fun cancelAndAwait() {
+        withContext(Dispatchers.IO) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME).result.get()
+        }
     }
 
     private companion object {

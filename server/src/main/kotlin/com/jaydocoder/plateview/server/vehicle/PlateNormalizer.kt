@@ -10,5 +10,5 @@ internal fun normalizePlate(value: String): String = value
 internal fun isCompletePlateNumber(value: String): Boolean = COMPLETE_PLATE_PATTERN.matches(value)
 
 internal const val MINIMUM_SEARCH_KEYWORD_LENGTH = 1
-internal const val MAXIMUM_SEARCH_RESULT_COUNT = 8
+internal const val MAXIMUM_SEARCH_RESULT_COUNT = 50
 private val COMPLETE_PLATE_PATTERN = Regex("^[\\p{IsHan}][A-Z][A-Z0-9]{5,6}$")

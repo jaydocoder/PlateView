@@ -7,6 +7,8 @@ import com.jaydocoder.plateview.data.network.AppErrorKind
 import com.jaydocoder.plateview.data.network.AppErrorMapper
 import com.jaydocoder.plateview.data.network.AppErrorTelemetry
 import com.jaydocoder.plateview.data.network.rethrowIfCancellation
+import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
+import com.jaydocoder.plateview.data.network.DefaultClientRuntimePolicyProvider
 import com.jaydocoder.plateview.domain.history.SearchHistoryItem
 import com.jaydocoder.plateview.domain.history.SearchHistoryRepository
 import com.jaydocoder.plateview.domain.vehicle.PlateQueryNormalizer
@@ -48,6 +50,7 @@ class SearchViewModel @Inject constructor(
     private val historyRepository: SearchHistoryRepository,
     private val sessionProvider: AuthSessionProvider,
     private val workOrderRepository: WorkOrderRepository,
+    private val runtimePolicyRepository: ClientRuntimePolicyProvider = DefaultClientRuntimePolicyProvider,
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val retryVersion = MutableStateFlow(0)
@@ -118,10 +121,16 @@ class SearchViewModel @Inject constructor(
 
     private fun observeQuery() {
         viewModelScope.launch {
-            combine(query, retryVersion) { queryValue, _ -> queryValue }
-                .map(PlateQueryNormalizer::normalize)
-                .debounce(QUERY_DEBOUNCE_MILLIS)
-                .collectLatest { normalizedQuery -> performSearch(normalizedQuery) }
+            combine(
+                query,
+                retryVersion,
+                runtimePolicyRepository.policy,
+                runtimePolicyRepository.cacheMaintenanceActive,
+            ) { queryValue, _, _, maintenance -> PlateQueryNormalizer.normalize(queryValue) to maintenance }
+                .debounce { (_, maintenance) -> if (maintenance) 0L else QUERY_DEBOUNCE_MILLIS }
+                .collectLatest { (normalizedQuery, maintenance) ->
+                    if (maintenance) clearSearchForMaintenance() else performSearch(normalizedQuery)
+                }
         }
     }
 
@@ -163,22 +172,26 @@ class SearchViewModel @Inject constructor(
             return
         }
 
+        val limits = runtimePolicyRepository.policy.value
         _uiState.update {
             it.copy(
                 candidates = emptyList(),
                 workOrderCandidates = emptyList(),
                 wechatMessages = emptyList(),
-                vehicleSectionState = SearchSectionState.Loading,
-                workOrderSectionState = if (session.wechatWorkOrderAccessEnabled) SearchSectionState.Loading else SearchSectionState.Idle,
-                wechatMessageSectionState = if (session.wechatWorkOrderAccessEnabled) SearchSectionState.Loading else SearchSectionState.Idle,
+                vehicleSectionState = if (limits.vehicleResultLimit > 0) SearchSectionState.Loading else SearchSectionState.Idle,
+                workOrderSectionState = if (session.wechatWorkOrderAccessEnabled && limits.workOrderResultLimit > 0) SearchSectionState.Loading else SearchSectionState.Idle,
+                wechatMessageSectionState = if (session.wechatWorkOrderAccessEnabled && limits.wechatMessageResultLimit > 0) SearchSectionState.Loading else SearchSectionState.Idle,
                 resultState = SearchResultState.Loading,
             )
         }
 
         supervisorScope {
-            val jobs = mutableListOf(
+            val jobs = mutableListOf<kotlinx.coroutines.Job>()
+            if (limits.vehicleResultLimit == 0) {
+                jobs += launch { vehicleCacheRepository.clearSnapshot() }
+            } else jobs += listOf(
                 launch {
-                    runCatching { vehicleCacheRepository.search(normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                    runCatching { vehicleCacheRepository.search(normalizedQuery, limits.vehicleResultLimit) }
                         .onSuccess { local ->
                             if (local.isNotEmpty()) _uiState.update {
                                 if (it.vehicleSectionState is SearchSectionState.Loading) {
@@ -191,7 +204,7 @@ class SearchViewModel @Inject constructor(
                         .onFailure(Throwable::rethrowIfCancellation)
                 },
                 launch {
-                    runCatching { vehicleRepository.search(session.accessToken, normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                    runCatching { vehicleRepository.search(session.accessToken, normalizedQuery).take(limits.vehicleResultLimit) }
                         .onSuccess { remote ->
                             _uiState.update {
                                 it.copy(
@@ -211,8 +224,8 @@ class SearchViewModel @Inject constructor(
             if (!session.wechatWorkOrderAccessEnabled) {
                 jobs += launch { runCatching { workOrderRepository.clear(session.userId) } }
             } else {
-                jobs += launch {
-                    runCatching { workOrderRepository.searchCached(normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                if (limits.workOrderResultLimit == 0) jobs += launch { workOrderRepository.clearWorkOrders() } else jobs += launch {
+                    runCatching { workOrderRepository.searchCached(normalizedQuery, limits.workOrderResultLimit) }
                         .onSuccess { local ->
                             if (local.isNotEmpty()) _uiState.update {
                                 if (it.workOrderSectionState is SearchSectionState.Loading) {
@@ -224,8 +237,8 @@ class SearchViewModel @Inject constructor(
                         }
                         .onFailure(Throwable::rethrowIfCancellation)
                 }
-                jobs += launch {
-                    runCatching { workOrderRepository.searchMessagesCached(normalizedQuery).take(MAXIMUM_RESULTS_PER_SECTION) }
+                if (limits.wechatMessageResultLimit == 0) jobs += launch { workOrderRepository.clearMessages() } else jobs += launch {
+                    runCatching { workOrderRepository.searchMessagesCached(normalizedQuery, limits.wechatMessageResultLimit) }
                         .onSuccess { local ->
                             if (local.isNotEmpty()) _uiState.update {
                                 if (it.wechatMessageSectionState is SearchSectionState.Loading) {
@@ -237,14 +250,14 @@ class SearchViewModel @Inject constructor(
                         }
                         .onFailure(Throwable::rethrowIfCancellation)
                 }
-                jobs += launch {
-                    runCatching { workOrderRepository.searchHomeRemote(session.accessToken, normalizedQuery) }
+                if (limits.workOrderResultLimit > 0 || limits.wechatMessageResultLimit > 0) jobs += launch {
+                    runCatching { workOrderRepository.searchHomeRemote(session.accessToken, normalizedQuery, maxOf(limits.workOrderResultLimit, limits.wechatMessageResultLimit)) }
                         .onSuccess { remote ->
                             val sectionFailure = AppErrorMapper.map("查询微信记录", IllegalStateException("搜索分区暂时不可用"))
                             _uiState.update {
                                 it.copy(
-                                    workOrderCandidates = remote.workOrders.take(MAXIMUM_RESULTS_PER_SECTION),
-                                    wechatMessages = remote.wechatMessages.take(MAXIMUM_RESULTS_PER_SECTION),
+                                    workOrderCandidates = remote.workOrders.take(limits.workOrderResultLimit),
+                                    wechatMessages = remote.wechatMessages.take(limits.wechatMessageResultLimit),
                                     workOrderSectionState = when {
                                         remote.workOrderFailed -> SearchSectionState.Error(sectionFailure)
                                         remote.workOrders.isEmpty() -> SearchSectionState.Empty
@@ -295,18 +308,41 @@ class SearchViewModel @Inject constructor(
     private fun syncCatalogInBackground(forceVersionCheck: Boolean = false) {
         viewModelScope.launch {
             val session = sessionProvider.session.first() ?: return@launch
-            runCatching {
-                vehicleCacheRepository.synchronizeCatalog(
-                    accessToken = session.accessToken,
-                    forceVersionCheck = forceVersionCheck,
-                )
-            }.onFailure(Throwable::rethrowIfCancellation)
-            if (session.wechatWorkOrderAccessEnabled) {
+            if (runtimePolicyRepository.cacheMaintenanceActive.value) return@launch
+            val limits = runtimePolicyRepository.policy.value
+            if (limits.vehicleResultLimit > 0) {
+                runCatching {
+                    vehicleCacheRepository.synchronizeCatalog(
+                        accessToken = session.accessToken,
+                        forceVersionCheck = forceVersionCheck,
+                    )
+                }.onFailure(Throwable::rethrowIfCancellation)
+            } else {
+                runCatching { vehicleCacheRepository.clearSnapshot() }
+            }
+            if (session.wechatWorkOrderAccessEnabled && limits.workOrderResultLimit > 0) {
                 runCatching { workOrderRepository.synchronize(session.accessToken, forceVersionCheck) }
                     .onFailure(Throwable::rethrowIfCancellation)
             } else {
-                runCatching { workOrderRepository.clear(session.userId) }
+                runCatching { workOrderRepository.clearWorkOrders() }
             }
+            if (!session.wechatWorkOrderAccessEnabled || limits.wechatMessageResultLimit == 0) {
+                runCatching { workOrderRepository.clearMessages() }
+            }
+        }
+    }
+
+    private fun clearSearchForMaintenance() {
+        _uiState.update {
+            it.copy(
+                candidates = emptyList(),
+                workOrderCandidates = emptyList(),
+                wechatMessages = emptyList(),
+                vehicleSectionState = SearchSectionState.Idle,
+                workOrderSectionState = SearchSectionState.Idle,
+                wechatMessageSectionState = SearchSectionState.Idle,
+                resultState = SearchResultState.Idle,
+            )
         }
     }
 
@@ -322,7 +358,6 @@ class SearchViewModel @Inject constructor(
 
     private companion object {
         const val QUERY_DEBOUNCE_MILLIS = 250L
-        const val MAXIMUM_RESULTS_PER_SECTION = 8
         const val HTTP_UNAUTHORIZED = 401
         const val HTTP_FORBIDDEN = 403
     }

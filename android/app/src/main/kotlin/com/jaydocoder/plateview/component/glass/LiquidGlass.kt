@@ -82,6 +82,8 @@ fun GlassSurface(
     elevated: Boolean = false,
     color: Color = MaterialTheme.colorScheme.background,
     opacity: Float? = null,
+    borderColor: Color? = null,
+    borderOpacity: Float? = null,
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -100,7 +102,9 @@ fun GlassSurface(
         contentColor = contentColor,
         border = BorderStroke(
             PlateViewDimensions.glassBorderWidth,
-            MaterialTheme.colorScheme.primary.copy(alpha = if (elevated) 0.28f else 0.16f),
+            (borderColor ?: MaterialTheme.colorScheme.primary).copy(
+                alpha = borderOpacity?.coerceIn(0f, 1f) ?: if (elevated) 0.28f else 0.16f,
+            ),
         ),
         tonalElevation = 0.dp,
     ) {

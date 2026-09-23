@@ -5,6 +5,8 @@ import com.auth0.jwt.algorithms.Algorithm
 import com.jaydocoder.plateview.server.infrastructure.database.AuditEvent
 import com.jaydocoder.plateview.server.infrastructure.database.AuditLogWriterKey
 import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
+import com.jaydocoder.plateview.server.client.ClientPolicyService
+import com.jaydocoder.plateview.server.client.ClientRuntimePolicyResponse
 import com.jaydocoder.plateview.server.infrastructure.web.ApiErrorResponse
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.HttpHeaders
@@ -43,7 +45,8 @@ import org.mindrot.jbcrypt.BCrypt
 internal fun Application.configureAuthenticationFeature() {
     val dataSource = attributes.getOrNull(DataSourceKey) ?: return
     val settings = authenticationSettings()
-    val service = AuthService(dataSource, settings)
+    val policyService = ClientPolicyService(dataSource)
+    val service = AuthService(dataSource, settings, policyService)
     service.ensureInitialAdministrator()
 
     install(io.ktor.server.auth.Authentication) {
@@ -103,7 +106,8 @@ internal fun Application.configureAuthenticationFeature() {
                 }
                 route("/profile") {
                     get {
-                        call.respond(service.currentUser(call.principal<JWTPrincipal>()!!).toProfileResponse())
+                        val user = service.currentUser(call.principal<JWTPrincipal>()!!)
+                        call.respond(user.toProfileResponse(policyService.runtimePolicy(user.id)))
                     }
                     post {
                         val actor = service.currentUser(call.principal<JWTPrincipal>()!!)
@@ -174,7 +178,11 @@ private data class AuthenticationSettings(
     val verifier = JWT.require(algorithm).withIssuer(ISSUER).withAudience(AUDIENCE).build()
 }
 
-private class AuthService(private val dataSource: DataSource, private val settings: AuthenticationSettings) {
+private class AuthService(
+    private val dataSource: DataSource,
+    private val settings: AuthenticationSettings,
+    private val policyService: ClientPolicyService,
+) {
     fun ensureInitialAdministrator() {
         dataSource.connection.use { connection ->
             connection.prepareStatement("SELECT 1 FROM users WHERE username = 'admin'").use { query ->
@@ -236,7 +244,13 @@ private class AuthService(private val dataSource: DataSource, private val settin
             .withClaim("authVersion", user.authVersion)
             .withExpiresAt(Date.from(accessExpiresAt))
             .sign(settings.algorithm)
-        return TokenResponse(accessToken, refreshToken, accessExpiresAt.toString(), user.toResponse())
+        return TokenResponse(
+            accessToken,
+            refreshToken,
+            accessExpiresAt.toString(),
+            user.toResponse(),
+            policyService.runtimePolicy(user.id),
+        )
     }
 
     private fun revoke(refreshToken: String) {
@@ -353,9 +367,15 @@ private class AuthService(private val dataSource: DataSource, private val settin
     val password: String? = null,
     val currentPassword: String? = null,
 )
-@Serializable private data class TokenResponse(val accessToken: String, val refreshToken: String, val accessTokenExpiresAt: String, val user: UserResponse)
+@Serializable private data class TokenResponse(
+    val accessToken: String,
+    val refreshToken: String,
+    val accessTokenExpiresAt: String,
+    val user: UserResponse,
+    val runtimePolicy: ClientRuntimePolicyResponse,
+)
 @Serializable private data class UserResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean)
-@Serializable private data class ProfileResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean)
+@Serializable private data class ProfileResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean, val runtimePolicy: ClientRuntimePolicyResponse? = null)
 private data class UserAccount(
     val id: Long,
     val username: String,
@@ -373,7 +393,7 @@ internal data class AvatarUpload(val content: ByteArray, val contentType: String
 internal class ProfileConflictException(message: String) : RuntimeException(message)
 
 private fun UserAccount.toResponse() = UserResponse(id, username, role, avatarVersion, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled)
-private fun UserAccount.toProfileResponse() = ProfileResponse(id, username, role, avatarVersion, avatar != null, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled)
+private fun UserAccount.toProfileResponse(runtimePolicy: ClientRuntimePolicyResponse? = null) = ProfileResponse(id, username, role, avatarVersion, avatar != null, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled, runtimePolicy)
 
 internal suspend fun ApplicationCall.receiveAvatarUpload(): AvatarUpload {
     val declaredSize = request.headers[HttpHeaders.ContentLength]?.toLongOrNull()

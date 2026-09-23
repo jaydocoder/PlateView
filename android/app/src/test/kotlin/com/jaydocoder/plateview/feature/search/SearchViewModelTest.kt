@@ -20,6 +20,8 @@ import com.jaydocoder.plateview.domain.workorder.WechatMessagePage
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.data.network.AppErrorKind
+import com.jaydocoder.plateview.data.network.ClientRuntimePolicy
+import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CompletableDeferred
@@ -221,19 +223,71 @@ class SearchViewModelTest {
         assertEquals(listOf(message), viewModel.uiState.value.wechatMessages)
     }
 
+    @Test
+    fun `缓存维护会取消进行中的搜索并丢弃旧响应`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val candidate = VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆")
+        val policy = FakeRuntimePolicyProvider()
+        val viewModel = createViewModel(
+            vehicleRepository = FakeVehicleRepository(searchResult = listOf(candidate), searchGate = gate),
+            runtimePolicyProvider = policy,
+        )
+
+        viewModel.updateQuery("新A")
+        advanceTimeBy(250)
+        runCurrent()
+        policy.maintenance.value = true
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.candidates.isEmpty())
+        assertEquals(SearchResultState.Idle, viewModel.uiState.value.resultState)
+    }
+
+    @Test
+    fun `三类限制为零时不发起远程查询`() = runTest {
+        val vehicleRepository = FakeVehicleRepository()
+        val workOrderRepository = FakeWorkOrderRepository()
+        val policy = FakeRuntimePolicyProvider(
+            ClientRuntimePolicy(vehicleResultLimit = 0, workOrderResultLimit = 0, wechatMessageResultLimit = 0),
+        )
+        val viewModel = createViewModel(
+            vehicleRepository = vehicleRepository,
+            workOrderRepository = workOrderRepository,
+            sessionProvider = FakeAuthSessionProvider(wechatAccessEnabled = true),
+            runtimePolicyProvider = policy,
+        )
+
+        viewModel.updateQuery("测试")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+
+        assertTrue(vehicleRepository.searchKeywords.isEmpty())
+        assertEquals(0, workOrderRepository.homeSearchCalls)
+    }
+
     private fun createViewModel(
         vehicleRepository: FakeVehicleRepository = FakeVehicleRepository(),
         vehicleCacheRepository: VehicleCacheRepository = FakeVehicleCacheRepository(),
         historyRepository: FakeSearchHistoryRepository = FakeSearchHistoryRepository(),
         workOrderRepository: WorkOrderRepository = FakeWorkOrderRepository(),
         sessionProvider: AuthSessionProvider = FakeAuthSessionProvider(),
+        runtimePolicyProvider: ClientRuntimePolicyProvider = FakeRuntimePolicyProvider(),
     ): SearchViewModel = SearchViewModel(
         vehicleRepository = vehicleRepository,
         vehicleCacheRepository = vehicleCacheRepository,
         historyRepository = historyRepository,
         sessionProvider = sessionProvider,
         workOrderRepository = workOrderRepository,
+        runtimePolicyRepository = runtimePolicyProvider,
     )
+}
+
+private class FakeRuntimePolicyProvider(initial: ClientRuntimePolicy = ClientRuntimePolicy()) : ClientRuntimePolicyProvider {
+    override val policy = MutableStateFlow(initial)
+    val maintenance = MutableStateFlow(false)
+    override val cacheMaintenanceActive = maintenance
 }
 
 private class FakeWorkOrderRepository(
@@ -287,11 +341,13 @@ private class FakeWorkOrderRepository(
 private class FakeVehicleRepository(
     private val searchResult: List<VehicleCandidate> = emptyList(),
     private val searchFailure: Throwable? = null,
+    private val searchGate: CompletableDeferred<Unit>? = null,
 ) : VehicleRepository {
     val searchKeywords = mutableListOf<String>()
 
     override suspend fun search(accessToken: String, keyword: String): List<VehicleCandidate> {
         searchKeywords += keyword
+        searchGate?.await()
         searchFailure?.let { throw it }
         return searchResult
     }

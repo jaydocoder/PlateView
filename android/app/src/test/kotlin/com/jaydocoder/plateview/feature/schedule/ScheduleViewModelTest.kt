@@ -96,5 +96,5 @@ private class FakeScheduleRepository : ScheduleRepository {
     override suspend fun updateTemplate(accessToken: String, templateId: Long, command: ScheduleTemplateCommand): ScheduleTemplateSummary = error("测试不调用")
     override suspend fun deleteTemplate(accessToken: String, templateId: Long) = Unit
     override suspend fun preview(accessToken: String, templateId: Long, effectiveFrom: LocalDate): ScheduleWeek = error("测试不调用")
-    override suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate): ScheduleApplication = error("测试不调用")
+    override suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate, effectiveUntil: LocalDate?): ScheduleApplication = error("测试不调用")
 }

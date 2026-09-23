@@ -21,11 +21,17 @@ internal class ResumableApkDownloader(
     ): File = withContext(Dispatchers.IO) {
         check(downloadDirectory.exists() || downloadDirectory.mkdirs()) { "无法创建更新下载目录" }
 
-        val apkFile = File(downloadDirectory, "PlateView-${update.versionName}.apk")
-        val temporaryFile = File(downloadDirectory, "PlateView-${update.versionName}.apk.part")
+        val artifactName = update.artifactName
+            .takeIf { it.isNotBlank() && !it.contains('/') && !it.contains('\\') }
+            ?: "PlateView-${update.versionName}-${update.architecture}.apk"
+        val apkFile = File(downloadDirectory, artifactName)
+        val temporaryFile = File(downloadDirectory, "$artifactName.part")
         downloadIntoTemporaryFile(update.downloadUrls, temporaryFile, onProgress)
 
         check(temporaryFile.length() > 0L) { "下载更新失败，安装包为空" }
+        update.sizeBytes?.let { expected ->
+            check(temporaryFile.length() == expected) { "下载更新失败，安装包大小不匹配" }
+        }
         update.sha256?.let { expected ->
             check(temporaryFile.sha256().equals(expected, ignoreCase = true)) {
                 temporaryFile.delete()

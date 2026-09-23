@@ -27,6 +27,7 @@ data class WorkOrder(
     val people: List<WorkOrderPerson>,
     val images: List<WorkOrderImage>,
     val vehicles: List<WorkOrderVehicle> = emptyList(),
+    val displayName: String? = null,
 )
 
 data class WorkOrderPerson(val rawLine: String, val name: String?, val identityNumber: String?)
@@ -42,6 +43,7 @@ data class WorkOrderImage(
     val kind: String = "IMAGE",
     val fileName: String? = null,
     val pageCount: Int? = null,
+    val sourceQuality: String = "UNKNOWN",
 )
 
 data class WorkOrderSyncResult(val refreshed: Boolean)
@@ -74,7 +76,10 @@ data class WorkOrderAttachment(
     val thumbnailAvailable: Boolean,
     val availability: String,
     val pageCount: Int?,
+    val sourceQuality: String = "UNKNOWN",
 )
+
+data class WorkOrderAttachmentSyncResult(val downloaded: Int, val skipped: Int, val failed: Int)
 
 data class WechatMessagePage(val records: List<WechatMessage>, val nextOffset: Int?)
 data class WorkOrderHomeSearchResult(
@@ -89,15 +94,23 @@ data class WorkOrderHomeSearchResult(
 
 interface WorkOrderRepository {
     suspend fun searchCached(keyword: String): List<WorkOrder>
+    suspend fun searchCached(keyword: String, limit: Int): List<WorkOrder> = searchCached(keyword).take(limit)
     suspend fun searchRemote(accessToken: String, keyword: String): List<WorkOrder>
     suspend fun searchMessagesCached(keyword: String): List<WechatMessage>
+    suspend fun searchMessagesCached(keyword: String, limit: Int): List<WechatMessage> = searchMessagesCached(keyword).take(limit)
     suspend fun searchMessagesRemote(accessToken: String, keyword: String, offset: Int = 0): WechatMessagePage
     suspend fun searchHomeRemote(accessToken: String, keyword: String): WorkOrderHomeSearchResult
+    suspend fun searchHomeRemote(accessToken: String, keyword: String, limit: Int): WorkOrderHomeSearchResult = searchHomeRemote(accessToken, keyword)
     suspend fun getMessageDetail(accessToken: String, messageId: Long): WechatMessage
     suspend fun synchronize(accessToken: String, forceVersionCheck: Boolean = false): WorkOrderSyncResult
+    suspend fun synchronizeAttachments(accessToken: String, userId: Long): WorkOrderAttachmentSyncResult =
+        WorkOrderAttachmentSyncResult(0, 0, 0)
+    suspend fun reportAttachmentCacheStatus(accessToken: String, userId: Long, clientInstanceId: String) = Unit
     suspend fun getDetail(accessToken: String, recordId: Long): WorkOrder
     suspend fun getHistory(accessToken: String, recordId: Long): List<WorkOrder>
     suspend fun image(accessToken: String, userId: Long, recordId: Long, image: WorkOrderImage, variant: String): CachedWorkOrderImage
     suspend fun attachment(accessToken: String, userId: Long, messageId: Long, attachment: WorkOrderAttachment, variant: String): CachedWorkOrderImage
     suspend fun clear(userId: Long? = null)
+    suspend fun clearWorkOrders() = Unit
+    suspend fun clearMessages() = Unit
 }

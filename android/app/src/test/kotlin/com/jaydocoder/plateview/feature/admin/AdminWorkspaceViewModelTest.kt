@@ -608,7 +608,14 @@ private class FakeAdminRepository(
     override suspend fun associateWechatImage(accessToken: String, imageId: Long, recordId: Long) = Unit
     override suspend fun removeWechatImageAssociation(accessToken: String, imageId: Long) = Unit
     override suspend fun ignoreWechatImage(accessToken: String, imageId: Long) = Unit
-    override suspend fun downloadWechatAttachment(accessToken: String, imageId: Long, variant: String): com.jaydocoder.plateview.domain.admin.CachedAdminAttachment {
+    override suspend fun downloadWechatAttachment(
+        accessToken: String,
+        userId: Long,
+        imageId: Long,
+        variant: String,
+        sha256: String?,
+        sourceQuality: String,
+    ): com.jaydocoder.plateview.domain.admin.CachedAdminAttachment {
         downloadedWechatAttachments += imageId to variant
         return com.jaydocoder.plateview.domain.admin.CachedAdminAttachment(kotlin.io.path.createTempFile().toFile(), variant)
     }

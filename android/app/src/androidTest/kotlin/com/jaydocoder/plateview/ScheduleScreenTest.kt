@@ -124,7 +124,7 @@ class ScheduleScreenTest {
 
     @Test
     fun 模板列表显示状态并提供编辑和日期选择操作() {
-        val template = ScheduleTemplateSummary(1, "demo01", 1, 1, 9, listOf(3), null, "INACTIVE")
+        val template = ScheduleTemplateSummary(1, "demo01", 1, 1, 9, listOf(3), null, null, "INACTIVE")
         composeRule.setContent {
             PlateViewTheme {
                 SchedulePlannerScreen(SchedulePlannerState(templates = listOf(template), loading = false), {}, {}, {}, {}, {}, {}, { _, _ -> }, {})

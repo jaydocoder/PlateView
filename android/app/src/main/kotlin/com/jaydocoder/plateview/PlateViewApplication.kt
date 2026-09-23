@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.jaydocoder.plateview.data.cache.VehicleCacheSchedulerEntryPoint
 import com.jaydocoder.plateview.data.statistics.QueryEventSyncScheduler
+import com.jaydocoder.plateview.data.workorder.WechatAttachmentCacheSchedulerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
 import dagger.hilt.EntryPoint
@@ -26,6 +27,12 @@ class PlateViewApplication : Application() {
                 this,
                 QueryEventSyncSchedulerEntryPoint::class.java,
             ).queryEventSyncScheduler().schedulePeriodic()
+        }
+        runOptionalStartupTask("微信附件本地缓存同步") {
+            EntryPointAccessors.fromApplication(
+                this,
+                WechatAttachmentCacheSchedulerEntryPoint::class.java,
+            ).attachmentCacheScheduler().schedule()
         }
     }
 

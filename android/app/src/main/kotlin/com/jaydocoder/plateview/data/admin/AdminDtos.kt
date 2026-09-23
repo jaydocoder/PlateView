@@ -2,6 +2,47 @@ package com.jaydocoder.plateview.data.admin
 
 import com.google.gson.JsonObject
 
+data class ClientPolicyDto(
+    val revision: Long,
+    val vehicleResultLimit: Int,
+    val workOrderResultLimit: Int,
+    val wechatMessageResultLimit: Int,
+    val apiBaseUrl: String,
+    val previousApiBaseUrl: String?,
+    val updateBaseUrl: String,
+    val previousUpdateBaseUrl: String?,
+    val updatedAt: String,
+    val clientCount: Int = 0,
+    val appliedClientCount: Int = 0,
+    val lastConfirmedAt: String? = null,
+    val cacheResetStatuses: List<CacheResetStatusDto> = emptyList(),
+)
+
+data class ClientPolicyUpdateRequestDto(
+    val vehicleResultLimit: Int,
+    val workOrderResultLimit: Int,
+    val wechatMessageResultLimit: Int,
+    val apiBaseUrl: String,
+    val updateBaseUrl: String,
+)
+
+data class ClientPolicyLimitsUpdateRequestDto(
+    val vehicleResultLimit: Int,
+    val workOrderResultLimit: Int,
+    val wechatMessageResultLimit: Int,
+)
+
+data class EndpointTestRequestDto(val baseUrl: String)
+data class EndpointTestResponseDto(val success: Boolean, val message: String)
+data class CacheResetStatusDto(
+    val userId: Long,
+    val revision: Long,
+    val expectedClientCount: Int,
+    val completedClientCount: Int,
+    val status: String,
+    val lastConfirmedAt: String?,
+)
+
 data class AdminVehicleListResponseDto(val items: List<AdminVehicleListItemDto>, val total: Int)
 data class AdminVehicleCreationCapabilitiesDto(
     val creatableCategories: List<String>,
@@ -48,10 +89,26 @@ data class WechatSyncIssuesResponseDto(
     val totalAttachmentCount: Int = 0,
     val completedAttachmentCount: Int = 0,
     val pendingAttachmentCount: Int = 0,
+    val integrity: WechatSyncIntegrityDto = WechatSyncIntegrityDto(),
+)
+data class WechatCacheStatusSummaryDto(
+    val clientCount: Int = 0,
+    val completedCount: Int = 0,
+    val pendingCount: Int = 0,
+    val failedCount: Int = 0,
+    val totalBytes: Long = 0,
+)
+data class WechatSyncIntegrityDto(
+    val unconfirmedBatchCount: Int = 0,
+    val retryTaskCount: Int = 0,
+    val metadataOnlyAttachmentCount: Int = 0,
+    val failedTaskCount: Int = 0,
+    val status: String = "一致",
 )
 data class WechatSyncIssueDto(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
     val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,
+    val sha256: String? = null, val sourceQuality: String = "UNKNOWN",
     val candidates: List<WechatAttachmentCandidateDto> = emptyList(),
 )
 data class WechatAttachmentCandidateDto(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)

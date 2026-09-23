@@ -32,7 +32,7 @@ class SchedulePlannerViewModelTest {
         val viewModel = SchedulePlannerViewModel(repository, AdminSessionProvider())
         advanceUntilIdle()
 
-        viewModel.applyTemplate(1, LocalDate.of(2026, 9, 1))
+        viewModel.applyTemplate(1, LocalDate.of(2026, 9, 1), null)
         advanceUntilIdle()
 
         assertEquals(LocalDate.of(2026, 9, 1), repository.appliedDate)
@@ -57,8 +57,8 @@ private class ApplyingScheduleRepository : ScheduleRepository {
     override suspend fun updateTemplate(accessToken: String, templateId: Long, command: ScheduleTemplateCommand): ScheduleTemplateSummary = error("测试不调用")
     override suspend fun deleteTemplate(accessToken: String, templateId: Long) = Unit
     override suspend fun preview(accessToken: String, templateId: Long, effectiveFrom: LocalDate): ScheduleWeek = error("测试不调用")
-    override suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate): ScheduleApplication {
+    override suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate, effectiveUntil: LocalDate?): ScheduleApplication {
         appliedDate = effectiveFrom
-        return ScheduleApplication(1, templateId, 1, effectiveFrom)
+        return ScheduleApplication(1, templateId, 1, effectiveFrom, effectiveUntil)
     }
 }

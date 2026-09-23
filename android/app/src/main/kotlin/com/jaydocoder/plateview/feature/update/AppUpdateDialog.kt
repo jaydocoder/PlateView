@@ -162,7 +162,7 @@ fun UpdateCheckDialog(
 ) {
     val isChecking = state is ManualUpdateCheckState.Checking
     val (icon, title, message) = when (state) {
-        ManualUpdateCheckState.Idle -> Triple(Icons.Outlined.SystemUpdate, "系统更新", "请检查应用是否有新版本。")
+        ManualUpdateCheckState.Idle -> Triple(Icons.Outlined.SystemUpdate, "软件更新", "请检查应用是否有新版本。")
         ManualUpdateCheckState.Checking -> Triple(Icons.Outlined.SystemUpdate, "正在检查更新", "正在获取最新版本信息，请稍候。")
         ManualUpdateCheckState.Latest -> Triple(Icons.Outlined.TaskAlt, "已是最新版本", "当前版本 v${BuildConfig.VERSION_NAME} 已是最新版本。")
         is ManualUpdateCheckState.Failed -> Triple(Icons.Outlined.ErrorOutline, "检查更新失败", state.message)

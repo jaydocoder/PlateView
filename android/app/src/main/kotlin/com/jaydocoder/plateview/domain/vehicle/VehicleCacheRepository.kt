@@ -12,6 +12,8 @@ data class CatalogSyncResult(
 interface VehicleCacheRepository {
     suspend fun search(normalizedKeyword: String): List<VehicleCandidate>
 
+    suspend fun search(normalizedKeyword: String, limit: Int): List<VehicleCandidate> = search(normalizedKeyword).take(limit)
+
     suspend fun synchronizeCatalog(
         accessToken: String,
         forceVersionCheck: Boolean = false,

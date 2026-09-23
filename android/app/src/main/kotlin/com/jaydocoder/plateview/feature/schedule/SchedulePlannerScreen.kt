@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditCalendar
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
@@ -104,7 +105,7 @@ fun SchedulePlannerScreen(
     onChanged: ((ScheduleTemplateEditor) -> ScheduleTemplateEditor) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
-    onApply: (Long, LocalDate) -> Unit,
+    onApply: (Long, LocalDate, LocalDate?) -> Unit,
     onDelete: (Long) -> Unit,
     onApplicationSuccessMessageConsumed: () -> Unit = {},
 ) {
@@ -147,36 +148,75 @@ fun SchedulePlannerScreen(
     applicationTarget?.let { template ->
         ApplyTemplateDateDialog(
             onDismiss = { applicationTarget = null },
-            onApply = { date -> onApply(template.id, date); applicationTarget = null },
+        onApply = { start, end -> onApply(template.id, start, end); applicationTarget = null },
         )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ApplyTemplateDateDialog(onDismiss: () -> Unit, onApply: (LocalDate) -> Unit) {
+private fun ApplyTemplateDateDialog(onDismiss: () -> Unit, onApply: (LocalDate, LocalDate?) -> Unit) {
     val pickerState = androidx.compose.material3.rememberDatePickerState(
         initialSelectedDateMillis = scheduleDatePickerUtcMillis(LocalDate.now()),
     )
+    val endPickerState = androidx.compose.material3.rememberDatePickerState(
+        initialSelectedDateMillis = scheduleDatePickerUtcMillis(LocalDate.now().plusMonths(1)),
+    )
+    var hasEndDate by remember { mutableStateOf(false) }
+    var editingEndDate by remember { mutableStateOf(false) }
+    val startDate = pickerState.selectedDateMillis?.let(::scheduleDateFromPickerUtcMillis)
+    val endDate = endPickerState.selectedDateMillis?.let(::scheduleDateFromPickerUtcMillis)
+    val endDateInvalid = hasEndDate && startDate != null && endDate != null && endDate.isBefore(startDate)
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(
-                onClick = { pickerState.selectedDateMillis?.let { onApply(scheduleDateFromPickerUtcMillis(it)) } },
-                enabled = pickerState.selectedDateMillis != null,
+                onClick = {
+                    val start = pickerState.selectedDateMillis?.let(::scheduleDateFromPickerUtcMillis) ?: return@Button
+                    val end = if (hasEndDate) endPickerState.selectedDateMillis?.let(::scheduleDateFromPickerUtcMillis) else null
+                    if (end == null || !end.isBefore(start)) onApply(start, end)
+                },
+                enabled = startDate != null && (!hasEndDate || !endDateInvalid),
                 shape = RoundedCornerShape(14.dp),
             ) { Text("确认应用") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
         shape = RoundedCornerShape(20.dp),
     ) {
-        DatePicker(
-            state = pickerState,
-            showModeToggle = false,
-            title = { Text("选择应用日期", modifier = Modifier.padding(start = 24.dp, top = 16.dp)) },
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("模板应用日期", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilterChip(
+                    selected = !editingEndDate,
+                    onClick = { editingEndDate = false },
+                    label = { Text("开始：${startDate?.let(::scheduleDateLabel) ?: "未选择"}") },
+                )
+                Spacer(Modifier.width(8.dp))
+                FilterChip(
+                    selected = editingEndDate,
+                    onClick = { hasEndDate = true; editingEndDate = true },
+                    enabled = hasEndDate,
+                    label = { Text("结束：${if (hasEndDate) endDate?.let(::scheduleDateLabel) ?: "未选择" else "不设置"}") },
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = hasEndDate,
+                    onCheckedChange = { checked -> hasEndDate = checked; if (!checked) editingEndDate = false },
+                )
+                Text("设置应用结束日期（可选）")
+            }
+            DatePicker(
+                state = if (editingEndDate && hasEndDate) endPickerState else pickerState,
+                showModeToggle = false,
+                title = { Text(if (editingEndDate && hasEndDate) "选择结束日期" else "选择开始日期", modifier = Modifier.padding(start = 24.dp, top = 8.dp)) },
+            )
+            if (endDateInvalid) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
+        }
     }
 }
+
+private fun scheduleDateLabel(date: LocalDate): String = "${date.year}年${date.monthValue}月${date.dayOfMonth}日"
 
 internal fun scheduleDatePickerUtcMillis(date: LocalDate): Long = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
@@ -217,6 +257,13 @@ private fun TemplateList(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(item.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     TemplateStatusBadge(item.status)
+                    item.effectiveFrom?.let { from ->
+                        Text(
+                            text = "应用：${from} 至 ${item.effectiveUntil ?: "循环"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 IconButton(onClick = { onEdit(item) }) { Icon(Icons.Outlined.Edit, "编辑模板") }
                 IconButton(onClick = { onRequestApply(item) }) { Icon(Icons.Outlined.EditCalendar, "选择应用日期") }

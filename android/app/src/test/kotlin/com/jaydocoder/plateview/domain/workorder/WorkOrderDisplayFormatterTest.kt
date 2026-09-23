@@ -9,6 +9,18 @@ import java.time.ZonedDateTime
 
 class WorkOrderDisplayFormatterTest {
     @Test
+    fun `车单发送者优先显示管理员配置称呼`() {
+        assertEquals(
+            "孙主任",
+            sampleWorkOrder(status = "ACTIVE").copy(
+                senderUsername = "wxid_b0rmsm0lwqjk22",
+                senderDisplay = "孙阿鑫",
+                displayName = "孙主任",
+            ).resolvedSenderName(),
+        )
+    }
+
+    @Test
     fun `聊天发送者忽略空昵称并回退到原始昵称或稳定账号`() {
         val message = sampleMessage("测试", "2026-09-21T01:00:00Z")
 
@@ -330,6 +342,10 @@ class WorkOrderDisplayFormatterTest {
         assertEquals(
             WorkOrderPassageState.EXPIRED,
             resolveWechatMessagePassageState(sampleMessage("新AS50B2，贾登峪车道口予以通行", sentAt), beijingTime(2026, 9, 21, 0, 1)),
+        )
+        assertEquals(
+            WorkOrderPassageState.VALID,
+            resolveWechatMessagePassageState(sampleMessage("新HJH233，喀纳斯予以通行", sentAt), beijingTime(2026, 9, 20, 12, 0)),
         )
     }
 

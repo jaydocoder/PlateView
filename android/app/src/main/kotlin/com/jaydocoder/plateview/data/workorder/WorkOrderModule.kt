@@ -29,6 +29,7 @@ object WorkOrderDataModule {
         Room.databaseBuilder(context, WorkOrderCacheDatabase::class.java, "work-order-cache.db")
             .openHelperFactory(SupportFactory(passphrase.getOrCreate()))
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_1_2)
+            .addMigrations(WORK_ORDER_CACHE_MIGRATION_2_3)
             .build()
 
     @Provides
@@ -48,6 +49,31 @@ private val WORK_ORDER_CACHE_MIGRATION_1_2 = object : Migration(1, 2) {
                 `searchableText` TEXT NOT NULL,
                 `detailJson` TEXT NOT NULL,
                 PRIMARY KEY(`messageId`)
+            )
+            """.trimIndent(),
+        )
+    }
+}
+
+private val WORK_ORDER_CACHE_MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `wechat_attachment_download_tasks` (
+                `userId` INTEGER NOT NULL,
+                `attachmentId` INTEGER NOT NULL,
+                `variant` TEXT NOT NULL,
+                `sha256` TEXT NOT NULL,
+                `expectedSize` INTEGER,
+                `downloadedBytes` INTEGER NOT NULL,
+                `localPath` TEXT,
+                `status` TEXT NOT NULL,
+                `attemptCount` INTEGER NOT NULL,
+                `nextRetryAt` INTEGER,
+                `lastErrorCode` TEXT,
+                `manifestRevision` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`userId`, `attachmentId`, `variant`, `sha256`)
             )
             """.trimIndent(),
         )

@@ -21,11 +21,14 @@ import com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem
 import com.jaydocoder.plateview.domain.admin.WechatPassageSender
 import com.jaydocoder.plateview.domain.admin.CachedAdminAttachment
 import com.jaydocoder.plateview.data.network.AppError
+import com.jaydocoder.plateview.domain.admin.CacheResetStatus
 
 data class AdminUiState(
     val tab: AdminTab = AdminTab.Dashboard,
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
+    val policySavingAction: PolicySavingAction? = null,
+    val policySaveFeedback: PolicySaveFeedback? = null,
     val isVehicleEditorLoading: Boolean = false,
     val isVehiclePageLoading: Boolean = false,
     val isImportPageLoading: Boolean = false,
@@ -60,6 +63,8 @@ data class AdminUiState(
     val totalWechatAttachmentCount: Int = 0,
     val completedWechatAttachmentCount: Int = 0,
     val pendingWechatAttachmentCount: Int = 0,
+    val wechatSyncIntegrity: com.jaydocoder.plateview.domain.admin.WechatSyncIntegrity = com.jaydocoder.plateview.domain.admin.WechatSyncIntegrity(),
+    val wechatCacheStatus: com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary = com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary(),
     val wechatAttachmentFiles: Map<Long, CachedAdminAttachment> = emptyMap(),
     val wechatAttachmentFailures: Set<Long> = emptySet(),
     val selectedWechatAttachment: WechatSyncIssue? = null,
@@ -67,7 +72,24 @@ data class AdminUiState(
     val wechatAttachmentFailure: AppError? = null,
     val wechatWorkOrderCandidates: Map<Long, List<WechatWorkOrderSearchItem>> = emptyMap(),
     val wechatPassageSenders: List<WechatPassageSender> = emptyList(),
+    val clientPolicy: ClientPolicyEditorState? = null,
+    val apiEndpointTestMessage: String? = null,
+    val updateEndpointTestMessage: String? = null,
+    val pendingCacheResetUser: ManagedUser? = null,
+    val cacheResetStatuses: Map<Long, CacheResetStatus> = emptyMap(),
 )
+
+data class PolicySaveFeedback(
+    val title: String,
+    val message: String,
+    val success: Boolean,
+)
+
+enum class PolicySavingAction {
+    LIMITS,
+    API_ENDPOINT,
+    UPDATE_ENDPOINT,
+}
 
 enum class VehicleStatusFilter(val requestValue: String?, val label: String) {
     All(null, "全部"),
@@ -90,7 +112,23 @@ enum class AdminTab {
     Imports,
     Audit,
     WechatSync,
+    DataAccess,
 }
+
+data class ClientPolicyEditorState(
+    val revision: Long,
+    val vehicleResultLimit: String,
+    val workOrderResultLimit: String,
+    val wechatMessageResultLimit: String,
+    val apiBaseUrl: String,
+    val previousApiBaseUrl: String?,
+    val updateBaseUrl: String,
+    val previousUpdateBaseUrl: String?,
+    val updatedAt: String,
+    val clientCount: Int,
+    val appliedClientCount: Int,
+    val lastConfirmedAt: String?,
+)
 
 data class VehicleEditorState(
     val id: Long? = null,

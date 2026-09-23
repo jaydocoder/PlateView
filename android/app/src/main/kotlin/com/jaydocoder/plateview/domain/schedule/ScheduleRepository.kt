@@ -13,5 +13,5 @@ interface ScheduleRepository {
     suspend fun updateTemplate(accessToken: String, templateId: Long, command: ScheduleTemplateCommand): ScheduleTemplateSummary
     suspend fun deleteTemplate(accessToken: String, templateId: Long)
     suspend fun preview(accessToken: String, templateId: Long, effectiveFrom: LocalDate): ScheduleWeek
-    suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate): ScheduleApplication
+    suspend fun apply(accessToken: String, templateId: Long, effectiveFrom: LocalDate, effectiveUntil: LocalDate?): ScheduleApplication
 }

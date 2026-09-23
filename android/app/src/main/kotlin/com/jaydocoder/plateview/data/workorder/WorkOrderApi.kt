@@ -35,6 +35,36 @@ interface WorkOrderApi {
     @GET("work-orders/catalog/changes")
     suspend fun changes(@Header("Authorization") authorization: String, @Query("afterVersion") afterVersion: Long, @Query("limit") limit: Int): WorkOrderChangesDto
 
+    @GET("work-orders/attachments")
+    suspend fun attachmentCatalog(
+        @Header("Authorization") authorization: String,
+        @Query("afterId") afterId: Long,
+        @Query("limit") limit: Int,
+    ): WorkOrderAttachmentCatalogPageDto
+
+    @GET("work-orders/attachments/manifest")
+    suspend fun attachmentManifest(
+        @Header("Authorization") authorization: String,
+        @Query("afterId") afterId: Long,
+        @Query("limit") limit: Int,
+        @Query("catalogRevision") catalogRevision: Long? = null,
+        @Query("includeOriginal") includeOriginal: Boolean = true,
+    ): WorkOrderAttachmentManifestPageDto
+
+    @retrofit2.http.POST("work-orders/attachments/cache-status")
+    suspend fun saveAttachmentCacheStatus(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Body request: AttachmentCacheStatusRequestDto,
+    ): retrofit2.Response<Unit>
+
+    @GET("work-orders/attachments/{attachmentId}")
+    suspend fun attachmentFile(
+        @Header("Authorization") authorization: String,
+        @Header("Range") range: String?,
+        @Path("attachmentId") attachmentId: Long,
+        @Query("variant") variant: String,
+    ): Response<ResponseBody>
+
     @GET("work-orders/{recordId}")
     suspend fun detail(@Header("Authorization") authorization: String, @Path("recordId") recordId: Long): WorkOrderDto
 
@@ -73,14 +103,14 @@ data class WorkOrderDto(
     val remarks: String?, val status: String, val parseQuality: String, val catalogRevision: Long, val rawContent: String,
     val sentAt: String, val sourceKey: String, val sourceName: String, val senderUsername: String?, val senderDisplay: String?,
     val senderGroupNickname: String?, val people: List<WorkOrderPersonDto> = emptyList(), val images: List<WorkOrderImageDto> = emptyList(),
-    val vehicles: List<WorkOrderVehicleDto> = emptyList(),
+    val vehicles: List<WorkOrderVehicleDto> = emptyList(), val displayName: String? = null,
 )
 data class WorkOrderPersonDto(val rawLine: String, val name: String?, val identityNumber: String?)
 data class WorkOrderVehicleDto(val rawDescription: String, val rawPlate: String, val normalizedPlate: String, val vehicleType: String?)
 data class WorkOrderImageDto(
     val id: Long, val sha256: String?, val contentType: String?, val originalSize: Long?, val previewAvailable: Boolean,
     val thumbnailAvailable: Boolean, val availability: String, val kind: String = "IMAGE", val fileName: String? = null,
-    val pageCount: Int? = null,
+    val pageCount: Int? = null, val sourceQuality: String = "UNKNOWN",
 )
 data class WechatMessagePageDto(val records: List<WechatMessageDto>, val nextOffset: Int?)
 data class WechatMessageDto(
@@ -108,5 +138,55 @@ data class WorkOrderAttachmentDto(
     val previewAvailable: Boolean,
     val thumbnailAvailable: Boolean,
     val availability: String,
+    val pageCount: Int?,
+    val sourceQuality: String = "UNKNOWN",
+)
+data class WorkOrderAttachmentCatalogPageDto(
+    val items: List<WorkOrderAttachmentCatalogItemDto>,
+    val nextAfterId: Long?,
+)
+data class WorkOrderAttachmentManifestPageDto(
+    val manifestRevision: Long,
+    val items: List<WorkOrderAttachmentManifestItemDto>,
+    val nextAfterId: Long?,
+)
+data class WorkOrderAttachmentManifestItemDto(
+    val attachmentId: Long,
+    val kind: String,
+    val fileName: String? = null,
+    val originalSize: Long? = null,
+    val sha256: String? = null,
+    val sourceQuality: String = "UNKNOWN",
+    val originalAvailable: Boolean = false,
+    val previewAvailable: Boolean = false,
+    val thumbnailAvailable: Boolean = false,
+)
+data class AttachmentCacheStatusRequestDto(
+    val clientInstanceId: String,
+    val manifestRevision: Long,
+    val items: List<AttachmentCacheStatusItemDto>,
+)
+data class AttachmentCacheStatusItemDto(
+    val attachmentId: Long,
+    val variant: String,
+    val status: String,
+    val downloadedBytes: Long = 0,
+    val expectedSize: Long? = null,
+    val sha256: String? = null,
+    val attemptCount: Int = 0,
+    val lastErrorCode: String? = null,
+)
+data class WorkOrderAttachmentCatalogItemDto(
+    val id: Long,
+    val kind: String,
+    val fileName: String?,
+    val sha256: String?,
+    val contentType: String?,
+    val originalSize: Long?,
+    val originalAvailable: Boolean,
+    val previewAvailable: Boolean,
+    val thumbnailAvailable: Boolean,
+    val availability: String,
+    val sourceQuality: String,
     val pageCount: Int?,
 )

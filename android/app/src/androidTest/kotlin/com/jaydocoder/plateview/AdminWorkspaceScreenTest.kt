@@ -879,6 +879,8 @@ class AdminWorkspaceScreenTest {
 
         composeRule.onAllNodesWithTag("zoomable_attachment_viewer").assertCountEquals(1)
         composeRule.onNodeWithText("第 1 / 2 页").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("关闭附件预览").assertIsDisplayed()
+        composeRule.onAllNodesWithText("关闭").assertCountEquals(0)
         composeRule.onNodeWithText("下一页").performClick()
         composeRule.onNodeWithText("第 2 / 2 页").assertIsDisplayed()
         composeRule.onNodeWithText("上一页").performClick()

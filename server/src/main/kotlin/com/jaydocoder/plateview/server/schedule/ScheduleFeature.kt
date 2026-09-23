@@ -96,7 +96,7 @@ internal fun Application.configureScheduleFeature() {
                 post("/applications") {
                     val actorId = call.requirePrimaryAdministrator() ?: return@post
                     val request = call.receive<ScheduleApplicationRequest>()
-                    val application = service.applyTemplate(request.templateId, parseDate(request.effectiveFrom), actorId)
+                    val application = service.applyTemplate(request.templateId, parseDate(request.effectiveFrom), request.effectiveUntil?.let(::parseDate), actorId)
                     call.auditSchedule(actorId, "SCHEDULE_TEMPLATE_APPLY", application.id)
                     call.respond(HttpStatusCode.Created, application.toResponse())
                 }
@@ -222,11 +222,15 @@ internal class ScheduleService(
                     FROM schedule_applications a
                     JOIN schedule_template_versions applied_version ON applied_version.id = a.template_version_id
                     WHERE applied_version.template_id = t.id) AS effective_from,
+                   (SELECT MAX(a.effective_until)
+                    FROM schedule_applications a
+                    JOIN schedule_template_versions applied_version ON applied_version.id = a.template_version_id
+                    WHERE applied_version.template_id = t.id) AS effective_until,
                    CASE WHEN t.id = (
                        SELECT applied_version.template_id
                        FROM schedule_applications a
                        JOIN schedule_template_versions applied_version ON applied_version.id = a.template_version_id
-                       WHERE a.effective_from <= ?
+                       WHERE a.effective_from <= ? AND (a.effective_until IS NULL OR a.effective_until >= ?)
                        ORDER BY a.effective_from DESC
                        LIMIT 1
                    ) THEN 'ACTIVE' ELSE 'INACTIVE' END AS status
@@ -236,6 +240,7 @@ internal class ScheduleService(
             ORDER BY t.updated_at DESC, t.id DESC
         """).use { statement ->
             statement.setObject(1, scheduleCurrentDate(clock))
+            statement.setObject(2, scheduleCurrentDate(clock))
             statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toTemplateSummary()) } }
         }
     }
@@ -248,7 +253,7 @@ internal class ScheduleService(
             statement.generatedKeys.use { keys -> keys.next(); keys.getLong(1) }
         }
         val versionId = insertVersion(connection, templateId, 1, actorId, command)
-        ScheduleTemplateSummary(templateId, command.name.trim(), versionId, 1, command.cycleDays, command.participantIds, null, "INACTIVE")
+        ScheduleTemplateSummary(templateId, command.name.trim(), versionId, 1, command.cycleDays, command.participantIds, null, null, "INACTIVE")
     }
 
     fun updateTemplate(templateId: Long, actorId: Long, command: ScheduleTemplateCommand): ScheduleTemplateSummary = inTransaction { connection ->
@@ -262,7 +267,7 @@ internal class ScheduleService(
         }
         if (updated == 0) throw ScheduleNotFoundException("排班模板不存在")
         val versionId = insertVersion(connection, templateId, nextVersion, actorId, command)
-        ScheduleTemplateSummary(templateId, command.name.trim(), versionId, nextVersion, command.cycleDays, command.participantIds, null, "INACTIVE")
+        ScheduleTemplateSummary(templateId, command.name.trim(), versionId, nextVersion, command.cycleDays, command.participantIds, null, null, "INACTIVE")
     }
 
     fun deleteTemplate(templateId: Long, actorId: Long) = inTransaction { connection ->
@@ -275,20 +280,21 @@ internal class ScheduleService(
         if (changed == 0) throw ScheduleNotFoundException("排班模板不存在")
     }
 
-    fun applyTemplate(templateId: Long, effectiveFrom: LocalDate, actorId: Long): ScheduleApplication = inTransaction { connection ->
+    fun applyTemplate(templateId: Long, effectiveFrom: LocalDate, effectiveUntil: LocalDate?, actorId: Long): ScheduleApplication = inTransaction { connection ->
         connection.requirePrimary(actorId)
+        require(effectiveUntil == null || !effectiveUntil.isBefore(effectiveFrom)) { "结束日期不能早于开始日期" }
         val version = latestVersion(connection, templateId) ?: throw ScheduleNotFoundException("排班模板不存在")
         val id = connection.prepareStatement("""
-            INSERT INTO schedule_applications (template_version_id, effective_from, applied_by)
-            VALUES (?, ?, ?)
-            ON CONFLICT (effective_from) DO UPDATE SET template_version_id = EXCLUDED.template_version_id, applied_by = EXCLUDED.applied_by, applied_at = CURRENT_TIMESTAMP
+            INSERT INTO schedule_applications (template_version_id, effective_from, effective_until, applied_by)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (effective_from) DO UPDATE SET template_version_id = EXCLUDED.template_version_id, effective_until = EXCLUDED.effective_until, applied_by = EXCLUDED.applied_by, applied_at = CURRENT_TIMESTAMP
             RETURNING id
         """).use { statement ->
-            statement.setLong(1, version.id); statement.setObject(2, effectiveFrom); statement.setLong(3, actorId)
+            statement.setLong(1, version.id); statement.setObject(2, effectiveFrom); statement.setObject(3, effectiveUntil); statement.setLong(4, actorId)
             statement.executeQuery().use { result -> result.next(); result.getLong(1) }
         }
         connection.replaceEnabledScheduleParticipants(version.id)
-        ScheduleApplication(id, templateId, version.versionNumber, effectiveFrom)
+        ScheduleApplication(id, templateId, version.versionNumber, effectiveFrom, effectiveUntil)
     }
 
     fun preview(templateId: Long, actorId: Long, effectiveFrom: LocalDate): ScheduleWeek {
@@ -302,13 +308,16 @@ internal class ScheduleService(
 
     private fun dayAssignments(date: LocalDate): List<ScheduleShift> = dataSource.connection.use { connection ->
         val application = connection.prepareStatement("""
-            SELECT a.effective_from, v.id, v.cycle_days FROM schedule_applications a
+            SELECT a.effective_from, a.effective_until, v.id, v.cycle_days FROM schedule_applications a
             JOIN schedule_template_versions v ON v.id = a.template_version_id
             WHERE a.effective_from <= ? ORDER BY a.effective_from DESC LIMIT 1
         """).use { statement ->
             statement.setObject(1, date); statement.executeQuery().use { result ->
                 if (!result.next()) return@use null
-                ScheduleApplicationResolution(result.getObject("effective_from", LocalDate::class.java), result.getLong("id"), result.getInt("cycle_days"))
+                val from = result.getObject("effective_from", LocalDate::class.java)
+                val until = result.getObject("effective_until", LocalDate::class.java)
+                if (until != null && date.isAfter(until)) return@use null
+                ScheduleApplicationResolution(from, until, result.getLong("id"), result.getInt("cycle_days"))
             }
         } ?: return emptyList()
         val cycleDay = scheduleCycleDay(application.effectiveFrom, date, application.cycleDays)
@@ -429,6 +438,7 @@ internal class ScheduleService(
         getInt("cycle_days"),
         getLongArray("participant_ids"),
         getObject("effective_from", LocalDate::class.java),
+        getObject("effective_until", LocalDate::class.java),
         getString("status"),
     )
     private fun ResultSet.getLongArray(column: String): List<Long> = when (val values = getArray(column)?.array) {
@@ -450,7 +460,7 @@ internal fun scheduleCycleDay(effectiveFrom: LocalDate, date: LocalDate, cycleDa
 }
 
 internal fun scheduleCurrentDate(clock: Clock): LocalDate = LocalDate.now(clock.withZone(scheduleZone))
-private data class ScheduleApplicationResolution(val effectiveFrom: LocalDate, val versionId: Long, val cycleDays: Int)
+private data class ScheduleApplicationResolution(val effectiveFrom: LocalDate, val effectiveUntil: LocalDate?, val versionId: Long, val cycleDays: Int)
 private data class TemplateVersion(val id: Long, val versionNumber: Int, val cycleDays: Int)
 internal enum class ShiftType { MORNING, AFTERNOON, SMALL_NIGHT, NIGHT }
 internal data class SchedulePerson(val id: Long, val username: String, val realName: String)
@@ -468,9 +478,10 @@ internal data class ScheduleTemplateSummary(
     val cycleDays: Int,
     val participantIds: List<Long>,
     val effectiveFrom: LocalDate?,
+    val effectiveUntil: LocalDate?,
     val status: String,
 )
-internal data class ScheduleApplication(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: LocalDate)
+internal data class ScheduleApplication(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: LocalDate, val effectiveUntil: LocalDate?)
 internal data class ScheduleConfigurationCommand(val cycleDays: Int, val participantIds: List<Long>)
 internal data class ScheduleTemplateCommand(
     val name: String,
@@ -495,7 +506,7 @@ internal class ScheduleNotFoundException(message: String) : NoSuchElementExcepti
     fun toCommand() = ScheduleTemplateCommand(name, cycleDays, participantIds, assignments.map { ScheduleAssignmentCommand(it.cycleDay, try { ShiftType.valueOf(it.shiftType) } catch (_: Exception) { throw ScheduleValidationException("班次类型无效") }, it.accountIds) })
 }
 @Serializable private data class ScheduleAssignmentRequest(val cycleDay: Int, val shiftType: String, val accountIds: List<Long>)
-@Serializable private data class ScheduleApplicationRequest(val templateId: Long, val effectiveFrom: String)
+@Serializable private data class ScheduleApplicationRequest(val templateId: Long, val effectiveFrom: String, val effectiveUntil: String? = null)
 @Serializable private data class ParticipantsResponse(val items: List<ScheduleParticipantResponse>)
 @Serializable private data class ScheduleParticipantResponse(val id: Long, val username: String, val realName: String, val status: String)
 @Serializable private data class SchedulePlanningConfigurationResponse(val cycleDays: Int, val participants: List<ScheduleParticipantResponse>, val candidates: List<ScheduleParticipantResponse>)
@@ -508,6 +519,7 @@ internal class ScheduleNotFoundException(message: String) : NoSuchElementExcepti
     val cycleDays: Int,
     val participantIds: List<Long>,
     val effectiveFrom: String?,
+    val effectiveUntil: String?,
     val status: String,
 )
 @Serializable private data class ScheduleWeekResponse(val weekStart: String, val weekNumber: Int, val shifts: List<ScheduleShiftResponse>)
@@ -515,11 +527,11 @@ internal class ScheduleNotFoundException(message: String) : NoSuchElementExcepti
 @Serializable private data class ScheduleMonthDayResponse(val date: String, val hasShift: Boolean)
 @Serializable private data class ScheduleShiftResponse(val date: String, val shiftType: String, val persons: List<SchedulePersonResponse>)
 @Serializable private data class SchedulePersonResponse(val id: Long, val username: String, val realName: String)
-@Serializable private data class ScheduleApplicationResponse(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: String)
+@Serializable private data class ScheduleApplicationResponse(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: String, val effectiveUntil: String?)
 private fun ScheduleParticipant.toResponse() = ScheduleParticipantResponse(id, username, realName, status)
 private fun SchedulePlanningConfiguration.toResponse() = SchedulePlanningConfigurationResponse(cycleDays, participants.map { it.toResponse() }, candidates.map { it.toResponse() })
-private fun ScheduleTemplateSummary.toResponse() = ScheduleTemplateResponse(id, name, versionId, versionNumber, cycleDays, participantIds, effectiveFrom?.toString(), status)
+private fun ScheduleTemplateSummary.toResponse() = ScheduleTemplateResponse(id, name, versionId, versionNumber, cycleDays, participantIds, effectiveFrom?.toString(), effectiveUntil?.toString(), status)
 private fun ScheduleWeek.toResponse() = ScheduleWeekResponse(weekStart.toString(), weekNumber, shifts.map { it.toResponse() })
 private fun ScheduleMonth.toResponse() = ScheduleMonthResponse(month.toString(), days.map { ScheduleMonthDayResponse(it.date.toString(), it.hasShift) })
 private fun ScheduleShift.toResponse() = ScheduleShiftResponse(date.toString(), shiftType.name, persons.map { SchedulePersonResponse(it.id, it.username, it.realName) })
-private fun ScheduleApplication.toResponse() = ScheduleApplicationResponse(id, templateId, versionNumber, effectiveFrom.toString())
+private fun ScheduleApplication.toResponse() = ScheduleApplicationResponse(id, templateId, versionNumber, effectiveFrom.toString(), effectiveUntil?.toString())

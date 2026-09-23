@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.jaydocoder.plateview.data.workorder.WechatAttachmentCacheSyncScheduler
 
 data class LoginUiState(
     val username: String = "",
@@ -24,6 +25,7 @@ data class LoginUiState(
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val attachmentCacheSyncScheduler: WechatAttachmentCacheSyncScheduler,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
@@ -35,7 +37,10 @@ class LoginViewModel @Inject constructor(
         if (state.username.isBlank() || state.password.isBlank()) return@launch
         _uiState.update { it.copy(isLoading = true, message = null) }
         runCatching { authRepository.login(state.username, state.password) }
-            .onSuccess { _uiState.update { it.copy(isLoading = false, password = "", message = "登录成功") } }
+            .onSuccess {
+                attachmentCacheSyncScheduler.scheduleImmediate()
+                _uiState.update { it.copy(isLoading = false, password = "", message = "登录成功") }
+            }
             .onFailure { throwable ->
                 throwable.rethrowIfCancellation()
                 val message = if (throwable is retrofit2.HttpException && throwable.code() == 401) {

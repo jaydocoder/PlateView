@@ -21,8 +21,10 @@ class RoomVehicleCacheRepository @Inject constructor(
     private val synchronizationMutex = Mutex()
     private val gson = Gson()
 
-    override suspend fun search(normalizedKeyword: String): List<VehicleCandidate> = dao
-        .searchCandidates(normalizedKeyword, MAXIMUM_CANDIDATES)
+    override suspend fun search(normalizedKeyword: String): List<VehicleCandidate> = search(normalizedKeyword, 8)
+
+    override suspend fun search(normalizedKeyword: String, limit: Int): List<VehicleCandidate> = dao
+        .searchCandidates(normalizedKeyword, limit.coerceIn(1, 50))
         .map(VehicleSnapshotCacheEntity::toCandidate)
 
     override suspend fun synchronizeCatalog(
@@ -74,7 +76,6 @@ class RoomVehicleCacheRepository @Inject constructor(
     }
 
     private companion object {
-        const val MAXIMUM_CANDIDATES = 8
         const val PAGE_SIZE = 200
         const val VERSION_CHECK_INTERVAL_MILLIS = 15 * 60 * 1_000L
     }

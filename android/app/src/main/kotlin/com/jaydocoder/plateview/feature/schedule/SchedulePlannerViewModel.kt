@@ -96,12 +96,13 @@ class SchedulePlannerViewModel @Inject constructor(private val repository: Sched
             refresh()
         }
     }
-    fun applyTemplate(templateId: Long, date: LocalDate) = action { token ->
+    fun applyTemplate(templateId: Long, date: LocalDate, endDate: LocalDate?) = action { token ->
         _uiState.update { it.copy(loading = true, error = null) }
-        val application = repository.apply(token, templateId, date)
+        val application = repository.apply(token, templateId, date, endDate)
         _uiState.update {
             it.copy(
-                applicationSuccessMessage = "模板已从${application.effectiveFrom.format(APPLICATION_DATE_FORMAT)}开始生效",
+            applicationSuccessMessage = "模板已从${application.effectiveFrom.format(APPLICATION_DATE_FORMAT)}开始生效" +
+                application.effectiveUntil?.let { "，至${it.format(APPLICATION_DATE_FORMAT)}结束" }.orEmpty(),
             )
         }
         reload(token)

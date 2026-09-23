@@ -17,6 +17,8 @@ import com.jaydocoder.plateview.domain.admin.ImportRowFilter
 import com.jaydocoder.plateview.domain.admin.UserCreateCommand
 import com.jaydocoder.plateview.domain.admin.UserUpdateCommand
 import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
+import com.jaydocoder.plateview.domain.admin.ClientPolicyUpdateCommand
+import com.jaydocoder.plateview.domain.admin.ClientPolicyLimitsCommand
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -51,7 +53,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun selectTab(tab: AdminTab) {
-        if (tab == AdminTab.WechatSync && !_uiState.value.isPrimaryAdministrator) return
+        if (tab in setOf(AdminTab.Users, AdminTab.WechatSync, AdminTab.DataAccess) && !_uiState.value.isPrimaryAdministrator) return
         _uiState.update { it.copy(tab = tab, failure = null) }
         refresh()
     }
@@ -106,7 +108,16 @@ class AdminWorkspaceViewModel @Inject constructor(
         if (cachedOriginal != null) return
         viewModelScope.launch {
             val session = sessionProvider.session.first() ?: return@launch
-            runCatching { repository.downloadWechatAttachment(session.accessToken, imageId, "original") }
+            runCatching {
+                repository.downloadWechatAttachment(
+                    session.accessToken,
+                    session.userId,
+                    imageId,
+                    "original",
+                    issue.sha256,
+                    issue.sourceQuality,
+                )
+            }
                 .onSuccess { attachment ->
                     _uiState.update {
                         it.copy(
@@ -180,8 +191,17 @@ class AdminWorkspaceViewModel @Inject constructor(
                         )
                     }
                     viewModelScope.launch {
-                        issues.mapNotNull { it.imageId }.distinct().forEach { imageId ->
-                            runCatching { repository.downloadWechatAttachment(accessToken, imageId, "original") }
+                        issues.mapNotNull { issue -> issue.imageId?.let { it to issue } }.distinctBy { it.first }.forEach { (imageId, issue) ->
+                            runCatching {
+                                repository.downloadWechatAttachment(
+                                    accessToken,
+                                    session.userId,
+                                    imageId,
+                                    "original",
+                                    issue.sha256,
+                                    issue.sourceQuality,
+                                )
+                            }
                                 .onSuccess { attachment ->
                                     _uiState.update { state ->
                                         state.copy(
@@ -198,8 +218,138 @@ class AdminWorkspaceViewModel @Inject constructor(
                         }
                     }
                 }
+                AdminTab.DataAccess -> {
+                    requirePrimaryAdministrator()
+                    loadClientPolicy(accessToken)
+                }
             }
             _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun updateClientPolicyEditor(transform: (ClientPolicyEditorState) -> ClientPolicyEditorState) {
+        _uiState.update { state -> state.clientPolicy?.let { state.copy(clientPolicy = transform(it), failure = null) } ?: state }
+    }
+
+    fun testApiEndpoint() = launchAdminAction("测试后台地址") { accessToken ->
+        requirePrimaryAdministrator()
+        val editor = requireNotNull(_uiState.value.clientPolicy)
+        val message = repository.testApiEndpoint(accessToken, editor.apiBaseUrl)
+        _uiState.update { it.copy(apiEndpointTestMessage = message) }
+    }
+
+    fun testUpdateEndpoint() = launchAdminAction("测试更新地址") { accessToken ->
+        requirePrimaryAdministrator()
+        val editor = requireNotNull(_uiState.value.clientPolicy)
+        val message = repository.testUpdateEndpoint(accessToken, editor.updateBaseUrl)
+        _uiState.update { it.copy(updateEndpointTestMessage = message) }
+    }
+
+    fun saveClientPolicy() = launchAdminAction("保存数据访问策略") { accessToken ->
+        requirePrimaryAdministrator()
+        val editor = requireNotNull(_uiState.value.clientPolicy)
+        _uiState.update { it.copy(isSaving = true, failure = null) }
+        val policy = repository.updateClientPolicy(
+            accessToken,
+            ClientPolicyUpdateCommand(
+                vehicleResultLimit = editor.vehicleResultLimit.toIntOrNull() ?: error("匹配车辆数量无效"),
+                workOrderResultLimit = editor.workOrderResultLimit.toIntOrNull() ?: error("微信车单数量无效"),
+                wechatMessageResultLimit = editor.wechatMessageResultLimit.toIntOrNull() ?: error("微信聊天数量无效"),
+                apiBaseUrl = editor.apiBaseUrl,
+                updateBaseUrl = editor.updateBaseUrl,
+            ),
+        )
+        _uiState.update { it.copy(clientPolicy = policy.toEditor(), isSaving = false) }
+    }
+
+    fun saveClientPolicyLimits() = launchAdminAction("保存首页结果数量", policyAction = PolicySavingAction.LIMITS) { accessToken ->
+        requirePrimaryAdministrator()
+        val editor = requireNotNull(_uiState.value.clientPolicy)
+        _uiState.update { it.copy(isSaving = true, policySavingAction = PolicySavingAction.LIMITS, policySaveFeedback = null, failure = null) }
+        val policy = repository.updateClientPolicyLimits(
+            accessToken,
+            ClientPolicyLimitsCommand(
+                vehicleResultLimit = editor.vehicleResultLimit.toIntOrNull() ?: error("匹配车辆数量无效"),
+                workOrderResultLimit = editor.workOrderResultLimit.toIntOrNull() ?: error("微信车单数量无效"),
+                wechatMessageResultLimit = editor.wechatMessageResultLimit.toIntOrNull() ?: error("微信聊天数量无效"),
+            ),
+        )
+        _uiState.update {
+            it.copy(
+                clientPolicy = policy.toEditor(),
+                isSaving = false,
+                policySavingAction = null,
+                policySaveFeedback = PolicySaveFeedback("首页结果数量已保存", "三个分类的返回数量已成功更新。", success = true),
+            )
+        }
+    }
+
+    fun saveApiEndpoint() = launchAdminAction("保存后台服务地址", policyAction = PolicySavingAction.API_ENDPOINT) { accessToken ->
+        requirePrimaryAdministrator()
+        val editor = requireNotNull(_uiState.value.clientPolicy)
+        _uiState.update { it.copy(isSaving = true, policySavingAction = PolicySavingAction.API_ENDPOINT, policySaveFeedback = null, failure = null) }
+        val policy = repository.updateApiEndpoint(accessToken, editor.apiBaseUrl)
+        _uiState.update {
+            it.copy(
+                clientPolicy = policy.toEditor(),
+                isSaving = false,
+                policySavingAction = null,
+                apiEndpointTestMessage = null,
+                policySaveFeedback = PolicySaveFeedback("后台服务地址已保存", "新的后台服务地址已验证并应用。", success = true),
+            )
+        }
+    }
+
+    fun saveUpdateEndpoint() = launchAdminAction("保存APK更新服务地址", policyAction = PolicySavingAction.UPDATE_ENDPOINT) { accessToken ->
+        requirePrimaryAdministrator()
+        val editor = requireNotNull(_uiState.value.clientPolicy)
+        _uiState.update { it.copy(isSaving = true, policySavingAction = PolicySavingAction.UPDATE_ENDPOINT, policySaveFeedback = null, failure = null) }
+        val policy = repository.updateUpdateEndpoint(accessToken, editor.updateBaseUrl)
+        _uiState.update {
+            it.copy(
+                clientPolicy = policy.toEditor(),
+                isSaving = false,
+                policySavingAction = null,
+                updateEndpointTestMessage = null,
+                policySaveFeedback = PolicySaveFeedback("APK更新服务地址已保存", "新的APK更新服务地址已验证并应用。", success = true),
+            )
+        }
+    }
+
+    fun dismissPolicySaveFeedback() = _uiState.update { it.copy(policySaveFeedback = null) }
+
+    fun requestCacheReset(userId: Long) {
+        if (!_uiState.value.isPrimaryAdministrator) return
+        _uiState.update { state -> state.copy(pendingCacheResetUser = state.users.firstOrNull { it.id == userId }) }
+    }
+
+    fun dismissCacheReset() = _uiState.update { it.copy(pendingCacheResetUser = null) }
+
+    fun confirmCacheReset() = launchAdminAction("发送清缓存指令") { accessToken ->
+        requirePrimaryAdministrator()
+        val user = requireNotNull(_uiState.value.pendingCacheResetUser)
+        _uiState.update { it.copy(isSaving = true) }
+        val status = repository.requestUserCacheReset(accessToken, user.id)
+        _uiState.update {
+            it.copy(
+                isSaving = false,
+                pendingCacheResetUser = null,
+                cacheResetStatuses = it.cacheResetStatuses + (user.id to status),
+            )
+        }
+    }
+
+    private fun requirePrimaryAdministrator() {
+        check(_uiState.value.isPrimaryAdministrator) { "仅admin主管理员可以管理数据访问策略" }
+    }
+
+    private suspend fun loadClientPolicy(accessToken: String) {
+        val policy = repository.getClientPolicy(accessToken)
+        _uiState.update {
+            it.copy(
+                clientPolicy = policy.toEditor(),
+                cacheResetStatuses = policy.cacheResetStatuses.associateBy { status -> status.userId },
+            )
         }
     }
 
@@ -221,6 +371,8 @@ class AdminWorkspaceViewModel @Inject constructor(
                 totalWechatAttachmentCount = overview.totalAttachmentCount,
                 completedWechatAttachmentCount = overview.completedAttachmentCount,
                 pendingWechatAttachmentCount = overview.pendingAttachmentCount,
+                wechatSyncIntegrity = overview.integrity,
+                wechatCacheStatus = overview.cacheStatus,
                 isSaving = isSaving,
             )
         }
@@ -546,7 +698,8 @@ class AdminWorkspaceViewModel @Inject constructor(
         val session = sessionProvider.session.first() ?: return
         val capabilities = repository.getVehicleCreationCapabilities(accessToken)
         val vehiclePage = repository.listVehicles(accessToken)
-        val users = repository.listUsers(accessToken)
+        val isPrimaryAdministrator = session.role == "ADMIN" && session.username == "admin"
+        val users = if (isPrimaryAdministrator) repository.listUsers(accessToken) else emptyList()
         val batches = repository.listImportBatches(accessToken)
         if (_uiState.value.tab != AdminTab.Dashboard) return
         _uiState.update {
@@ -557,10 +710,25 @@ class AdminWorkspaceViewModel @Inject constructor(
                 canChangeVehicleCategory = capabilities.canChangeVehicleCategory,
                 users = users,
                 importBatches = batches,
-                isPrimaryAdministrator = session.role == "ADMIN" && session.username == "admin",
+                isPrimaryAdministrator = isPrimaryAdministrator,
             )
         }
     }
+
+    private fun com.jaydocoder.plateview.domain.admin.ClientPolicy.toEditor() = ClientPolicyEditorState(
+        revision = revision,
+        vehicleResultLimit = vehicleResultLimit.toString(),
+        workOrderResultLimit = workOrderResultLimit.toString(),
+        wechatMessageResultLimit = wechatMessageResultLimit.toString(),
+        apiBaseUrl = apiBaseUrl,
+        previousApiBaseUrl = previousApiBaseUrl,
+        updateBaseUrl = updateBaseUrl,
+        previousUpdateBaseUrl = previousUpdateBaseUrl,
+        updatedAt = updatedAt,
+        clientCount = clientCount,
+        appliedClientCount = appliedClientCount,
+        lastConfirmedAt = lastConfirmedAt,
+    )
 
     private fun refreshVehicles(delayMillis: Long = 0L) {
         vehicleSearchJob?.cancel()
@@ -672,6 +840,11 @@ class AdminWorkspaceViewModel @Inject constructor(
     private suspend fun loadUsers(accessToken: String) {
         val users = repository.listUsers(accessToken)
         val session = sessionProvider.session.first() ?: return
+        val policy = if (session.role == "ADMIN" && session.username == "admin") {
+            runCatching { repository.getClientPolicy(accessToken) }.getOrNull()
+        } else {
+            null
+        }
         val avatars = users.associate { user ->
             user.id to userAvatarRepository?.let { avatarRepository ->
                 runCatching {
@@ -685,6 +858,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 userAvatars = avatars,
                 canManageOtherUserProfiles = session.role == "ADMIN" && session.username == "admin",
                 isPrimaryAdministrator = session.role == "ADMIN" && session.username == "admin",
+                cacheResetStatuses = policy?.cacheResetStatuses?.associateBy { status -> status.userId }.orEmpty(),
             )
         }
     }
@@ -787,6 +961,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     private fun launchAdminAction(
         operation: String = "管理操作",
         shouldHandleFailure: () -> Boolean = { true },
+        policyAction: PolicySavingAction? = null,
         action: suspend (String) -> Unit,
     ): Job = viewModelScope.launch {
             try {
@@ -797,6 +972,8 @@ class AdminWorkspaceViewModel @Inject constructor(
                             it.copy(
                                 isLoading = false,
                                 isSaving = false,
+                                policySavingAction = null,
+                                policySaveFeedback = policyAction?.let { PolicySaveFeedback(operation, "登录已失效，请重新登录。", success = false) },
                                 failure = adminError(operation, AppErrorKind.SessionExpired, "登录已失效，请重新登录"),
                             )
                         }
@@ -806,6 +983,8 @@ class AdminWorkspaceViewModel @Inject constructor(
                             it.copy(
                                 isLoading = false,
                                 isSaving = false,
+                                policySavingAction = null,
+                                policySaveFeedback = policyAction?.let { PolicySaveFeedback(operation, "当前账号没有执行此操作的权限。", success = false) },
                                 failure = adminError(operation, AppErrorKind.PermissionDenied, "当前账号没有执行此操作的权限"),
                             )
                         }
@@ -816,16 +995,19 @@ class AdminWorkspaceViewModel @Inject constructor(
                 throw exception
             } catch (throwable: Throwable) {
                 if (!shouldHandleFailure()) return@launch
+                val mappedError = AppErrorMapper.map(operation, throwable).also(AppErrorTelemetry::report)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         isSaving = false,
+                        policySavingAction = null,
+                        policySaveFeedback = policyAction?.let { PolicySaveFeedback(operation, mappedError.message, success = false) },
                         isVehicleEditorLoading = false,
                         isVehiclePageLoading = false,
                         isImportPageLoading = false,
                         isImportDetailLoading = false,
                         isAuditPageLoading = false,
-                        failure = AppErrorMapper.map(operation, throwable).also(AppErrorTelemetry::report),
+                        failure = mappedError,
                     )
                 }
                 if (throwable is HttpException && throwable.code() == HTTP_UNAUTHORIZED) {

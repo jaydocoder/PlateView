@@ -48,6 +48,25 @@ class CollectorTest(unittest.TestCase):
             self.assertEqual("2", collector.state["群"]["message_id"])
             self.assertTrue((pathlib.Path(directory) / "state.json").is_file())
 
+    def test_message_batch_contains_stable_id_and_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            collector = self.create_collector(directory)
+            message = {"local_id": "2", "timestamp": 200, "content": "【单号】001"}
+            collector._wx_json = mock.Mock(side_effect=[
+                {"messages": [message], "meta": {"status": "ok"}},
+                {"messages": [], "meta": {"status": "ok"}},
+                {"messages": [], "meta": {"status": "ok"}},
+            ])
+            collector._request_json = mock.Mock(return_value={"status": "ACCEPTED"})
+
+            collector._sync_source("群", "测试群")
+
+            body = next(call.args[2] for call in collector._request_json.call_args_list if call.args[1] == "/internal/wechat/messages/batch")
+            self.assertTrue(body["batchId"])
+            self.assertTrue(body["syncRunId"])
+            self.assertEqual(1, body["messageCount"])
+            self.assertEqual(64, len(body["batchSha256"]))
+
     def test_stale_shard_status_never_advances_cursor(self):
         with tempfile.TemporaryDirectory() as directory:
             collector = self.create_collector(directory)
@@ -103,6 +122,38 @@ class CollectorTest(unittest.TestCase):
             self.assertEqual("image/jpeg", fields["originalContentType"])
             self.assertEqual("original.jpg", files["original"].name)
             self.assertEqual("ffmpeg", collector._run.call_args_list[1].args[0][0])
+
+    def test_thumbnail_is_uploaded_only_as_thumbnail_and_kept_for_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            collector = self.create_collector(directory)
+
+            def run(command):
+                pathlib.Path(command[4]).write_bytes(b"\xff\xd8\xffthumbnail")
+                report = {
+                    "format": "jpg",
+                    "output": command[4],
+                    "resource_quality": "THUMBNAIL",
+                }
+                return subprocess.CompletedProcess(command, 0, json.dumps(report), "")
+
+            thumbnail = pathlib.Path(directory) / "thumbnail.webp"
+            thumbnail.write_bytes(b"webp-thumbnail")
+            collector._run = mock.Mock(side_effect=run)
+            collector._create_derivatives = mock.Mock(return_value={"thumbnail": thumbnail})
+            collector._request_multipart = mock.Mock()
+
+            completed = collector._upload_image(
+                "20546602068@chatroom",
+                "2026车单子接收群",
+                {"attachment_id": "image-1", "local_id": "21", "timestamp": 200},
+            )
+
+            self.assertFalse(completed)
+            fields = collector._request_multipart.call_args.args[1]
+            files = collector._request_multipart.call_args.args[2]
+            self.assertEqual("THUMBNAIL", fields["sourceQuality"])
+            self.assertNotIn("original", files)
+            self.assertEqual(thumbnail, files["thumbnail"])
 
     @mock.patch.object(MODULE.time, "time", return_value=1_000)
     def test_failed_image_is_persisted_and_retried_outside_query_window(self, _):

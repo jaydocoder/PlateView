@@ -25,6 +25,7 @@ data class ScheduleTemplateSummary(
     val cycleDays: Int,
     val participantIds: List<Long>,
     val effectiveFrom: LocalDate?,
+    val effectiveUntil: LocalDate?,
     val status: String,
 )
 data class SchedulePlanningConfigurationCommand(val cycleDays: Int, val participantIds: List<Long>)
@@ -35,4 +36,4 @@ data class ScheduleTemplateCommand(
     val assignments: List<ScheduleAssignmentCommand>,
 )
 data class ScheduleAssignmentCommand(val cycleDay: Int, val type: ScheduleShiftType, val accountIds: List<Long>)
-data class ScheduleApplication(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: LocalDate)
+data class ScheduleApplication(val id: Long, val templateId: Long, val versionNumber: Int, val effectiveFrom: LocalDate, val effectiveUntil: LocalDate?)

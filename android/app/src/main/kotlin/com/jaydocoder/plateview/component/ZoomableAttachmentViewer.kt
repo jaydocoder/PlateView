@@ -36,6 +36,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.size.Size
@@ -51,13 +52,14 @@ fun ZoomableAttachmentViewer(
     variant: String,
     pageCount: Int,
     modifier: Modifier = Modifier,
+    viewportHeight: Dp = 420.dp,
 ) {
     when {
-        file == null -> Box(modifier.fillMaxWidth().height(420.dp), contentAlignment = Alignment.Center) {
+        file == null -> Box(modifier.fillMaxWidth().height(viewportHeight), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
-        kind == "PDF" && variant == "original" -> PdfFileViewer(file, pageCount, modifier)
-        else -> ZoomableViewport(modifier = modifier, contentDescription = if (kind == "PDF") "PDF首页预览" else "微信图片预览") { contentModifier ->
+        kind == "PDF" && variant == "original" -> PdfFileViewer(file, pageCount, modifier, viewportHeight)
+        else -> ZoomableViewport(modifier = modifier.height(viewportHeight), contentDescription = if (kind == "PDF") "PDF首页预览" else "微信图片预览") { contentModifier ->
             FullResolutionImage(file, if (kind == "PDF") "PDF首页预览" else "微信图片预览", contentModifier)
         }
     }
@@ -85,17 +87,20 @@ fun AttachmentThumbnail(
 }
 
 @Composable
-private fun PdfFileViewer(file: File, pageCount: Int, modifier: Modifier) {
+private fun PdfFileViewer(file: File, pageCount: Int, modifier: Modifier, viewportHeight: Dp) {
     var pageIndex by remember(file) { mutableIntStateOf(0) }
     val actualPageCount by produceState(pageCount.coerceAtLeast(1), file) {
         value = withContext(Dispatchers.IO) { readPdfPageCount(file) } ?: pageCount.coerceAtLeast(1)
     }
     val safePageIndex = pageIndex.coerceIn(0, actualPageCount - 1)
     Column(
-        modifier = modifier.fillMaxWidth().height(500.dp),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ZoomableViewport(contentDescription = "PDF第${safePageIndex + 1}页") { contentModifier ->
+        ZoomableViewport(
+            modifier = Modifier.height(viewportHeight),
+            contentDescription = "PDF第${safePageIndex + 1}页",
+        ) { contentModifier ->
             RenderedPdfPage(
                 file = file,
                 pageIndex = safePageIndex,
@@ -182,7 +187,6 @@ private fun ZoomableViewport(
     Box(
         modifier
             .fillMaxWidth()
-            .height(420.dp)
             .background(viewportColor)
             .testTag("zoomable_attachment_viewer")
             .pointerInput(contentDescription) {

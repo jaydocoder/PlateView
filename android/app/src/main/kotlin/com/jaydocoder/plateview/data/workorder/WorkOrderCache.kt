@@ -39,8 +39,36 @@ data class WechatMessageCacheEntity(
     val detailJson: String,
 )
 
+@Entity(
+    tableName = "wechat_attachment_download_tasks",
+    primaryKeys = ["userId", "attachmentId", "variant", "sha256"],
+)
+data class WechatAttachmentDownloadTaskEntity(
+    val userId: Long,
+    val attachmentId: Long,
+    val variant: String,
+    val sha256: String,
+    val expectedSize: Long?,
+    val downloadedBytes: Long,
+    val localPath: String?,
+    val status: String,
+    val attemptCount: Int,
+    val nextRetryAt: Long?,
+    val lastErrorCode: String?,
+    val manifestRevision: Long,
+    val updatedAt: Long,
+)
+
 @Dao
 interface WorkOrderCacheDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAttachmentTasks(tasks: List<WechatAttachmentDownloadTaskEntity>)
+
+    @Query("DELETE FROM wechat_attachment_download_tasks WHERE userId = :userId")
+    suspend fun clearAttachmentTasks(userId: Long)
+
+    @Query("SELECT * FROM wechat_attachment_download_tasks WHERE userId = :userId")
+    suspend fun attachmentTasks(userId: Long): List<WechatAttachmentDownloadTaskEntity>
     @Query(
         """
         SELECT c.* FROM work_order_cache AS c
@@ -104,7 +132,7 @@ interface WorkOrderCacheDao {
     suspend fun clear() { clearRecords(); clearState(); clearMessages() }
 }
 
-@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class], version = 2, exportSchema = true)
+@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 3, exportSchema = true)
 abstract class WorkOrderCacheDatabase : RoomDatabase() {
     abstract fun dao(): WorkOrderCacheDao
 }

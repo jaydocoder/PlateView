@@ -3,6 +3,8 @@ package com.jaydocoder.plateview.server.vehicle
 import com.jaydocoder.plateview.server.infrastructure.database.AuditEvent
 import com.jaydocoder.plateview.server.infrastructure.database.AuditLogWriterKey
 import com.jaydocoder.plateview.server.infrastructure.database.DataSourceKey
+import com.jaydocoder.plateview.server.client.ClientPolicyService
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
@@ -23,21 +25,35 @@ import kotlinx.serialization.json.put
 internal fun Application.configureVehicleQueryFeature() {
     val dataSource = attributes.getOrNull(DataSourceKey) ?: return
     val service = VehicleQueryService(dataSource)
+    val policyService = ClientPolicyService(dataSource)
     routing {
         authenticate("access-token") {
             route("/vehicles") {
                 get("/search") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
                     val accessScope = service.accessScope(actorId)
-                    val candidates = service.search(call.request.queryParameters["keyword"].orEmpty(), accessScope)
+                    val limit = policyService.resultLimits(actorId).vehicle
+                    if (limit == 0) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("message" to "匹配车辆访问已关闭"))
+                        return@get
+                    }
+                    val candidates = service.search(call.request.queryParameters["keyword"].orEmpty(), accessScope, limit)
                     call.respond(VehicleSearchResponse(service.catalogVersion(accessScope), candidates.map(VehicleSearchCandidate::toResponse)))
                 }
                 get("/catalog/version") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    if (policyService.resultLimits(actorId).vehicle == 0) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("message" to "匹配车辆访问已关闭"))
+                        return@get
+                    }
                     call.respond(VehicleCatalogVersionResponse(service.catalogVersion(service.accessScope(actorId))))
                 }
                 get("/catalog") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    if (policyService.resultLimits(actorId).vehicle == 0) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("message" to "匹配车辆访问已关闭"))
+                        return@get
+                    }
                     val accessScope = service.accessScope(actorId)
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 500
                     val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
@@ -46,6 +62,10 @@ internal fun Application.configureVehicleQueryFeature() {
                 }
                 get("/catalog/full") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    if (policyService.resultLimits(actorId).vehicle == 0) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("message" to "匹配车辆访问已关闭"))
+                        return@get
+                    }
                     val accessScope = service.accessScope(actorId)
                     val version = call.request.queryParameters["version"]?.toLongOrNull()
                         ?: throw IllegalArgumentException("缺少目录版本")
@@ -62,6 +82,10 @@ internal fun Application.configureVehicleQueryFeature() {
                 }
                 get("/{vehicleId}") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    if (policyService.resultLimits(actorId).vehicle == 0) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("message" to "匹配车辆访问已关闭"))
+                        return@get
+                    }
                     val vehicleId = call.vehicleId()
                     val accessScope = service.accessScope(actorId)
                     val detail = service.findDetail(vehicleId, accessScope)

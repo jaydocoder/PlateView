@@ -20,7 +20,9 @@ app_dir="$TEMP_DIR/app"
 mkdir -p "$fixture_dir/repos/jaydocoder/PlateView/releases" \
     "$fixture_dir/releases/download/v0.9.9"
 printf '{"tag_name":"v0.9.9"}\n' > "$fixture_dir/repos/jaydocoder/PlateView/releases/latest"
-dd if=/dev/zero of="$fixture_dir/releases/download/v0.9.9/app-release.apk" bs=1024 count=16 status=none
+for abi in arm64-v8a armeabi-v7a universal; do
+    dd if=/dev/zero of="$fixture_dir/releases/download/v0.9.9/PlateView-v0.9.9-${abi}.apk" bs=1024 count=16 status=none
+done
 
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$fixture_dir" >"$TEMP_DIR/http.log" 2>&1 &
 SERVER_PID=$!
@@ -34,13 +36,16 @@ PLATEVIEW_RELEASE_API_URL="http://127.0.0.1:$PORT/repos/jaydocoder/PlateView/rel
 PLATEVIEW_RELEASE_DOWNLOAD_BASE_URL="http://127.0.0.1:$PORT/releases/download" \
     "$MIRROR_SCRIPT"
 
-apk_file="$app_dir/updates/PlateView-v0.9.9.apk"
 latest_file="$app_dir/updates/latest.json"
-expected_sha=$(sha256sum "$fixture_dir/releases/download/v0.9.9/app-release.apk" | awk '{print $1}')
-actual_sha=$(sha256sum "$apk_file" | awk '{print $1}')
-[[ "$actual_sha" == "$expected_sha" ]]
+for abi in arm64-v8a armeabi-v7a universal; do
+    apk_file="$app_dir/updates/PlateView-v0.9.9-${abi}.apk"
+    expected_sha=$(sha256sum "$fixture_dir/releases/download/v0.9.9/PlateView-v0.9.9-${abi}.apk" | awk '{print $1}')
+    actual_sha=$(sha256sum "$apk_file" | awk '{print $1}')
+    [[ "$actual_sha" == "$expected_sha" ]]
+    grep -F "PlateView-v0.9.9-${abi}.apk" "$latest_file" >/dev/null
+    grep -F "\"sha256\":\"$expected_sha\"" "$latest_file" >/dev/null
+done
 grep -F "\"versionName\":\"v0.9.9\"" "$latest_file" >/dev/null
-grep -F "\"sha256\":\"$expected_sha\"" "$latest_file" >/dev/null
 
 second_run_output=$(PLATEVIEW_APP_DIR="$app_dir" \
     PLATEVIEW_RELEASE_API_URL="http://127.0.0.1:$PORT/repos/jaydocoder/PlateView/releases/latest" \

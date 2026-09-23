@@ -57,10 +57,9 @@ import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.CompatFlowRow
 import com.jaydocoder.plateview.component.VehiclePlateBadge
-import com.jaydocoder.plateview.component.ZoomableAttachmentViewer
+import com.jaydocoder.plateview.component.AttachmentViewerDialog
 import com.jaydocoder.plateview.component.AttachmentThumbnail
 import com.jaydocoder.plateview.component.rememberCurrentBeijingTime
-import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.WorkOrderImage
@@ -121,26 +120,16 @@ fun WorkOrderDetailScreen(
     }
     uiState.selectedImage?.let { selected ->
         val cached = uiState.imageFiles[selected.id]
-        LiquidGlassDialog(onDismissRequest = onCloseImage) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("车单图片", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onCloseImage) { Icon(Icons.Outlined.Close, "关闭图片") }
-                }
-                if (selected.id in uiState.imageFailures) {
-                    OutlinedButton(onClick = onLoadOriginal, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text("原文件加载失败，重新加载")
-                    }
-                } else {
-                    ZoomableAttachmentViewer(
-                        file = cached?.file,
-                        kind = selected.kind,
-                        variant = cached?.variant ?: "original",
-                        pageCount = selected.pageCount ?: 1,
-                    )
-                }
-            }
-        }
+        AttachmentViewerDialog(
+            title = selected.fileName ?: if (selected.kind == "PDF") "PDF附件" else "微信图片",
+            file = cached?.file,
+            kind = selected.kind,
+            variant = cached?.variant ?: "original",
+            pageCount = selected.pageCount ?: 1,
+            failureMessage = "原文件加载失败".takeIf { selected.id in uiState.imageFailures },
+            onRetry = onLoadOriginal,
+            onDismissRequest = onCloseImage,
+        )
     }
 }
 

@@ -2,6 +2,45 @@ package com.jaydocoder.plateview.domain.admin
 
 import java.io.File
 
+data class ClientPolicy(
+    val revision: Long,
+    val vehicleResultLimit: Int,
+    val workOrderResultLimit: Int,
+    val wechatMessageResultLimit: Int,
+    val apiBaseUrl: String,
+    val previousApiBaseUrl: String?,
+    val updateBaseUrl: String,
+    val previousUpdateBaseUrl: String?,
+    val updatedAt: String,
+    val clientCount: Int,
+    val appliedClientCount: Int,
+    val lastConfirmedAt: String?,
+    val cacheResetStatuses: List<CacheResetStatus>,
+)
+
+data class ClientPolicyUpdateCommand(
+    val vehicleResultLimit: Int,
+    val workOrderResultLimit: Int,
+    val wechatMessageResultLimit: Int,
+    val apiBaseUrl: String,
+    val updateBaseUrl: String,
+)
+
+data class ClientPolicyLimitsCommand(
+    val vehicleResultLimit: Int,
+    val workOrderResultLimit: Int,
+    val wechatMessageResultLimit: Int,
+)
+
+data class CacheResetStatus(
+    val userId: Long,
+    val revision: Long,
+    val expectedClientCount: Int,
+    val completedClientCount: Int,
+    val status: String,
+    val lastConfirmedAt: String?,
+)
+
 data class ManagedVehicleSummary(
     val id: Long,
     val plateNumber: String,
@@ -139,6 +178,8 @@ data class WechatSyncIssue(
     val attachmentKind: String? = null,
     val fileName: String? = null,
     val pageCount: Int? = null,
+    val sha256: String? = null,
+    val sourceQuality: String = "UNKNOWN",
     val candidates: List<WechatAttachmentCandidate> = emptyList(),
 )
 
@@ -147,6 +188,16 @@ data class WechatSyncOverview(
     val totalAttachmentCount: Int,
     val completedAttachmentCount: Int,
     val pendingAttachmentCount: Int,
+    val integrity: WechatSyncIntegrity = WechatSyncIntegrity(),
+    val cacheStatus: WechatCacheStatusSummary = WechatCacheStatusSummary(),
+)
+data class WechatCacheStatusSummary(val clientCount: Int = 0, val completedCount: Int = 0, val pendingCount: Int = 0, val failedCount: Int = 0, val totalBytes: Long = 0)
+data class WechatSyncIntegrity(
+    val unconfirmedBatchCount: Int = 0,
+    val retryTaskCount: Int = 0,
+    val metadataOnlyAttachmentCount: Int = 0,
+    val failedTaskCount: Int = 0,
+    val status: String = "一致",
 )
 
 data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)

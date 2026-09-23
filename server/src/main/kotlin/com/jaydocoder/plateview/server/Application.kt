@@ -13,6 +13,7 @@ import com.jaydocoder.plateview.server.vehicle.configureVehicleQueryFeature
 import com.jaydocoder.plateview.server.statistics.configureVehicleStatisticsFeature
 import com.jaydocoder.plateview.server.schedule.configureScheduleFeature
 import com.jaydocoder.plateview.server.workorder.configureWorkOrderFeature
+import com.jaydocoder.plateview.server.client.configureClientPolicyFeature
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -38,6 +39,7 @@ fun Application.module() {
     install(PartialContent)
 
     configureAuthenticationFeature()
+    configureClientPolicyFeature()
     configureImportPreviewFeature()
     configureVehicleQueryFeature()
     configureVehicleStatisticsFeature()

@@ -4,7 +4,10 @@ import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.Statement
 import java.sql.Timestamp
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.time.Instant
+import java.util.UUID
 import javax.sql.DataSource
 
 internal class WorkOrderService(private val dataSource: DataSource) {
@@ -53,7 +56,19 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             statement.setLong(3, sourceId)
             statement.executeUpdate()
         }
-        WorkOrderIngestResult(inserted, duplicate, connection.catalogRevision())
+        val last = batch.messages.maxWithOrNull(compareBy<WorkOrderIncomingMessage> { it.sentAt }.thenBy { it.localMessageId })
+        val result = WorkOrderIngestResult(
+            inserted = inserted,
+            duplicate = duplicate,
+            catalogVersion = connection.catalogRevision(),
+            batchId = batch.batchId,
+            acceptedThroughTimestamp = last?.sentAt?.epochSecond,
+            acceptedThroughLocalMessageId = last?.localMessageId,
+        )
+        if (batch.batchId != null && batch.syncRunId != null && last != null) {
+            connection.recordSyncBatch(batch, sourceId, UUID.fromString(batch.batchId), UUID.fromString(batch.syncRunId), inserted + duplicate, last)
+        }
+        result
     }
 
     fun updateHeartbeat(heartbeat: WorkOrderHeartbeat) {
@@ -71,6 +86,36 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                 statement.executeUpdate()
             }
         }
+    }
+
+    fun reconcile(request: WechatReconcile): WechatReconcileResult = dataSource.connection.use { connection ->
+        val sourceId = connection.prepareStatement("SELECT id FROM wechat_sources WHERE source_key = ?").use { statement ->
+            statement.setString(1, request.sourceKey)
+            statement.executeQuery().use { result -> if (result.next()) result.getLong(1) else null }
+        } ?: return@use WechatReconcileResult.empty(request.sourceKey)
+        val stored = connection.prepareStatement(
+            "SELECT local_message_id, content_fingerprint FROM wechat_messages WHERE source_id = ? AND sent_at >= ? AND sent_at < ? ORDER BY sent_at, local_message_id",
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setTimestamp(2, Timestamp.from(request.from))
+            statement.setTimestamp(3, Timestamp.from(request.to))
+            statement.executeQuery().use { result -> buildList { while (result.next()) add(result.getString(1) to result.getString(2)) } }
+        }
+        val storedIds = stored.map { it.first }.toSet()
+        val localIds = request.localMessageIds.toSet()
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            stored.joinToString("\n") { "${it.first}\u0000${it.second}" }.toByteArray(StandardCharsets.UTF_8),
+        ).joinToString("") { "%02x".format(it) }
+        WechatReconcileResult(
+            sourceKey = request.sourceKey,
+            serverCount = stored.size,
+            countMatch = stored.size == request.localCount,
+            digestMatch = digest.equals(request.localDigest, ignoreCase = true),
+            missingLocalMessageIds = (localIds - storedIds).sorted(),
+            duplicateCandidates = emptyList(),
+            missingAttachments = emptyList(),
+            metadataOnlyAttachments = connection.queryMetadataOnlyAttachments(sourceId, request.from, request.to),
+        )
     }
 
     fun search(keyword: String, limit: Int = DEFAULT_SEARCH_RESULT_LIMIT): List<WorkOrderRecord> {
@@ -233,7 +278,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             """
             SELECT 'UNSEARCHABLE_MESSAGE' AS issue_type, r.id AS record_id, NULL::BIGINT AS image_id,
                    s.display_name, m.sent_at, LEFT(m.raw_content, 240) AS summary,
-                   NULL::VARCHAR AS attachment_kind, NULL::TEXT AS file_name, NULL::INTEGER AS page_count
+                   NULL::VARCHAR AS attachment_kind, NULL::TEXT AS file_name, NULL::INTEGER AS page_count,
+                   NULL::VARCHAR AS sha256, NULL::VARCHAR AS source_quality
             FROM work_order_records r
             JOIN wechat_messages m ON m.id = r.message_id
             JOIN wechat_sources s ON s.id = m.source_id
@@ -245,9 +291,11 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         val imageIssues = connection.prepareStatement(
             """
             SELECT CASE WHEN candidate_count > 1 THEN 'ATTACHMENT_CONFLICT' ELSE 'ATTACHMENT_UNAVAILABLE' END AS issue_type,
-                   NULL::BIGINT AS record_id, image_id, display_name, sent_at, summary, attachment_kind, file_name, page_count
+                   NULL::BIGINT AS record_id, image_id, display_name, sent_at, summary, attachment_kind, file_name, page_count,
+                   sha256, source_quality
             FROM (
                 SELECT i.id AS image_id, s.display_name, i.sent_at, i.attachment_kind, i.file_name, i.page_count,
+                       i.sha256, i.source_quality,
                        COALESCE(i.sender_display, i.sender_username, '未知发送者') AS summary,
                        i.availability,
                        (SELECT COUNT(*)
@@ -305,6 +353,61 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
+    fun syncIntegrity(): WechatSyncIntegrity = dataSource.connection.use { connection ->
+        fun count(sql: String): Int = connection.prepareStatement(sql).use { statement -> statement.executeQuery().use { result -> result.next(); result.getInt(1) } }
+        val unconfirmed = count("SELECT COUNT(*) FROM wechat_sync_batches WHERE status <> 'ACCEPTED'")
+        val retry = count("SELECT COUNT(*) FROM wechat_attachment_upload_tasks WHERE status IN ('RETRY_WAIT', 'WAITING_UPLOAD', 'UPLOADING')")
+        val metadata = count("SELECT COUNT(*) FROM work_order_images WHERE availability IN ('METADATA_ONLY', 'THUMBNAIL_ONLY')")
+        val failed = count("SELECT COUNT(*) FROM wechat_attachment_upload_tasks WHERE status = 'FAILED'")
+        WechatSyncIntegrity(unconfirmed, retry, metadata, failed, when {
+            failed > 0 || unconfirmed > 0 -> "有缺口"
+            retry > 0 || metadata > 0 -> "上传中"
+            else -> "一致"
+        })
+    }
+
+    fun saveAttachmentCacheStatus(userId: Long, request: AttachmentCacheStatusRequest) = transaction { connection ->
+        require(request.clientInstanceId.isNotBlank() && request.clientInstanceId.length <= 128) { "客户端实例标识无效" }
+        request.items.forEach { item ->
+            require(item.variant in setOf("original", "preview", "thumbnail")) { "附件规格无效" }
+            require(item.status in setOf("DISCOVERED", "WAITING_NETWORK", "DOWNLOADING", "PAUSED", "RETRY_WAIT", "COMPLETED", "FAILED", "REVOKED")) { "附件缓存状态无效" }
+            connection.prepareStatement(
+                """
+                INSERT INTO client_attachment_cache_status(user_id, client_instance_id, manifest_revision, attachment_id, variant, status,
+                    downloaded_bytes, expected_size, sha256, attempt_count, last_error_code, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, client_instance_id, attachment_id, variant) DO UPDATE SET
+                    manifest_revision = EXCLUDED.manifest_revision, status = EXCLUDED.status,
+                    downloaded_bytes = EXCLUDED.downloaded_bytes, expected_size = EXCLUDED.expected_size,
+                    sha256 = EXCLUDED.sha256, attempt_count = EXCLUDED.attempt_count,
+                    last_error_code = EXCLUDED.last_error_code, updated_at = CURRENT_TIMESTAMP
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setLong(1, userId)
+                statement.setString(2, request.clientInstanceId)
+                statement.setLong(3, request.manifestRevision)
+                statement.setLong(4, item.attachmentId)
+                statement.setString(5, item.variant)
+                statement.setString(6, item.status)
+                statement.setLong(7, item.downloadedBytes.coerceAtLeast(0))
+                statement.setObject(8, item.expectedSize)
+                statement.setString(9, item.sha256)
+                statement.setInt(10, item.attemptCount.coerceAtLeast(0))
+                statement.setString(11, item.lastErrorCode)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    fun attachmentCacheStatusSummary(): AttachmentCacheStatusSummary = dataSource.connection.use { connection ->
+        connection.prepareStatement(
+            "SELECT COUNT(DISTINCT user_id || ':' || client_instance_id), COUNT(*) FILTER (WHERE status = 'COMPLETED'), COUNT(*) FILTER (WHERE status NOT IN ('COMPLETED', 'FAILED', 'REVOKED')), COUNT(*) FILTER (WHERE status = 'FAILED'), COALESCE(SUM(downloaded_bytes), 0) FROM client_attachment_cache_status",
+        ).use { statement -> statement.executeQuery().use { result ->
+            result.next()
+            AttachmentCacheStatusSummary(result.getInt(1), result.getInt(2), result.getInt(3), result.getInt(4), result.getLong(5))
+        } }
+    }
+
     fun correctRecord(recordId: Long, correction: WorkOrderCorrection): WorkOrderRecord = transaction { connection ->
         require(correction.orderNumber?.isNotBlank() == true || correction.rawPlate?.isNotBlank() == true) {
             "单号和车牌至少填写一项"
@@ -355,20 +458,22 @@ internal class WorkOrderService(private val dataSource: DataSource) {
     fun upsertImage(upload: WorkOrderImageUpload): Long = transaction { connection ->
         requireKnownSource(upload.sourceKey, upload.sourceName)
         val sourceId = connection.upsertSource(upload.sourceKey, upload.sourceName)
-        val existingId = connection.prepareStatement(
-            "SELECT id FROM work_order_images WHERE source_id = ? AND local_attachment_id = ?",
+        val existing = connection.prepareStatement(
+            "SELECT id, source_quality FROM work_order_images WHERE source_id = ? AND local_attachment_id = ?",
         ).use { statement ->
             statement.setLong(1, sourceId)
             statement.setString(2, upload.localAttachmentId)
-            statement.executeQuery().use { result -> if (result.next()) result.getLong(1) else null }
+            statement.executeQuery().use { result ->
+                if (result.next()) result.getLong("id") to result.getString("source_quality") else null
+            }
         }
-        val imageId = if (existingId == null) {
+        val imageId = if (existing == null) {
             connection.prepareStatement(
                 """
                 INSERT INTO work_order_images(source_id, local_attachment_id, sender_username, sender_display, sent_at, sha256,
                     original_content_type, original_size, original_path, preview_path, preview_size, thumbnail_path, thumbnail_size,
-                    availability, attachment_kind, file_name, page_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    availability, attachment_kind, file_name, page_count, source_quality)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """.trimIndent(),
             ).use { statement ->
@@ -389,35 +494,85 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                 statement.setString(15, upload.attachmentKind)
                 statement.setString(16, upload.fileName)
                 statement.setObject(17, upload.pageCount)
+                statement.setString(18, upload.sourceQuality)
                 statement.executeQuery().use { result -> result.next(); result.getLong(1) }
             }
         } else {
-            connection.prepareStatement(
-                """
-                UPDATE work_order_images SET sender_username = ?, sender_display = ?, sent_at = ?, sha256 = ?,
-                    original_content_type = ?, original_size = ?, original_path = ?, preview_path = ?, preview_size = ?,
-                    thumbnail_path = ?, thumbnail_size = ?, availability = ?, attachment_kind = ?, file_name = ?, page_count = ? WHERE id = ?
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, upload.senderUsername)
-                statement.setString(2, upload.senderDisplay)
-                statement.setTimestamp(3, Timestamp.from(upload.sentAt))
-                statement.setString(4, upload.sha256)
-                statement.setString(5, upload.originalContentType)
-                statement.setObject(6, upload.originalSize)
-                statement.setString(7, upload.originalPath)
-                statement.setString(8, upload.previewPath)
-                statement.setObject(9, upload.previewSize)
-                statement.setString(10, upload.thumbnailPath)
-                statement.setObject(11, upload.thumbnailSize)
-                statement.setString(12, upload.availability)
-                statement.setString(13, upload.attachmentKind)
-                statement.setString(14, upload.fileName)
-                statement.setObject(15, upload.pageCount)
-                statement.setLong(16, existingId)
-                statement.executeUpdate()
+            val (existingId, existingQuality) = existing
+            val hasPayload = listOf(upload.originalPath, upload.previewPath, upload.thumbnailPath).any { it != null }
+            if (hasPayload && shouldReplaceAttachmentQuality(existingQuality, upload.sourceQuality)) {
+                connection.prepareStatement(
+                    """
+                    UPDATE work_order_images SET sender_username = ?, sender_display = ?, sent_at = ?, sha256 = ?,
+                        original_content_type = ?, original_size = ?, original_path = ?, preview_path = ?, preview_size = ?,
+                        thumbnail_path = ?, thumbnail_size = ?, availability = ?, attachment_kind = ?, file_name = ?, page_count = ?,
+                        source_quality = ? WHERE id = ?
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, upload.senderUsername)
+                    statement.setString(2, upload.senderDisplay)
+                    statement.setTimestamp(3, Timestamp.from(upload.sentAt))
+                    statement.setString(4, upload.sha256)
+                    statement.setString(5, upload.originalContentType)
+                    statement.setObject(6, upload.originalSize)
+                    statement.setString(7, upload.originalPath)
+                    statement.setString(8, upload.previewPath)
+                    statement.setObject(9, upload.previewSize)
+                    statement.setString(10, upload.thumbnailPath)
+                    statement.setObject(11, upload.thumbnailSize)
+                    statement.setString(12, upload.availability)
+                    statement.setString(13, upload.attachmentKind)
+                    statement.setString(14, upload.fileName)
+                    statement.setObject(15, upload.pageCount)
+                    statement.setString(16, upload.sourceQuality)
+                    statement.setLong(17, existingId)
+                    statement.executeUpdate()
+                }
+            } else {
+                connection.prepareStatement(
+                    """
+                    UPDATE work_order_images SET sender_username = ?, sender_display = ?, sent_at = ?,
+                        attachment_kind = ?, file_name = COALESCE(?, file_name), page_count = COALESCE(?, page_count)
+                    WHERE id = ?
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, upload.senderUsername)
+                    statement.setString(2, upload.senderDisplay)
+                    statement.setTimestamp(3, Timestamp.from(upload.sentAt))
+                    statement.setString(4, upload.attachmentKind)
+                    statement.setString(5, upload.fileName)
+                    statement.setObject(6, upload.pageCount)
+                    statement.setLong(7, existingId)
+                    statement.executeUpdate()
+                }
             }
             existingId
+        }
+        connection.prepareStatement(
+            """
+            INSERT INTO wechat_attachment_upload_tasks(source_id, local_attachment_id, local_message_id, attachment_kind,
+                file_name, source_quality, original_size, sha256, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(source_id, local_attachment_id) DO UPDATE SET
+                local_message_id = COALESCE(EXCLUDED.local_message_id, wechat_attachment_upload_tasks.local_message_id),
+                file_name = COALESCE(EXCLUDED.file_name, wechat_attachment_upload_tasks.file_name),
+                source_quality = EXCLUDED.source_quality,
+                original_size = COALESCE(EXCLUDED.original_size, wechat_attachment_upload_tasks.original_size),
+                sha256 = COALESCE(EXCLUDED.sha256, wechat_attachment_upload_tasks.sha256),
+                status = CASE WHEN EXCLUDED.source_quality IN ('ORIGINAL', 'HIGH_DEFINITION') THEN 'UPLOADED' ELSE wechat_attachment_upload_tasks.status END,
+                updated_at = CURRENT_TIMESTAMP
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setString(2, upload.localAttachmentId)
+            statement.setString(3, upload.localMessageId)
+            statement.setString(4, upload.attachmentKind)
+            statement.setString(5, upload.fileName)
+            statement.setString(6, upload.sourceQuality)
+            statement.setObject(7, upload.originalSize)
+            statement.setString(8, upload.sha256)
+            statement.setString(9, if (upload.originalPath != null) "UPLOADED" else "METADATA_ONLY")
+            statement.executeUpdate()
         }
         connection.autoAssociateImage(imageId, sourceId, upload.localMessageId, upload.senderUsername, upload.sentAt)
         connection.autoAssociateMessageAttachment(imageId, sourceId, upload.senderUsername, upload.sentAt)
@@ -441,6 +596,89 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
+    fun attachmentCatalog(
+        afterId: Long,
+        limit: Int,
+        workOrderAllowed: Boolean = true,
+        messageAllowed: Boolean = true,
+    ): WorkOrderAttachmentCatalogPage = dataSource.connection.use { connection ->
+        connection.prepareStatement(
+            """
+            SELECT id, attachment_kind, file_name, sha256, original_content_type, original_size,
+                   original_path IS NOT NULL AS original_available,
+                   preview_path IS NOT NULL AS preview_available,
+                   thumbnail_path IS NOT NULL AS thumbnail_available,
+                   availability, source_quality, page_count
+            FROM work_order_images
+            WHERE id > ? AND ignored_at IS NULL
+              AND (original_path IS NOT NULL OR preview_path IS NOT NULL OR thumbnail_path IS NOT NULL)
+              AND ((linked_record_id IS NOT NULL AND ?) OR (linked_record_id IS NULL AND ?))
+            ORDER BY id
+            LIMIT ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, afterId.coerceAtLeast(0L))
+            statement.setBoolean(2, workOrderAllowed)
+            statement.setBoolean(3, messageAllowed)
+            statement.setInt(4, limit + 1)
+            statement.executeQuery().use { result ->
+                val items = buildList {
+                    while (result.next()) {
+                        add(
+                            WorkOrderAttachmentCatalogItem(
+                                id = result.getLong("id"),
+                                kind = result.getString("attachment_kind"),
+                                fileName = result.getString("file_name"),
+                                sha256 = result.getString("sha256"),
+                                contentType = result.getString("original_content_type"),
+                                originalSize = result.getLongOrNull("original_size"),
+                                originalAvailable = result.getBoolean("original_available"),
+                                previewAvailable = result.getBoolean("preview_available"),
+                                thumbnailAvailable = result.getBoolean("thumbnail_available"),
+                                availability = result.getString("availability"),
+                                sourceQuality = result.getString("source_quality"),
+                                pageCount = result.getIntOrNull("page_count"),
+                            ),
+                        )
+                    }
+                }
+                WorkOrderAttachmentCatalogPage(items.take(limit), items.size > limit)
+            }
+        }
+    }
+
+    fun attachmentBelongsToWorkOrder(attachmentId: Long): Boolean = dataSource.connection.use { connection ->
+        connection.prepareStatement("SELECT linked_record_id IS NOT NULL FROM work_order_images WHERE id = ? AND ignored_at IS NULL").use { statement ->
+            statement.setLong(1, attachmentId)
+            statement.executeQuery().use { result ->
+                if (!result.next()) throw WorkOrderNotFoundException()
+                result.getBoolean(1)
+            }
+        }
+    }
+
+    fun attachmentVariant(attachmentId: Long, variant: String): StoredImageVariant = dataSource.connection.use { connection ->
+        val columns = when (variant) {
+            "thumbnail" -> "thumbnail_path, 'image/webp', thumbnail_size"
+            "original" -> "original_path, original_content_type, original_size"
+            else -> throw IllegalArgumentException("附件规格无效")
+        }
+        connection.prepareStatement(
+            "SELECT $columns, sha256 FROM work_order_images WHERE id = ? AND ignored_at IS NULL",
+        ).use { statement ->
+            statement.setLong(1, attachmentId)
+            statement.executeQuery().use { result ->
+                if (!result.next()) throw WorkOrderNotFoundException()
+                StoredImageVariant(
+                    result.getString(1) ?: throw WorkOrderNotFoundException(),
+                    result.getString(2) ?: "application/octet-stream",
+                    result.getLong(3),
+                    result.getString(4),
+                )
+            }
+        }
+    }
+
     fun imageVariant(recordId: Long, imageId: Long, variant: String): StoredImageVariant = dataSource.connection.use { connection ->
         val columns = when (variant) {
             "thumbnail" -> "thumbnail_path, 'image/webp', thumbnail_size"
@@ -448,7 +686,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             "original" -> "original_path, original_content_type, original_size"
             else -> throw IllegalArgumentException("图片规格无效")
         }
-        connection.prepareStatement("SELECT $columns, sha256 FROM work_order_images WHERE id = ? AND linked_record_id = ? AND availability = 'AVAILABLE'").use { statement ->
+        val availability = if (variant == "thumbnail") "availability IN ('AVAILABLE', 'THUMBNAIL_ONLY')" else "availability = 'AVAILABLE'"
+        connection.prepareStatement("SELECT $columns, sha256 FROM work_order_images WHERE id = ? AND linked_record_id = ? AND $availability").use { statement ->
             statement.setLong(1, imageId)
             statement.setLong(2, recordId)
             statement.executeQuery().use { result ->
@@ -466,7 +705,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             "original" -> "original_path, original_content_type, original_size"
             else -> throw IllegalArgumentException("附件规格无效")
         }
-        connection.prepareStatement("SELECT $columns, sha256 FROM work_order_images WHERE id = ? AND availability = 'AVAILABLE'").use { statement ->
+        val availability = if (variant == "thumbnail") "availability IN ('AVAILABLE', 'THUMBNAIL_ONLY')" else "availability = 'AVAILABLE'"
+        connection.prepareStatement("SELECT $columns, sha256 FROM work_order_images WHERE id = ? AND $availability").use { statement ->
             statement.setLong(1, imageId)
             statement.executeQuery().use { result ->
                 if (!result.next()) throw WorkOrderNotFoundException()
@@ -667,7 +907,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         val images = prepareStatement(
             """
             SELECT linked_record_id, id, sha256, original_content_type, original_size, preview_size,
-                   thumbnail_size, availability, attachment_kind, file_name, page_count
+                   thumbnail_size, availability, attachment_kind, file_name, page_count, source_quality
             FROM work_order_images WHERE linked_record_id = ANY (?) ORDER BY linked_record_id, sent_at, id
             """.trimIndent(),
         ).use { statement ->
@@ -680,6 +920,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                             result.getLongOrNull("original_size"), result.getLongOrNull("preview_size") != null,
                             result.getLongOrNull("thumbnail_size") != null, result.getString("availability"),
                             result.getString("attachment_kind"), result.getString("file_name"), result.getIntOrNull("page_count"),
+                            result.getString("source_quality"),
                         ),
                     )
                 }
@@ -701,7 +942,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         val attachments = prepareStatement(
             """
             SELECT linked_message_id, id, attachment_kind, file_name, sha256, original_content_type, original_size,
-                   preview_size, thumbnail_size, availability, page_count
+                   preview_size, thumbnail_size, availability, page_count, source_quality
             FROM work_order_images WHERE linked_message_id = ANY (?) ORDER BY linked_message_id, sent_at, id
             """.trimIndent(),
         ).use { statement ->
@@ -713,7 +954,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                             result.getLong("id"), result.getString("attachment_kind"), result.getString("file_name"),
                             result.getString("sha256"), result.getString("original_content_type"), result.getLongOrNull("original_size"),
                             result.getLongOrNull("preview_size") != null, result.getLongOrNull("thumbnail_size") != null,
-                            result.getString("availability"), result.getIntOrNull("page_count"),
+                            result.getString("availability"), result.getIntOrNull("page_count"), result.getString("source_quality"),
                         ),
                     )
                 }
@@ -750,7 +991,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             }
         } else emptyList()
         val images = if (includeRelations) prepareStatement(
-            "SELECT id, sha256, original_content_type, original_size, preview_size, thumbnail_size, availability, attachment_kind, file_name, page_count FROM work_order_images WHERE linked_record_id = ? ORDER BY sent_at, id",
+            "SELECT id, sha256, original_content_type, original_size, preview_size, thumbnail_size, availability, attachment_kind, file_name, page_count, source_quality FROM work_order_images WHERE linked_record_id = ? ORDER BY sent_at, id",
         ).use { statement ->
             statement.setLong(1, recordId)
             statement.executeQuery().use { imageResult ->
@@ -768,6 +1009,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                                 kind = imageResult.getString("attachment_kind"),
                                 fileName = imageResult.getString("file_name"),
                                 pageCount = imageResult.getIntOrNull("page_count"),
+                                sourceQuality = imageResult.getString("source_quality"),
                             ),
                         )
                     }
@@ -811,6 +1053,12 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             people = people,
             images = images,
             vehicles = vehicles,
+            displayName = resolveWechatSenderDisplayName(
+                result.getString("display_alias"),
+                result.getString("sender_group_nickname"),
+                result.getString("sender_display"),
+                result.getString("sender_username"),
+            ),
         )
     }
 
@@ -831,7 +1079,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         val attachments = if (includeAttachments) prepareStatement(
             """
             SELECT id, attachment_kind, file_name, sha256, original_content_type, original_size,
-                   preview_size, thumbnail_size, availability, page_count
+                   preview_size, thumbnail_size, availability, page_count, source_quality
             FROM work_order_images WHERE linked_message_id = ? ORDER BY sent_at, id
             """.trimIndent(),
         ).use { statement ->
@@ -851,6 +1099,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                                 thumbnailAvailable = attachmentResult.getLongOrNull("thumbnail_size") != null,
                                 availability = attachmentResult.getString("availability"),
                                 pageCount = attachmentResult.getIntOrNull("page_count"),
+                                sourceQuality = attachmentResult.getString("source_quality"),
                             ),
                         )
                     }
@@ -880,6 +1129,95 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             statement.setString(1, senderUsername)
             statement.executeQuery().use { result -> result.next() && result.getBoolean(1) }
         }
+    }
+
+    private fun Connection.queryMetadataOnlyAttachments(sourceId: Long, from: Instant, to: Instant): List<String> = prepareStatement(
+        "SELECT local_attachment_id FROM work_order_images WHERE source_id = ? AND sent_at >= ? AND sent_at < ? AND availability IN ('METADATA_ONLY', 'THUMBNAIL_ONLY') ORDER BY sent_at, id",
+    ).use { statement ->
+        statement.setLong(1, sourceId)
+        statement.setTimestamp(2, Timestamp.from(from))
+        statement.setTimestamp(3, Timestamp.from(to))
+        statement.executeQuery().use { result -> buildList { while (result.next()) add(result.getString(1)) } }
+    }
+
+    private fun Connection.ensureSyncRun(syncRunId: UUID) {
+        prepareStatement(
+            "INSERT INTO wechat_sync_runs(sync_run_id, collector_instance_id) VALUES (?, ?) ON CONFLICT(sync_run_id) DO NOTHING",
+        ).use { statement ->
+            statement.setObject(1, syncRunId)
+            statement.setString(2, "unknown")
+            statement.executeUpdate()
+        }
+    }
+
+    private fun Connection.findSyncBatch(batchId: UUID): WorkOrderIngestResult? = prepareStatement(
+        "SELECT accepted_count, status, to_timestamp, to_local_message_id FROM wechat_sync_batches WHERE batch_id = ?",
+    ).use { statement ->
+        statement.setObject(1, batchId)
+        statement.executeQuery().use { result ->
+            if (!result.next()) return@use null
+            WorkOrderIngestResult(
+                inserted = 0,
+                duplicate = result.getInt(1),
+                catalogVersion = catalogRevision(),
+                batchId = batchId.toString(),
+                acceptedThroughTimestamp = result.getLong(3),
+                acceptedThroughLocalMessageId = result.getString(4),
+            )
+        }
+    }
+
+    private fun Connection.recordSyncBatch(
+        batch: WorkOrderMessageBatch,
+        sourceId: Long,
+        batchId: UUID,
+        syncRunId: UUID,
+        acceptedCount: Int,
+        last: WorkOrderIncomingMessage,
+    ) {
+        prepareStatement(
+            """
+            INSERT INTO wechat_sync_batches(batch_id, sync_run_id, source_id, from_timestamp, from_local_message_id,
+                to_timestamp, to_local_message_id, message_count, batch_sha256, accepted_count, status, confirmed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACCEPTED', CURRENT_TIMESTAMP)
+            ON CONFLICT(batch_id) DO NOTHING
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setObject(1, batchId)
+            statement.setObject(2, syncRunId)
+            statement.setLong(3, sourceId)
+            statement.setLong(4, batch.fromTimestamp)
+            statement.setString(5, batch.fromLocalMessageId)
+            statement.setLong(6, batch.toTimestamp ?: last.sentAt.epochSecond)
+            statement.setString(7, batch.toLocalMessageId ?: last.localMessageId)
+            statement.setInt(8, batch.messageCount ?: batch.messages.size)
+            statement.setString(9, batch.batchSha256 ?: batchDigest(batch.messages))
+            statement.setInt(10, acceptedCount)
+            statement.executeUpdate()
+        }
+        prepareStatement(
+            """
+            INSERT INTO wechat_sync_watermarks(source_id, accepted_timestamp, accepted_local_message_id, accepted_message_count, last_batch_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(source_id) DO UPDATE SET accepted_timestamp = GREATEST(wechat_sync_watermarks.accepted_timestamp, EXCLUDED.accepted_timestamp),
+                accepted_local_message_id = CASE WHEN EXCLUDED.accepted_timestamp >= wechat_sync_watermarks.accepted_timestamp THEN EXCLUDED.accepted_local_message_id ELSE wechat_sync_watermarks.accepted_local_message_id END,
+                accepted_message_count = wechat_sync_watermarks.accepted_message_count + EXCLUDED.accepted_message_count,
+                last_batch_id = EXCLUDED.last_batch_id, updated_at = CURRENT_TIMESTAMP
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setLong(2, last.sentAt.epochSecond)
+            statement.setString(3, last.localMessageId)
+            statement.setInt(4, acceptedCount)
+            statement.setObject(5, batchId)
+            statement.executeUpdate()
+        }
+    }
+
+    private fun batchDigest(messages: List<WorkOrderIncomingMessage>): String {
+        val canonical = messages.sortedWith(compareBy<WorkOrderIncomingMessage> { it.sentAt }.thenBy { it.localMessageId })
+            .joinToString("\n") { "${it.localMessageId}\u0000${it.sentAt.epochSecond}\u0000${it.contentFingerprint}" }
+        return MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 
     private fun Connection.upsertSource(sourceKey: String, sourceName: String): Long = prepareStatement(
@@ -971,6 +1309,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     attachmentKind = result.getString("attachment_kind"),
                     fileName = result.getString("file_name"),
                     pageCount = result.getIntOrNull("page_count"),
+                    sha256 = result.getString("sha256"),
+                    sourceQuality = result.getString("source_quality") ?: "UNKNOWN",
                 ),
             )
         }
@@ -1008,10 +1348,11 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             SELECT r.id AS record_id, r.order_number, r.raw_plate, r.normalized_plate, r.vehicle_type, r.declared_people,
                    r.raw_valid_time, r.location, r.verification_method, r.reason, r.remarks, r.status, r.parse_quality,
                    r.catalog_revision, m.raw_content, m.sent_at, m.sender_username, m.sender_display,
-                   m.sender_group_nickname, s.source_key, s.display_name AS source_name
+                   m.sender_group_nickname, s.source_key, s.display_name AS source_name, ps.display_alias
             FROM work_order_records r
             JOIN wechat_messages m ON m.id = r.message_id
             JOIN wechat_sources s ON s.id = m.source_id
+            LEFT JOIN wechat_passage_senders ps ON ps.sender_username = m.sender_username AND ps.enabled = TRUE
         """
         const val DETAIL = "$BASE_SELECT WHERE r.id = ?"
         const val SEARCH_EXACT_ORDER = """
@@ -1184,7 +1525,41 @@ private fun matchingSnippet(rawContent: String, normalizedKeyword: String): Stri
     return rawContent.substring(start, end)
 }
 
-internal data class WorkOrderMessageBatch(val sourceKey: String, val sourceName: String, val messages: List<WorkOrderIncomingMessage>)
+internal data class WorkOrderMessageBatch(
+    val batchId: String?,
+    val syncRunId: String?,
+    val sourceKey: String,
+    val sourceName: String,
+    val fromTimestamp: Long,
+    val fromLocalMessageId: String,
+    val toTimestamp: Long?,
+    val toLocalMessageId: String?,
+    val messageCount: Int?,
+    val batchSha256: String?,
+    val messages: List<WorkOrderIncomingMessage>,
+)
+internal data class WechatReconcile(
+    val sourceKey: String,
+    val from: Instant,
+    val to: Instant,
+    val localCount: Int,
+    val localDigest: String,
+    val localMessageIds: List<String>,
+)
+internal data class WechatReconcileResult(
+    val sourceKey: String,
+    val serverCount: Int,
+    val countMatch: Boolean,
+    val digestMatch: Boolean,
+    val missingLocalMessageIds: List<String>,
+    val duplicateCandidates: List<String>,
+    val missingAttachments: List<String>,
+    val metadataOnlyAttachments: List<String>,
+) {
+    companion object {
+        fun empty(sourceKey: String) = WechatReconcileResult(sourceKey, 0, false, false, emptyList(), emptyList(), emptyList(), emptyList())
+    }
+}
 internal data class WorkOrderIncomingMessage(
     val localMessageId: String,
     val senderUsername: String?,
@@ -1201,7 +1576,14 @@ internal data class WorkOrderIncomingMessage(
     }
 }
 internal data class WorkOrderHeartbeat(val sourceKey: String, val sourceName: String, val status: String, val latestMessageAt: Instant?, val backlogCount: Int, val errorCode: String?)
-internal data class WorkOrderIngestResult(val inserted: Int, val duplicate: Int, val catalogVersion: Long)
+internal data class WorkOrderIngestResult(
+    val inserted: Int,
+    val duplicate: Int,
+    val catalogVersion: Long,
+    val batchId: String? = null,
+    val acceptedThroughTimestamp: Long? = null,
+    val acceptedThroughLocalMessageId: String? = null,
+)
 internal data class WorkOrderChangePage(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WorkOrderRecord>)
 internal data class WorkOrderRecord(
     val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?,
@@ -1210,13 +1592,14 @@ internal data class WorkOrderRecord(
     val sentAt: Instant, val sourceKey: String, val sourceName: String, val senderUsername: String?, val senderDisplay: String?,
     val senderGroupNickname: String?, val people: List<WorkOrderPerson>, val images: List<WorkOrderImage>,
     val vehicles: List<WorkOrderVehicle>,
+    val displayName: String? = null,
 )
 internal data class WorkOrderPerson(val rawLine: String, val name: String?, val identityNumber: String?)
 internal data class WorkOrderVehicle(val rawDescription: String, val rawPlate: String, val normalizedPlate: String, val vehicleType: String?)
 internal data class WorkOrderImage(
     val id: Long, val sha256: String?, val contentType: String?, val originalSize: Long?, val previewAvailable: Boolean,
     val thumbnailAvailable: Boolean, val availability: String, val kind: String = "IMAGE", val fileName: String? = null,
-    val pageCount: Int? = null,
+    val pageCount: Int? = null, val sourceQuality: String = "UNKNOWN",
 )
 internal data class WorkOrderAttachment(
     val id: Long,
@@ -1229,7 +1612,23 @@ internal data class WorkOrderAttachment(
     val thumbnailAvailable: Boolean,
     val availability: String,
     val pageCount: Int?,
+    val sourceQuality: String = "UNKNOWN",
 )
+internal data class WorkOrderAttachmentCatalogItem(
+    val id: Long,
+    val kind: String,
+    val fileName: String?,
+    val sha256: String?,
+    val contentType: String?,
+    val originalSize: Long?,
+    val originalAvailable: Boolean,
+    val previewAvailable: Boolean,
+    val thumbnailAvailable: Boolean,
+    val availability: String,
+    val sourceQuality: String,
+    val pageCount: Int?,
+)
+internal data class WorkOrderAttachmentCatalogPage(val items: List<WorkOrderAttachmentCatalogItem>, val hasMore: Boolean)
 internal data class WechatMessageRecord(
     val id: Long,
     val businessType: String,
@@ -1248,10 +1647,25 @@ internal data class WechatMessageRecord(
 internal data class WechatMessagePage(val records: List<WechatMessageRecord>, val nextOffset: Int?)
 internal data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
 internal data class WechatAttachmentAssociationStats(val total: Int, val completed: Int, val pending: Int)
+internal data class WechatSyncIntegrity(
+    val unconfirmedBatchCount: Int,
+    val retryTaskCount: Int,
+    val metadataOnlyAttachmentCount: Int,
+    val failedTaskCount: Int,
+    val status: String,
+)
+internal data class AttachmentCacheStatusSummary(
+    val clientCount: Int,
+    val completedCount: Int,
+    val pendingCount: Int,
+    val failedCount: Int,
+    val totalBytes: Long,
+)
 
 internal data class WechatSyncIssue(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: Instant, val summary: String,
     val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,
+    val sha256: String? = null, val sourceQuality: String = "UNKNOWN",
     val candidates: List<WechatAttachmentCandidate> = emptyList(),
 )
 internal data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String?, val sentAt: Instant, val summary: String)
@@ -1265,10 +1679,21 @@ internal data class WorkOrderImageUpload(
     val sentAt: Instant, val sha256: String?, val originalContentType: String?, val originalSize: Long?, val originalPath: String?,
     val previewPath: String?, val previewSize: Long?, val thumbnailPath: String?, val thumbnailSize: Long?, val availability: String,
     val attachmentKind: String = "IMAGE", val fileName: String? = null, val pageCount: Int? = null,
+    val sourceQuality: String = "UNKNOWN",
 )
 internal data class StoredImageVariant(val relativePath: String, val contentType: String, val size: Long, val sha256: String?)
 internal class WorkOrderPermissionException : RuntimeException("当前账号没有微信车单访问权限")
 internal class WorkOrderNotFoundException : RuntimeException("微信车单不存在")
+
+internal fun shouldReplaceAttachmentQuality(current: String, incoming: String): Boolean =
+    attachmentQualityRank(incoming) >= attachmentQualityRank(current)
+
+private fun attachmentQualityRank(value: String): Int = when (value) {
+    "ORIGINAL" -> 3
+    "HIGH_DEFINITION" -> 2
+    "THUMBNAIL" -> 1
+    else -> 0
+}
 
 private fun ResultSet.getIntOrNull(column: String): Int? = getInt(column).takeUnless { wasNull() }
 private fun ResultSet.getLongOrNull(column: String): Long? = getLong(column).takeUnless { wasNull() }

@@ -199,7 +199,7 @@ internal fun ProfileScreen(
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                     ProfileActionRow(
-                        title = "系统更新",
+                        title = "软件更新",
                         icon = Icons.Outlined.SystemUpdateAlt,
                         tone = ProfileActionTone.Primary,
                         onClick = onCheckForUpdate,

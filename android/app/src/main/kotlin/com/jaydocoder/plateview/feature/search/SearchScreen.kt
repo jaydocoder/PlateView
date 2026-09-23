@@ -319,10 +319,16 @@ fun SearchScreen(
 
 @Composable
 private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (WechatMessage) -> Unit) {
+    val importantSender = message.importantSender()
+    val accent = importantSender?.color(isSystemInDarkTheme())
     GlassSurface(
         modifier = Modifier.fillMaxWidth().clickable { onSelected(message) }.testTag("wechat_message_${message.id}"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
         elevated = true,
+        color = accent ?: MaterialTheme.colorScheme.background,
+        opacity = accent?.let { if (isSystemInDarkTheme()) 0.18f else 0.12f },
+        borderColor = accent,
+        borderOpacity = accent?.let { 0.42f },
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.itemSpacing),
@@ -392,10 +398,14 @@ private fun WechatSenderName(message: WechatMessage) {
     )
 }
 
-private fun WechatMessage.importantSender(): ImportantWechatSender? = when {
-    senderUsername == "wxid_b0rmsm0lwqjk22" || displayName.trim() == "孙主任" -> ImportantWechatSender.DIRECTOR
-    senderUsername == "xurujun9599" || displayName.trim() == "徐站" -> ImportantWechatSender.STATION_MASTER
-    senderUsername == "wxid_2493514935112" || displayName.trim() == "三叔" -> ImportantWechatSender.UNCLE
+private fun WechatMessage.importantSender(): ImportantWechatSender? = importantSender(senderUsername, displayName)
+
+private fun WorkOrder.importantSender(): ImportantWechatSender? = importantSender(senderUsername, resolvedSenderName())
+
+private fun importantSender(senderUsername: String?, displayName: String?): ImportantWechatSender? = when {
+    senderUsername == "wxid_b0rmsm0lwqjk22" || displayName?.trim() == "孙主任" -> ImportantWechatSender.DIRECTOR
+    senderUsername == "xurujun9599" || displayName?.trim() in setOf("徐站", "徐站长") -> ImportantWechatSender.STATION_MASTER
+    senderUsername == "wxid_2493514935112" || displayName?.trim() == "三叔" -> ImportantWechatSender.UNCLE
     else -> null
 }
 
@@ -422,10 +432,17 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
         rawContent = candidate.rawContent,
     )
     val passageTimeRemark = extractWorkOrderPassageTimeRemark(candidate.remarks)
+    val importantSender = candidate.importantSender()
+    val darkTheme = isSystemInDarkTheme()
+    val accent = importantSender?.color(darkTheme)
     GlassSurface(
         modifier = Modifier.fillMaxWidth().clickable { onSelected(candidate) }.testTag("work_order_${candidate.id}"),
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
         elevated = true,
+        color = accent ?: MaterialTheme.colorScheme.background,
+        opacity = accent?.let { if (darkTheme) 0.18f else 0.12f },
+        borderColor = accent,
+        borderOpacity = accent?.let { 0.42f },
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.itemSpacing),
@@ -445,6 +462,16 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
                         text = candidate.orderNumber ?: "未识别",
                         color = MaterialTheme.colorScheme.onSurface,
                     )
+                    if (importantSender != null) {
+                        Text(
+                            text = candidate.resolvedSenderName(),
+                            modifier = Modifier.testTag("important_work_order_sender_${importantSender.testTagSuffix}"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = accent ?: MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                    }
                     WorkOrderStatusBadge(
                         candidate,
                         selectedPlate,

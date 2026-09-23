@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import com.jaydocoder.plateview.component.CompatFlowRow
-import com.jaydocoder.plateview.component.ZoomableAttachmentViewer
+import com.jaydocoder.plateview.component.AttachmentViewerDialog
 import com.jaydocoder.plateview.component.AttachmentThumbnail
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -177,6 +177,16 @@ fun AdminWorkspaceRoute(
         onSaveUser = viewModel::saveUser,
         onChooseUserAvatar = { avatarPicker.launch(SUPPORTED_AVATAR_MIME_TYPES) },
         onDeleteUserAvatar = viewModel::deleteUserAvatar,
+        onRequestCacheReset = viewModel::requestCacheReset,
+        onDismissCacheReset = viewModel::dismissCacheReset,
+        onConfirmCacheReset = viewModel::confirmCacheReset,
+        onClientPolicyChanged = viewModel::updateClientPolicyEditor,
+        onTestApiEndpoint = viewModel::testApiEndpoint,
+        onTestUpdateEndpoint = viewModel::testUpdateEndpoint,
+        onSaveClientPolicyLimits = viewModel::saveClientPolicyLimits,
+        onSaveApiEndpoint = viewModel::saveApiEndpoint,
+        onSaveUpdateEndpoint = viewModel::saveUpdateEndpoint,
+        onDismissPolicySaveFeedback = viewModel::dismissPolicySaveFeedback,
         onChooseImport = { documentPicker.launch(arrayOf(EXCEL_MIME_TYPE, LEGACY_EXCEL_MIME_TYPE)) },
         onOpenImportBatch = viewModel::openImportBatch,
         onDismissImportBatch = viewModel::dismissImportBatch,
@@ -234,6 +244,16 @@ fun AdminWorkspaceScreen(
     onSaveUser: () -> Unit,
     onChooseUserAvatar: () -> Unit = {},
     onDeleteUserAvatar: () -> Unit = {},
+    onRequestCacheReset: (Long) -> Unit = {},
+    onDismissCacheReset: () -> Unit = {},
+    onConfirmCacheReset: () -> Unit = {},
+    onClientPolicyChanged: ((ClientPolicyEditorState) -> ClientPolicyEditorState) -> Unit = {},
+    onTestApiEndpoint: () -> Unit = {},
+    onTestUpdateEndpoint: () -> Unit = {},
+    onSaveClientPolicyLimits: () -> Unit = {},
+    onSaveApiEndpoint: () -> Unit = {},
+    onSaveUpdateEndpoint: () -> Unit = {},
+    onDismissPolicySaveFeedback: () -> Unit = {},
     onChooseImport: () -> Unit,
     onOpenImportBatch: (Long) -> Unit,
     onDismissImportBatch: () -> Unit,
@@ -294,7 +314,9 @@ fun AdminWorkspaceScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding),
         ) {
-            val visibleTabs = AdminTab.entries.filter { it != AdminTab.WechatSync || uiState.isPrimaryAdministrator }
+            val visibleTabs = AdminTab.entries.filter {
+                it !in setOf(AdminTab.Users, AdminTab.WechatSync, AdminTab.DataAccess) || uiState.isPrimaryAdministrator
+            }
             ScrollableTabRow(
                 selectedTabIndex = visibleTabs.indexOf(uiState.tab).coerceAtLeast(0),
                 edgePadding = PlateViewDimensions.pageHorizontal,
@@ -348,6 +370,7 @@ fun AdminWorkspaceScreen(
                             importsCount = uiState.importBatches.size,
                             showSchedulePlanner = uiState.isPrimaryAdministrator,
                             showWechatSync = uiState.isPrimaryAdministrator,
+                            showPrimaryAdministration = uiState.isPrimaryAdministrator,
                             onTabSelected = onTabSelected,
                             onOpenSchedulePlanner = onOpenSchedulePlanner,
                         )
@@ -406,6 +429,8 @@ fun AdminWorkspaceScreen(
                                 totalAttachmentCount = uiState.totalWechatAttachmentCount,
                                 completedAttachmentCount = uiState.completedWechatAttachmentCount,
                                 pendingAttachmentCount = uiState.pendingWechatAttachmentCount,
+                                integrity = uiState.wechatSyncIntegrity,
+                                cacheStatus = uiState.wechatCacheStatus,
                                 workOrderCandidates = uiState.wechatWorkOrderCandidates,
                                 senders = uiState.wechatPassageSenders,
                                 isSaving = uiState.isSaving,
@@ -416,6 +441,21 @@ fun AdminWorkspaceScreen(
                                 onOpenAttachment = onOpenWechatAttachment,
                                 onSearchWorkOrders = onSearchWechatWorkOrders,
                                 onSavePassageSender = onSaveWechatPassageSender,
+                            )
+                        }
+
+                        AdminTab.DataAccess -> if (uiState.isPrimaryAdministrator) {
+                            DataAccessPane(
+                                editor = uiState.clientPolicy,
+                                apiTestMessage = uiState.apiEndpointTestMessage,
+                                updateTestMessage = uiState.updateEndpointTestMessage,
+                                onChanged = onClientPolicyChanged,
+                                onTestApiEndpoint = onTestApiEndpoint,
+                                onTestUpdateEndpoint = onTestUpdateEndpoint,
+                                onSaveLimits = onSaveClientPolicyLimits,
+                                onSaveApi = onSaveApiEndpoint,
+                                onSaveUpdate = onSaveUpdateEndpoint,
+                                policySavingAction = uiState.policySavingAction,
                             )
                         }
                     }
@@ -449,6 +489,8 @@ fun AdminWorkspaceScreen(
             onSave = onSaveUser,
             onChooseAvatar = onChooseUserAvatar,
             onDeleteAvatar = onDeleteUserAvatar,
+            onRequestCacheReset = onRequestCacheReset,
+            cacheResetStatus = editor.id?.let(uiState.cacheResetStatuses::get),
         )
     }
     uiState.pendingVehicleStatusChange?.let { pendingChange ->
@@ -458,30 +500,48 @@ fun AdminWorkspaceScreen(
             onConfirm = onConfirmVehicleStatusChange,
         )
     }
-    uiState.selectedWechatAttachment?.let { issue ->
-        val attachment = issue.imageId?.let(uiState.wechatAttachmentFiles::get)
-        LiquidGlassDialog(onDismissRequest = onCloseWechatAttachment) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(issue.fileName ?: if (issue.attachmentKind == "PDF") "PDF附件" else "微信图片", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onCloseWechatAttachment) { Icon(Icons.Outlined.Close, "关闭附件预览") }
-                }
-                ZoomableAttachmentViewer(
-                    file = attachment?.file,
-                    kind = issue.attachmentKind ?: "IMAGE",
-                    variant = attachment?.variant ?: "preview",
-                    pageCount = issue.pageCount ?: 1,
-                )
-                if (uiState.isWechatAttachmentLoading && attachment?.variant != "original") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        CircularProgressIndicator(Modifier.size(28.dp))
-                    }
-                }
-                uiState.wechatAttachmentFailure?.let { failure ->
-                    Text(failure.message, color = MaterialTheme.colorScheme.error)
+    uiState.pendingCacheResetUser?.let { user ->
+        LiquidGlassDialog(onDismissRequest = onDismissCacheReset) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("清除客户端缓存", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("将向 ${user.username} 的所有设备发送清缓存指令。登录状态和服务器地址会保留，数据随后自动重建。")
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismissCacheReset) { Text("取消") }
+                    Button(onClick = onConfirmCacheReset, enabled = !uiState.isSaving) { Text("确认发送") }
                 }
             }
         }
+    }
+    uiState.policySaveFeedback?.let { feedback ->
+        LiquidGlassDialog(onDismissRequest = onDismissPolicySaveFeedback) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = feedback.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (feedback.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                )
+                Text(feedback.message)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(onClick = onDismissPolicySaveFeedback) { Text("知道了") }
+                }
+            }
+        }
+    }
+    uiState.selectedWechatAttachment?.let { issue ->
+        val attachment = issue.imageId?.let(uiState.wechatAttachmentFiles::get)
+        AttachmentViewerDialog(
+            title = issue.fileName ?: if (issue.attachmentKind == "PDF") "PDF附件" else "微信图片",
+            file = attachment?.file,
+            kind = issue.attachmentKind ?: "IMAGE",
+            variant = attachment?.variant ?: "original",
+            pageCount = issue.pageCount ?: 1,
+            failureMessage = uiState.wechatAttachmentFailure?.message,
+            onDismissRequest = onCloseWechatAttachment,
+        )
     }
     uiState.selectedImportBatch?.let { batch ->
         ImportBatchDialog(
@@ -552,6 +612,7 @@ private fun DashboardPane(
     importsCount: Int,
     showSchedulePlanner: Boolean,
     showWechatSync: Boolean,
+    showPrimaryAdministration: Boolean,
     onTabSelected: (AdminTab) -> Unit,
     onOpenSchedulePlanner: () -> Unit,
 ) {
@@ -565,7 +626,7 @@ private fun DashboardPane(
         item {
             DashboardCard("车辆档案", "$vehiclesCount 条记录", Icons.Outlined.VerifiedUser, MaterialTheme.colorScheme.primary) { onTabSelected(AdminTab.Vehicles) }
         }
-        item {
+        if (showPrimaryAdministration) item {
             DashboardCard("账号管理", "$usersCount 个用户", Icons.Outlined.SupervisorAccount, MaterialTheme.colorScheme.secondary) { onTabSelected(AdminTab.Users) }
         }
         item {
@@ -590,6 +651,11 @@ private fun DashboardPane(
                 ) {
                     onTabSelected(AdminTab.WechatSync)
                 }
+            }
+        }
+        if (showPrimaryAdministration) item {
+            DashboardCard("数据访问控制", "数量与服务地址", Icons.Outlined.Security, MaterialTheme.colorScheme.tertiary) {
+                onTabSelected(AdminTab.DataAccess)
             }
         }
     }
@@ -1476,6 +1542,8 @@ private fun UserEditorDialog(
     onSave: () -> Unit,
     onChooseAvatar: () -> Unit,
     onDeleteAvatar: () -> Unit,
+    onRequestCacheReset: (Long) -> Unit,
+    cacheResetStatus: com.jaydocoder.plateview.domain.admin.CacheResetStatus?,
 ) {
     AdminEditorDialog(
         title = if (editor.isCreate) "创建新账号" else "维护账号信息",
@@ -1621,6 +1689,24 @@ private fun UserEditorDialog(
                                 testTag = "admin_wechat_work_order_access_switch",
                                 onCheckedChange = { enabled -> onChanged { it.copy(wechatWorkOrderAccessEnabled = enabled, error = null) } },
                             )
+                            requireNotNull(editor.id).let { userId ->
+                                OutlinedButton(
+                                    onClick = { onRequestCacheReset(userId) },
+                                    enabled = !isSaving,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("清除该账号客户端缓存")
+                                }
+                                cacheResetStatus?.let { status ->
+                                    Text(
+                                        text = "最近清理：${status.status.cacheResetStatusLabel()} · ${status.completedClientCount}/${status.expectedClientCount} 台设备",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -2509,7 +2595,155 @@ private fun AdminTab.label(): String = when (this) {
     AdminTab.Imports -> "数据导入"
     AdminTab.Audit -> "审计日志"
     AdminTab.WechatSync -> "微信同步"
+    AdminTab.DataAccess -> "数据访问控制"
 }
+
+private fun String.cacheResetStatusLabel(): String = when (this) {
+    "WAITING" -> "等待设备"
+    "SENT" -> "已发送"
+    "PARTIAL" -> "部分完成"
+    "COMPLETED" -> "全部完成"
+    else -> "处理中"
+}
+
+@Composable
+private fun DataAccessPane(
+    editor: ClientPolicyEditorState?,
+    apiTestMessage: String?,
+    updateTestMessage: String?,
+    onChanged: ((ClientPolicyEditorState) -> ClientPolicyEditorState) -> Unit,
+    onTestApiEndpoint: () -> Unit,
+    onTestUpdateEndpoint: () -> Unit,
+    onSaveLimits: () -> Unit,
+    onSaveApi: () -> Unit,
+    onSaveUpdate: () -> Unit,
+    policySavingAction: PolicySavingAction?,
+) {
+    if (editor == null) {
+        LoadingPane()
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(PlateViewDimensions.pageHorizontal, PlateViewDimensions.pageVertical),
+        verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
+    ) {
+        item {
+            AdminPaneHeading(
+                title = "数据访问控制",
+                description = "统一控制搜索数量、后台地址和更新下载地址",
+                metric = "策略版本 ${editor.revision}",
+                icon = Icons.Outlined.Security,
+            )
+        }
+        item {
+            GlassSurface(modifier = Modifier.fillMaxWidth(), elevated = true) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("首页结果数量", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("范围 0 至 50；0 表示普通账号禁止访问，admin 回退为 8 条。", style = MaterialTheme.typography.bodySmall)
+                    PolicyNumberField("匹配车辆", editor.vehicleResultLimit) { value -> onChanged { it.copy(vehicleResultLimit = value) } }
+                    PolicyNumberField("微信车单", editor.workOrderResultLimit) { value -> onChanged { it.copy(workOrderResultLimit = value) } }
+                    PolicyNumberField("微信聊天记录", editor.wechatMessageResultLimit) { value -> onChanged { it.copy(wechatMessageResultLimit = value) } }
+                    val limitsSaving = policySavingAction == PolicySavingAction.LIMITS
+                    Button(
+                        onClick = onSaveLimits,
+                        enabled = !limitsSaving,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (limitsSaving) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text("保存首页结果数量")
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            EndpointPolicyCard(
+                title = "后台服务地址",
+                value = editor.apiBaseUrl,
+                previous = editor.previousApiBaseUrl,
+                testMessage = apiTestMessage,
+                isSaving = policySavingAction == PolicySavingAction.API_ENDPOINT,
+                onValueChanged = { value -> onChanged { it.copy(apiBaseUrl = value) } },
+                onTest = onTestApiEndpoint,
+                onSave = onSaveApi,
+                policySavingAction = policySavingAction,
+            )
+        }
+        item {
+            EndpointPolicyCard(
+                title = "APK 更新服务地址",
+                value = editor.updateBaseUrl,
+                previous = editor.previousUpdateBaseUrl,
+                testMessage = updateTestMessage,
+                isSaving = policySavingAction == PolicySavingAction.UPDATE_ENDPOINT,
+                onValueChanged = { value -> onChanged { it.copy(updateBaseUrl = value) } },
+                onTest = onTestUpdateEndpoint,
+                onSave = onSaveUpdate,
+                policySavingAction = policySavingAction,
+            )
+        }
+        item {
+            Text("客户端领取：${editor.appliedClientCount}/${editor.clientCount} · 更新时间 ${editor.updatedAt}", style = MaterialTheme.typography.bodySmall)
+            Text("最近确认：${editor.lastConfirmedAt?.let(::formatAuditTime) ?: "尚无客户端确认"}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun PolicyNumberField(label: String, value: String, onValueChanged: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { input -> if (input.isEmpty() || input.all(Char::isDigit)) onValueChanged(input.take(2)) },
+        label = { Text(label) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
+    )
+}
+
+@Composable
+private fun EndpointPolicyCard(
+    title: String,
+    value: String,
+    previous: String?,
+    testMessage: String?,
+    isSaving: Boolean,
+    onValueChanged: (String) -> Unit,
+    onTest: () -> Unit,
+    onSave: () -> Unit,
+    policySavingAction: PolicySavingAction?,
+) {
+    GlassSurface(modifier = Modifier.fillMaxWidth(), elevated = true) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChanged,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(PlateViewDimensions.cornerExtraLarge),
+            )
+            previous?.let { Text("上一可用地址：$it", style = MaterialTheme.typography.bodySmall) }
+            testMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onTest, enabled = !isSaving) { Text("测试连接") }
+                Button(onClick = onSave, enabled = !isSaving) {
+                    if (isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("保存并应用")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun actionForEndpoint(title: String): PolicySavingAction =
+    if (title == "后台服务地址") PolicySavingAction.API_ENDPOINT else PolicySavingAction.UPDATE_ENDPOINT
 
 @Composable
 private fun WechatSyncPane(
@@ -2520,6 +2754,8 @@ private fun WechatSyncPane(
     totalAttachmentCount: Int,
     completedAttachmentCount: Int,
     pendingAttachmentCount: Int,
+    integrity: com.jaydocoder.plateview.domain.admin.WechatSyncIntegrity,
+    cacheStatus: com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary,
     workOrderCandidates: Map<Long, List<com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem>>,
     senders: List<com.jaydocoder.plateview.domain.admin.WechatPassageSender>,
     isSaving: Boolean,
@@ -2539,6 +2775,18 @@ private fun WechatSyncPane(
         item {
             Text("微信同步状态", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("电脑开机并登录微信后自动追赶未同步消息。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("同步完整性", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("状态：${integrity.status}", color = if (integrity.status == "一致") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary)
+                    Text("未确认批次：${integrity.unconfirmedBatchCount} · 待重试附件：${integrity.retryTaskCount}", style = MaterialTheme.typography.bodyMedium)
+                    Text("仅元数据附件：${integrity.metadataOnlyAttachmentCount} · 失败任务：${integrity.failedTaskCount}", style = MaterialTheme.typography.bodyMedium)
+                    Text("客户端：${cacheStatus.clientCount} · 已缓存：${cacheStatus.completedCount} · 待下载：${cacheStatus.pendingCount} · 失败：${cacheStatus.failedCount}", style = MaterialTheme.typography.bodyMedium)
+                    Text("已缓存大小：${cacheStatus.totalBytes / 1024 / 1024} MB", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         }
         items(items, key = { it.sourceKey }) { source ->
             GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {

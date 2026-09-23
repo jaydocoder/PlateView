@@ -65,7 +65,7 @@ fun WechatMessage.resolvedSenderName(): String = sequenceOf(
     senderUsername,
 ).firstOrNull { !it.isNullOrBlank() }?.trim() ?: "未知发送者"
 
-fun WorkOrder.resolvedSenderName(): String = sequenceOf(senderGroupNickname, senderDisplay, senderUsername)
+fun WorkOrder.resolvedSenderName(): String = sequenceOf(displayName, senderGroupNickname, senderDisplay, senderUsername)
     .firstOrNull { !it.isNullOrBlank() }?.trim() ?: "未知发送者"
 
 fun WechatMessage.hasAttachmentPlaceholderContent(): Boolean {
@@ -200,7 +200,8 @@ fun resolveWechatMessagePassageState(
     now: ZonedDateTime = ZonedDateTime.now(beijingZoneId),
 ): WorkOrderPassageState? {
     if (message.businessType != "PASSAGE_MESSAGE") return null
-    if (!message.rawContent.contains("贾登峪")) return WorkOrderPassageState.AREA_MISMATCH
+    val regionMatches = message.rawContent.contains("贾登峪") || message.rawContent.contains("喀纳斯")
+    if (!regionMatches) return WorkOrderPassageState.AREA_MISMATCH
     val sentDate = runCatching { Instant.parse(message.sentAt).atZone(beijingZoneId).toLocalDate() }.getOrNull()
         ?: return WorkOrderPassageState.UNKNOWN
     val validDate = when {

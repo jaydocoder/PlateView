@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.sp
 import com.jaydocoder.plateview.component.AttachmentThumbnail
+import com.jaydocoder.plateview.component.AttachmentViewerDialog
 import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +43,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.component.VehiclePlateBadge
-import com.jaydocoder.plateview.component.ZoomableAttachmentViewer
 import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.component.rememberCurrentBeijingTime
 import com.jaydocoder.plateview.domain.workorder.displayLabel
@@ -101,6 +101,7 @@ internal fun WechatMessageDetailScreen(
                                 AttachmentPreviewList(
                                     attachments = message.attachments,
                                     files = state.attachmentFiles,
+                                    failures = state.attachmentFailures,
                                     prominent = true,
                                     onOpenAttachment = onOpenAttachment,
                                 )
@@ -143,6 +144,7 @@ internal fun WechatMessageDetailScreen(
                             AttachmentPreviewList(
                                 attachments = message.attachments,
                                 files = state.attachmentFiles,
+                                failures = state.attachmentFailures,
                                 prominent = false,
                                 onOpenAttachment = onOpenAttachment,
                             )
@@ -154,33 +156,27 @@ internal fun WechatMessageDetailScreen(
     }
     state.selectedAttachment?.let { attachment ->
         val cached = state.attachmentFiles[attachment.id]
-        androidx.compose.ui.window.Dialog(onDismissRequest = onCloseAttachment) {
-            GlassSurface(Modifier.fillMaxWidth().padding(16.dp), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(attachment.fileName ?: "微信附件", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    if (cached == null) {
-                        CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
-                    } else {
-                        ZoomableAttachmentViewer(
-                            file = cached.file,
-                            kind = attachment.kind,
-                            variant = cached.variant,
-                            pageCount = attachment.pageCount ?: 1,
-                        )
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = onCloseAttachment) { Text("关闭") }
-                    }
-                }
-            }
-        }
+        AttachmentViewerDialog(
+            title = attachment.fileName ?: if (attachment.kind == "PDF") "PDF附件" else "微信图片",
+            file = cached?.file,
+            kind = attachment.kind,
+            variant = cached?.variant ?: attachment.preferredDisplayVariant(),
+            pageCount = attachment.pageCount ?: 1,
+            failureMessage = "原文件加载失败".takeIf { attachment.id in state.attachmentFailures },
+            onRetry = onLoadOriginal,
+            onDismissRequest = onCloseAttachment,
+        )
     }
 }
+
+private fun WorkOrderAttachment.preferredDisplayVariant(): String =
+    if (availability == "AVAILABLE") "original" else "thumbnail"
 
 @Composable
 private fun AttachmentPreviewList(
     attachments: List<WorkOrderAttachment>,
     files: Map<Long, com.jaydocoder.plateview.domain.workorder.CachedWorkOrderImage>,
+    failures: Set<Long>,
     prominent: Boolean,
     onOpenAttachment: (WorkOrderAttachment) -> Unit,
 ) {
@@ -190,7 +186,7 @@ private fun AttachmentPreviewList(
             modifier = Modifier.fillMaxWidth().clickable { onOpenAttachment(attachment) },
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (attachment.availability == "AVAILABLE") {
+            if (attachment.availability in setOf("AVAILABLE", "THUMBNAIL_ONLY")) {
                 AttachmentThumbnail(
                     file = cached?.file,
                     kind = attachment.kind,
@@ -212,6 +208,8 @@ private fun AttachmentPreviewList(
                             attachment.kind == "PDF" && cached?.variant == "original" -> "${attachment.pageCount ?: 1} 页 · 原文件已缓存"
                             attachment.kind == "PDF" -> "正在缓存原 PDF 文件"
                             cached?.variant == "original" -> "原始微信图片已缓存"
+                            attachment.id in failures -> "原文件加载失败，点击重试"
+                            attachment.sourceQuality == "THUMBNAIL" -> "微信原图尚未下载，当前显示缩略图"
                             attachment.availability != "AVAILABLE" -> "原图暂不可用，采集器将继续重试"
                             else -> "正在缓存原始微信图片"
                         },

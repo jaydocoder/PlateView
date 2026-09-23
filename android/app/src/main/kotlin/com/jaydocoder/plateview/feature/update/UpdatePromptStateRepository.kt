@@ -39,6 +39,10 @@ class DataStoreUpdatePromptStateRepository @Inject constructor(
             preferences[cachedVersionKey(userId)] = update.versionName
             preferences[cachedNotesKey(userId)] = update.releaseNotes
             preferences[cachedUrlsKey(userId)] = update.downloadUrls.joinToString(separator = "\n")
+            preferences[cachedArchitectureKey(userId)] = update.architecture
+            preferences[cachedArtifactNameKey(userId)] = update.artifactName
+            update.sizeBytes?.let { preferences[cachedSizeKey(userId)] = it.toString() }
+                ?: preferences.remove(cachedSizeKey(userId))
             update.sha256?.let { preferences[cachedShaKey(userId)] = it } ?: preferences.remove(cachedShaKey(userId))
         }
     }
@@ -48,7 +52,15 @@ class DataStoreUpdatePromptStateRepository @Inject constructor(
         val versionName = preferences[cachedVersionKey(userId)] ?: return null
         val urls = preferences[cachedUrlsKey(userId)]?.lineSequence()?.filter(String::isNotBlank)?.toList().orEmpty()
         return urls.takeIf(List<String>::isNotEmpty)?.let {
-            AppUpdate(versionName, preferences[cachedNotesKey(userId)].orEmpty(), it, preferences[cachedShaKey(userId)])
+            AppUpdate(
+                versionName = versionName,
+                releaseNotes = preferences[cachedNotesKey(userId)].orEmpty(),
+                downloadUrls = it,
+                sha256 = preferences[cachedShaKey(userId)],
+                architecture = preferences[cachedArchitectureKey(userId)] ?: "universal",
+                artifactName = preferences[cachedArtifactNameKey(userId)] ?: "PlateView-$versionName.apk",
+                sizeBytes = preferences[cachedSizeKey(userId)]?.toLongOrNull(),
+            )
         }
     }
 
@@ -57,6 +69,9 @@ class DataStoreUpdatePromptStateRepository @Inject constructor(
             preferences.remove(cachedVersionKey(userId))
             preferences.remove(cachedNotesKey(userId))
             preferences.remove(cachedUrlsKey(userId))
+            preferences.remove(cachedArchitectureKey(userId))
+            preferences.remove(cachedArtifactNameKey(userId))
+            preferences.remove(cachedSizeKey(userId))
             preferences.remove(cachedShaKey(userId))
         }
     }
@@ -65,6 +80,9 @@ class DataStoreUpdatePromptStateRepository @Inject constructor(
     private fun cachedVersionKey(userId: Long) = stringPreferencesKey("user_${userId}_forced_version")
     private fun cachedNotesKey(userId: Long) = stringPreferencesKey("user_${userId}_forced_notes")
     private fun cachedUrlsKey(userId: Long) = stringPreferencesKey("user_${userId}_forced_urls")
+    private fun cachedArchitectureKey(userId: Long) = stringPreferencesKey("user_${userId}_forced_architecture")
+    private fun cachedArtifactNameKey(userId: Long) = stringPreferencesKey("user_${userId}_forced_artifact")
+    private fun cachedSizeKey(userId: Long) = stringPreferencesKey("user_${userId}_forced_size")
     private fun cachedShaKey(userId: Long) = stringPreferencesKey("user_${userId}_forced_sha256")
 }
 
