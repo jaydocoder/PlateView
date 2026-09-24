@@ -76,4 +76,17 @@ class CatalogReconcileActionTest {
         assertEquals(CatalogSyncStatus.PERMISSION_REVOKED, revoked.status)
         assertEquals(CatalogSyncStatus.PERMISSION_REVOKED, revoked.unavailableAfterNetworkFailure(100_000, "IOException").status)
     }
+
+    @Test
+    fun `同步落地版本不一致时记录可恢复的明确错误码`() {
+        assertEquals(
+            "SYNC_TARGET_VERSION_MISMATCH",
+            catalogSyncFailureCode(IllegalStateException("SYNC_TARGET_VERSION_MISMATCH")),
+        )
+    }
+
+    @Test
+    fun `普通同步异常仍保留异常类型作为错误码`() {
+        assertEquals("IOException", catalogSyncFailureCode(java.io.IOException()))
+    }
 }

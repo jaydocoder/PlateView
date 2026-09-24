@@ -14,6 +14,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,6 +68,11 @@ internal fun catalogTargetsForAccount(
     CatalogKind.WECHAT_MESSAGE to if (hasWechatAccess) messageRevision else -1L,
     CatalogKind.ATTACHMENT to if (hasWechatAccess) attachmentRevision else -1L,
 )
+
+internal fun catalogSyncFailureCode(error: Throwable): String =
+    error.message?.takeIf { it == "SYNC_TARGET_VERSION_MISMATCH" }
+        ?: error::class.simpleName
+        ?: "SYNC_FAILED"
 
 internal fun CatalogFreshness.unavailableAfterNetworkFailure(
     now: Long,
@@ -238,24 +244,27 @@ class CatalogConsistencyCoordinator @Inject constructor(
             status = CatalogSyncStatus.SYNCING,
             lastErrorCode = null,
         ))
-        runCatching {
-            networkSlots.withPermit { synchronize(session, kind, remoteRevision) }
-        }.onSuccess {
-            check(it == remoteRevision) { "目录同步落地版本与服务器目标版本不一致" }
+        try {
+            val appliedRevision = networkSlots.withPermit { synchronize(session, kind, remoteRevision) }
+            if (appliedRevision != remoteRevision) {
+                throw IllegalStateException("SYNC_TARGET_VERSION_MISMATCH")
+            }
             val completedAt = System.currentTimeMillis()
             persist(session.userId, initial.copy(
-                appliedRevision = it,
+                appliedRevision = appliedRevision,
                 observedServerRevision = remoteRevision,
                 lastConfirmedAtEpochMillis = completedAt,
                 lastSuccessfulSyncAtEpochMillis = completedAt,
                 status = CatalogSyncStatus.CONFIRMED,
                 lastErrorCode = null,
             ))
-        }.onFailure { error ->
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
             persist(session.userId, initial.copy(
                 observedServerRevision = remoteRevision,
                 status = CatalogSyncStatus.FAILED,
-                lastErrorCode = error::class.simpleName ?: "SYNC_FAILED",
+                lastErrorCode = catalogSyncFailureCode(error),
             ))
         }
     }
@@ -295,8 +304,8 @@ class CatalogConsistencyCoordinator @Inject constructor(
         pairLock.withLock {
             if (!workOrderRevoked) persist(session.userId, workOrderInitial.copy(observedServerRevision = workOrderRevision, status = CatalogSyncStatus.SYNCING))
             if (!messageRevoked) persist(session.userId, messageInitial.copy(observedServerRevision = messageRevision, status = CatalogSyncStatus.SYNCING))
-            runCatching {
-                networkSlots.withPermit {
+            try {
+                val result = networkSlots.withPermit {
                     workOrderRepository.synchronize(
                         accessToken = session.accessToken,
                         userId = session.userId,
@@ -305,18 +314,18 @@ class CatalogConsistencyCoordinator @Inject constructor(
                         targetMessageRevision = messageRevision.takeUnless { messageRevoked },
                     )
                 }
-            }.onSuccess { result ->
-                if (!workOrderRevoked) check(result.workOrderRevision == workOrderRevision) {
-                    "微信车单同步落地版本与服务器目标版本不一致"
-                }
-                if (!messageRevoked) check(result.messageRevision == messageRevision) {
-                    "聊天记录同步落地版本与服务器目标版本不一致"
+                if ((!workOrderRevoked && result.workOrderRevision != workOrderRevision) ||
+                    (!messageRevoked && result.messageRevision != messageRevision)
+                ) {
+                    throw IllegalStateException("SYNC_TARGET_VERSION_MISMATCH")
                 }
                 val completedAt = System.currentTimeMillis()
                 if (!workOrderRevoked) persist(session.userId, workOrderInitial.copy(appliedRevision = result.workOrderRevision, observedServerRevision = workOrderRevision, lastConfirmedAtEpochMillis = completedAt, lastSuccessfulSyncAtEpochMillis = completedAt, status = CatalogSyncStatus.CONFIRMED, lastErrorCode = null))
                 if (!messageRevoked) persist(session.userId, messageInitial.copy(appliedRevision = result.messageRevision, observedServerRevision = messageRevision, lastConfirmedAtEpochMillis = completedAt, lastSuccessfulSyncAtEpochMillis = completedAt, status = CatalogSyncStatus.CONFIRMED, lastErrorCode = null))
-            }.onFailure { error ->
-                val code = error::class.simpleName ?: "SYNC_FAILED"
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                val code = catalogSyncFailureCode(error)
                 if (!workOrderRevoked) persist(session.userId, workOrderInitial.copy(observedServerRevision = workOrderRevision, status = CatalogSyncStatus.FAILED, lastErrorCode = code))
                 if (!messageRevoked) persist(session.userId, messageInitial.copy(observedServerRevision = messageRevision, status = CatalogSyncStatus.FAILED, lastErrorCode = code))
             }
