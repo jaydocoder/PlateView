@@ -344,21 +344,21 @@ private fun SearchStickyHeader(
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SectionTitle(text = title, modifier = Modifier.weight(1f))
-                SearchSectionStatus(state, count)
-            }
-            health?.let {
+            SectionTitle(
+                text = title,
+                modifier = Modifier.widthIn(min = 88.dp, max = 96.dp),
+            )
+            if (health != null) {
                 WechatSyncHealthBadge(
-                    health = it,
-                    modifier = Modifier.fillMaxWidth(0.62f).widthIn(min = 132.dp),
+                    health = health,
+                    modifier = Modifier.weight(1f),
                 )
+            } else {
+                Spacer(Modifier.weight(1f))
             }
+            SearchSectionStatus(state, count)
         }
     }
 }
@@ -366,37 +366,41 @@ private fun SearchStickyHeader(
 @Composable
 private fun WechatSyncHealthBadge(health: WechatSyncHealth, modifier: Modifier = Modifier) {
     val healthy = health.state == "ONLINE_HEALTHY"
-    val informational = health.state == "ONLINE_SYNCING" || health.state == "UNKNOWN"
-    val containerColor = when {
-        healthy -> MaterialTheme.colorScheme.secondaryContainer
-        informational -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.errorContainer
+    val containerColor = if (healthy) {
+        MaterialTheme.colorScheme.secondaryContainer
+    } else {
+        MaterialTheme.colorScheme.errorContainer
     }
-    val contentColor = when {
-        healthy -> MaterialTheme.colorScheme.onSecondaryContainer
-        informational -> MaterialTheme.colorScheme.onTertiaryContainer
-        else -> MaterialTheme.colorScheme.onErrorContainer
+    val contentColor = if (healthy) {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    } else {
+        MaterialTheme.colorScheme.onErrorContainer
     }
-    val title = when (health.state) {
-        "ONLINE_HEALTHY" -> "电脑在线，微信记录同步正常"
-        "ONLINE_SYNCING" -> "电脑在线，微信记录同步中"
-        "ONLINE_ERROR" -> "电脑在线，微信同步异常"
-        "OFFLINE" -> "电脑离线"
-        else -> "微信同步状态暂不可用"
-    }
+    val title = if (healthy) "微信服务正常" else "微信同步异常"
     val time = health.lastSuccessfulSyncAt?.let(::formatWechatSyncTime) ?: "尚无成功同步记录"
     Surface(
-        modifier = modifier,
+        modifier = modifier.height(38.dp),
         color = containerColor,
         contentColor = contentColor,
         shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
     ) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-            Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 2)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
             Text(
-                text = if (health.state == "OFFLINE") "当前微信同步最新时间：$time" else "最近同步：$time",
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2,
+                title,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                maxLines = 1,
+                softWrap = false,
+            )
+            Text(
+                text = "最后同步：$time",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -836,7 +840,9 @@ private fun SectionTitle(
         modifier = modifier.padding(vertical = 4.dp),
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onBackground,
-        fontWeight = FontWeight.SemiBold
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        softWrap = false,
     )
 }
 

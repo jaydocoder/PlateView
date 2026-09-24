@@ -93,16 +93,10 @@ class WorkOrderScreenTest {
     }
 
     @Test
-    fun 微信分类标题正确显示五种电脑同步状态() {
-        val expectedLabels = linkedMapOf(
-            "ONLINE_HEALTHY" to "电脑在线，微信记录同步正常",
-            "ONLINE_SYNCING" to "电脑在线，微信记录同步中",
-            "ONLINE_ERROR" to "电脑在线，微信同步异常",
-            "OFFLINE" to "电脑离线",
-            "UNKNOWN" to "微信同步状态暂不可用",
-        )
+    fun 微信分类标题将同步状态压缩为正常或异常并保留最后同步时间() {
+        val states = listOf("ONLINE_HEALTHY", "ONLINE_SYNCING", "ONLINE_ERROR", "OFFLINE", "UNKNOWN")
 
-        var currentState by mutableStateOf(expectedLabels.keys.first())
+        var currentState by mutableStateOf(states.first())
         composeRule.setContent {
             PlateViewTheme {
                 SearchScreen(
@@ -118,10 +112,14 @@ class WorkOrderScreenTest {
             }
         }
 
-        expectedLabels.forEach { (state, expected) ->
+        states.forEach { state ->
             composeRule.runOnUiThread { currentState = state }
+            val expected = if (state == "ONLINE_HEALTHY") "微信服务正常" else "微信同步异常"
             composeRule.onNodeWithText(expected).assertIsDisplayed()
+            composeRule.onNodeWithText("最后同步：", substring = true).assertIsDisplayed()
         }
+        composeRule.onAllNodesWithText("电脑在线，微信记录同步正常").assertCountEquals(0)
+        composeRule.onAllNodesWithText("电脑离线").assertCountEquals(0)
     }
 
     @Test
