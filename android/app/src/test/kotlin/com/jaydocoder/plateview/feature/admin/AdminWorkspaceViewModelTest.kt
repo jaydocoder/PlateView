@@ -142,9 +142,22 @@ class AdminWorkspaceViewModelTest {
         viewModel.selectTab(AdminTab.Users)
         advanceUntilIdle()
 
+        assertEquals(AdminTab.Users, viewModel.uiState.value.tab)
         viewModel.createUser()
 
         assertTrue(!viewModel.uiState.value.userEditor!!.canEditProfile)
+    }
+
+    @Test
+    fun `其他管理员不能进入主管理员专属模块`() = runTest {
+        val viewModel = createViewModel(username = "manager2")
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.DataAccess)
+        assertEquals(AdminTab.Dashboard, viewModel.uiState.value.tab)
+
+        viewModel.selectTab(AdminTab.WechatSync)
+        assertEquals(AdminTab.Dashboard, viewModel.uiState.value.tab)
     }
 
     @Test

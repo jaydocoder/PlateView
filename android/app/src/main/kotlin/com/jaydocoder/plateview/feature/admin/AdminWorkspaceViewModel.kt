@@ -53,7 +53,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     }
 
     fun selectTab(tab: AdminTab) {
-        if (tab in setOf(AdminTab.Users, AdminTab.WechatSync, AdminTab.DataAccess) && !_uiState.value.isPrimaryAdministrator) return
+        if (tab in setOf(AdminTab.WechatSync, AdminTab.DataAccess) && !_uiState.value.isPrimaryAdministrator) return
         _uiState.update { it.copy(tab = tab, failure = null) }
         refresh()
     }

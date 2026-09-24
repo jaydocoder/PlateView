@@ -36,7 +36,7 @@ internal class AdminManagementService(
                 check(result.next()) { "管理概览统计未返回结果" }
                 AdminDashboardSummary(
                     vehicleCount = result.getInt("vehicle_count"),
-                    userCount = if (primaryAdministrator) result.getInt("user_count") else 0,
+                    userCount = result.getInt("user_count"),
                     importBatchCount = result.getInt("import_batch_count"),
                     isPrimaryAdministrator = primaryAdministrator,
                     showSchedulePlanner = primaryAdministrator,

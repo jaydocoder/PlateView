@@ -315,7 +315,7 @@ fun AdminWorkspaceScreen(
                 .padding(innerPadding),
         ) {
             val visibleTabs = AdminTab.entries.filter {
-                it !in setOf(AdminTab.Users, AdminTab.WechatSync, AdminTab.DataAccess) || uiState.isPrimaryAdministrator
+                it !in setOf(AdminTab.WechatSync, AdminTab.DataAccess) || uiState.isPrimaryAdministrator
             }
             ScrollableTabRow(
                 selectedTabIndex = visibleTabs.indexOf(uiState.tab).coerceAtLeast(0),
@@ -626,7 +626,7 @@ private fun DashboardPane(
         item {
             DashboardCard("车辆档案", "$vehiclesCount 条记录", Icons.Outlined.VerifiedUser, MaterialTheme.colorScheme.primary) { onTabSelected(AdminTab.Vehicles) }
         }
-        if (showPrimaryAdministration) item {
+        item {
             DashboardCard("账号管理", "$usersCount 个用户", Icons.Outlined.SupervisorAccount, MaterialTheme.colorScheme.secondary) { onTabSelected(AdminTab.Users) }
         }
         item {
