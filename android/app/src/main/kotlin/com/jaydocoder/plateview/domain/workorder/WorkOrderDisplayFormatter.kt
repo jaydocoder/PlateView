@@ -56,6 +56,7 @@ enum class WorkOrderPassageState {
     UNKNOWN,
     VOID,
     AREA_MISMATCH,
+    AREA_UNKNOWN,
 }
 
 fun WechatMessage.resolvedSenderName(): String = sequenceOf(
@@ -201,7 +202,10 @@ fun resolveWechatMessagePassageState(
 ): WorkOrderPassageState? {
     if (message.businessType != "PASSAGE_MESSAGE") return null
     val regionMatches = message.rawContent.contains("贾登峪") || message.rawContent.contains("喀纳斯")
-    if (!regionMatches) return WorkOrderPassageState.AREA_MISMATCH
+    if (!regionMatches) {
+        val hasExplicitOtherRegion = listOf("禾木", "白哈巴").any(message.rawContent::contains)
+        return if (hasExplicitOtherRegion) WorkOrderPassageState.AREA_MISMATCH else WorkOrderPassageState.AREA_UNKNOWN
+    }
     val sentDate = runCatching { Instant.parse(message.sentAt).atZone(beijingZoneId).toLocalDate() }.getOrNull()
         ?: return WorkOrderPassageState.UNKNOWN
     val validDate = when {
@@ -225,6 +229,7 @@ fun WorkOrderPassageState.displayLabel(): String = when (this) {
     WorkOrderPassageState.UNKNOWN -> "通行时间待核实"
     WorkOrderPassageState.VOID -> "已失效"
     WorkOrderPassageState.AREA_MISMATCH -> "通行区域不符"
+    WorkOrderPassageState.AREA_UNKNOWN -> "通行区域未知"
 }
 
 fun formatWorkOrderPeople(people: List<WorkOrderPerson>): List<String> {

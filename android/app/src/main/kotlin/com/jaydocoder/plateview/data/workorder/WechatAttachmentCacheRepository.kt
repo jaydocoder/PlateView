@@ -111,7 +111,10 @@ class WechatAttachmentCacheRepository @Inject constructor(
         try {
             mutex.withLock {
                 location.directory.listFiles().orEmpty()
-                    .filter { it.isFile && (it.nameWithoutExtension == location.cacheKey || it.name == "${location.cacheKey}.download") }
+                    .filter {
+                        it.isFile && (it.nameWithoutExtension == location.cacheKey ||
+                            it.name == "${location.cacheKey}.download" || it.name == "${location.cacheKey}.part")
+                    }
                     .forEach(File::delete)
             }
         } finally {

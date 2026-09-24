@@ -102,7 +102,7 @@ data class WechatCacheStatusSummaryDto(
     val currentClient: WechatCacheClientStatusDto? = null,
     val clients: List<WechatCacheClientStatusDto> = emptyList(),
     val page: Int = 1,
-    val pageSize: Int = 10,
+    val pageSize: Int = 5,
     val totalItems: Int = 0,
     val totalPages: Int = 0,
 )

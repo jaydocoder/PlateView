@@ -93,7 +93,7 @@ class WorkOrderScreenTest {
     }
 
     @Test
-    fun 微信分类标题将同步状态压缩为正常或异常并保留最后同步时间() {
+    fun 微信分类标题将同步状态压缩为正常或异常并显示北京时间() {
         val states = listOf("ONLINE_HEALTHY", "ONLINE_SYNCING", "ONLINE_ERROR", "OFFLINE", "UNKNOWN")
 
         var currentState by mutableStateOf(states.first())
@@ -114,9 +114,10 @@ class WorkOrderScreenTest {
 
         states.forEach { state ->
             composeRule.runOnUiThread { currentState = state }
-            val expected = if (state == "ONLINE_HEALTHY") "微信服务正常" else "微信同步异常"
+            val expected = if (state == "ONLINE_HEALTHY") "微信正常" else "微信异常"
             composeRule.onNodeWithText(expected).assertIsDisplayed()
-            composeRule.onNodeWithText("最后同步：9月24日 22:20").assertIsDisplayed()
+            composeRule.onNodeWithText("9月24日 22:20").assertIsDisplayed()
+            composeRule.onAllNodesWithText("最后同步", substring = true).assertCountEquals(0)
         }
         composeRule.onAllNodesWithText("电脑在线，微信记录同步正常").assertCountEquals(0)
         composeRule.onAllNodesWithText("电脑离线").assertCountEquals(0)

@@ -3,6 +3,7 @@ package com.jaydocoder.plateview.feature.admin
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,6 +92,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -98,6 +100,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
@@ -3042,6 +3045,11 @@ private fun WechatCachePagination(
     var pageInput by rememberSaveable(cacheStatus.page, cacheStatus.totalPages) {
         androidx.compose.runtime.mutableStateOf(cacheStatus.page.toString())
     }
+    LaunchedEffect(cacheStatus.page, cacheStatus.totalPages) {
+        if (pageInput.isBlank() && cacheStatus.totalPages > 0) {
+            pageInput = cacheStatus.page.toString()
+        }
+    }
     Column(
         modifier = Modifier.fillMaxWidth().testTag("wechat_cache_pagination"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -3052,9 +3060,10 @@ private fun WechatCachePagination(
                     onClick = { pageSizeMenuExpanded = true },
                     enabled = !isLoading,
                     modifier = Modifier.testTag("wechat_cache_page_size"),
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                 ) { Text("每页 ${cacheStatus.pageSize} 条") }
                 DropdownMenu(expanded = pageSizeMenuExpanded, onDismissRequest = { pageSizeMenuExpanded = false }) {
-                    listOf(10, 20, 50).forEach { pageSize ->
+                    listOf(5, 10, 20).forEach { pageSize ->
                         DropdownMenuItem(
                             text = { Text("每页 $pageSize 条") },
                             onClick = {
@@ -3088,19 +3097,48 @@ private fun WechatCachePagination(
             ) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = "下一页")
             }
-            OutlinedTextField(
-                value = pageInput,
-                onValueChange = { pageInput = it.filter(Char::isDigit).take(6) },
-                modifier = Modifier.weight(1f).testTag("wechat_cache_page_input"),
-                label = { Text("页码") },
-                singleLine = true,
-                enabled = !isLoading && cacheStatus.totalPages > 0,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            )
+            val pageInputEnabled = !isLoading && cacheStatus.totalPages > 0
+            Box(
+                modifier = Modifier
+                    .width(78.dp)
+                    .height(40.dp)
+                    .border(
+                        width = 1.dp,
+                        color = if (pageInputEnabled) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant,
+                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    )
+                    .testTag("wechat_cache_page_input"),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicTextField(
+                    value = pageInput,
+                    onValueChange = { pageInput = it.filter(Char::isDigit).take(6) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .padding(horizontal = 8.dp),
+                    enabled = pageInputEnabled,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        textAlign = TextAlign.Center,
+                        color = if (pageInputEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                    decorationBox = { innerTextField ->
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            if (pageInput.isEmpty()) {
+                                Text("页码", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+            }
             Button(
                 onClick = { pageInput.toIntOrNull()?.let(onPageJump) },
                 enabled = !isLoading && pageInput.toIntOrNull() != null && cacheStatus.totalPages > 0,
                 modifier = Modifier.testTag("wechat_cache_page_jump"),
+                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
             ) { Text("跳转") }
         }
     }

@@ -265,7 +265,7 @@ internal fun Application.configureWorkOrderFeature() {
                 get("/cache-status") {
                     val actorId = call.requirePrimaryAdministrator(dataSource)
                     val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
-                    val pageSize = call.request.queryParameters["pageSize"]?.toIntOrNull() ?: 10
+                    val pageSize = call.request.queryParameters["pageSize"]?.toIntOrNull() ?: 5
                     call.respond(
                         service.attachmentCacheStatusSummary(
                             currentUserId = actorId,
@@ -660,7 +660,7 @@ private fun WorkOrderAttachmentCatalogPage.toManifestResponse(revision: Long) = 
         WorkOrderAttachmentManifestItemResponse(
             item.id, item.kind, item.fileName, item.originalSize, item.sha256, item.sourceQuality,
             item.originalAvailable, item.previewAvailable, item.thumbnailAvailable,
-            "work-orders/attachments/${item.id}?variant=original",
+            "work-orders/attachments/${item.id}?variant=original", item.sentAt?.toString(),
         )
     },
     nextAfterId = items.lastOrNull()?.id?.takeIf { hasMore },
@@ -759,6 +759,7 @@ private fun WechatSyncIssue.toResponse() = WechatSyncIssueResponse(
     val previewAvailable: Boolean,
     val thumbnailAvailable: Boolean,
     val downloadUrl: String,
+    val sentAt: String? = null,
 )
 @Serializable internal data class AttachmentCacheStatusRequest(
     val clientInstanceId: String,

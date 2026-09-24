@@ -76,6 +76,7 @@ data class WechatAttachmentDownloadTaskEntity(
     val nextRetryAt: Long?,
     val lastErrorCode: String?,
     val manifestRevision: Long,
+    val sentAt: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )
@@ -87,6 +88,9 @@ interface WorkOrderCacheDao {
 
     @Query("DELETE FROM wechat_attachment_download_tasks WHERE userId = :userId")
     suspend fun clearAttachmentTasks(userId: Long)
+
+    @Query("DELETE FROM wechat_attachment_download_tasks WHERE userId = :userId AND attachmentId = :attachmentId AND variant = :variant AND sha256 = :sha256 AND sourceQuality = :sourceQuality")
+    suspend fun deleteAttachmentTask(userId: Long, attachmentId: Long, variant: String, sha256: String, sourceQuality: String)
 
     @Query("SELECT * FROM wechat_attachment_download_tasks WHERE userId = :userId")
     suspend fun attachmentTasks(userId: Long): List<WechatAttachmentDownloadTaskEntity>
@@ -244,7 +248,7 @@ interface WorkOrderCacheDao {
     suspend fun clearAll() { clearAllRecords(); clearAllStates(); clearAllMessages(); clearAllAttachmentTasks() }
 }
 
-@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 5, exportSchema = true)
+@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 6, exportSchema = true)
 abstract class WorkOrderCacheDatabase : RoomDatabase() {
     abstract fun dao(): WorkOrderCacheDao
 }

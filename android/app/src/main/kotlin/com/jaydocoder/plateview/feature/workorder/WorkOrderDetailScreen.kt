@@ -337,6 +337,7 @@ private fun WorkOrderHeader(record: WorkOrder, sourceQuery: String) {
                                 WorkOrderPassageState.VOID,
                                 WorkOrderPassageState.AREA_MISMATCH,
                                 -> MaterialTheme.colorScheme.errorContainer
+                                WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.tertiaryContainer
                             },
                             contentColor = when (passageState) {
                                 WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -348,6 +349,7 @@ private fun WorkOrderHeader(record: WorkOrder, sourceQuery: String) {
                                 WorkOrderPassageState.VOID,
                                 WorkOrderPassageState.AREA_MISMATCH,
                                 -> MaterialTheme.colorScheme.onErrorContainer
+                                WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.onTertiaryContainer
                             },
                             shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
                         ) {

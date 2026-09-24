@@ -17,13 +17,14 @@ class AttachmentCachePaginationTest {
 
     @Test
     fun `支持三种固定每页数量`() {
+        assertEquals(20, resolveAttachmentCachePage(100, 1, 5).totalPages)
         assertEquals(10, resolveAttachmentCachePage(100, 1, 10).totalPages)
         assertEquals(5, resolveAttachmentCachePage(100, 1, 20).totalPages)
-        assertEquals(2, resolveAttachmentCachePage(100, 1, 50).totalPages)
     }
 
     @Test
     fun `拒绝未允许的每页数量`() {
         assertFailsWith<IllegalArgumentException> { resolveAttachmentCachePage(100, 1, 30) }
+        assertFailsWith<IllegalArgumentException> { resolveAttachmentCachePage(100, 1, 50) }
     }
 }

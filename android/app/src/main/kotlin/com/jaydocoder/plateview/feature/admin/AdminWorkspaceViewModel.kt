@@ -367,7 +367,7 @@ class AdminWorkspaceViewModel @Inject constructor(
 
     fun updateWechatCachePageSize(pageSize: Int) {
         val current = _uiState.value.wechatCacheStatus
-        if (pageSize !in setOf(10, 20, 50) || _uiState.value.isWechatCachePageLoading || pageSize == current.pageSize) return
+        if (pageSize !in setOf(5, 10, 20) || _uiState.value.isWechatCachePageLoading || pageSize == current.pageSize) return
         refreshWechatCacheStatus(page = 1, pageSize = pageSize)
     }
 

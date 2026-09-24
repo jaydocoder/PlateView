@@ -160,7 +160,7 @@ class AdminWorkspaceViewModelTest {
     @Test
     fun `缓存设备翻页只请求缓存状态且保留每页数量`() = runTest {
         val repository = FakeAdminRepository(
-            wechatCacheStatus = WechatCacheStatusSummary(page = 1, pageSize = 10, totalItems = 25, totalPages = 3),
+            wechatCacheStatus = WechatCacheStatusSummary(page = 1, pageSize = 5, totalItems = 25, totalPages = 5),
         )
         val viewModel = createViewModel(repository = repository)
         advanceUntilIdle()
@@ -172,13 +172,13 @@ class AdminWorkspaceViewModelTest {
         advanceUntilIdle()
 
         assertEquals(overviewRequests, repository.wechatOverviewRequestCount)
-        assertEquals(listOf(2 to 10), repository.wechatCachePageRequests)
+        assertEquals(listOf(2 to 5), repository.wechatCachePageRequests)
         assertEquals(2, viewModel.uiState.value.wechatCacheStatus.page)
 
         viewModel.updateWechatCachePageSize(20)
         advanceUntilIdle()
 
-        assertEquals(listOf(2 to 10, 1 to 20), repository.wechatCachePageRequests)
+        assertEquals(listOf(2 to 5, 1 to 20), repository.wechatCachePageRequests)
         assertEquals(20, viewModel.uiState.value.wechatCacheStatus.pageSize)
     }
 

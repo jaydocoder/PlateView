@@ -774,7 +774,7 @@ class AdminWorkspaceScreenTest {
                             currentClient = currentClient,
                             clients = listOf(currentClient),
                             page = 1,
-                            pageSize = 10,
+                            pageSize = 5,
                             totalItems = 25,
                             totalPages = 3,
                         ),

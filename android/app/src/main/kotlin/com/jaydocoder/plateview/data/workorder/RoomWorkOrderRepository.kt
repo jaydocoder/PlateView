@@ -19,6 +19,9 @@ import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
@@ -209,7 +212,14 @@ class RoomWorkOrderRepository @Inject constructor(
                 }
                 manifestRevision = page.manifestRevision
                 val now = System.currentTimeMillis()
-                val tasks = page.items.map { item -> manifestTask(userId, item, page.manifestRevision, now) }
+                val tasks = buildList {
+                    page.items.forEach { item ->
+                        if (item.kind.equals("PDF", ignoreCase = true) && !isWithinPdfRetention(item.sentAt, now) &&
+                            !hasRecentPdfCache(userId, item, now)
+                        ) return@forEach
+                        add(manifestTask(userId, item, page.manifestRevision, now))
+                    }
+                }
                 changed = changed || tasks.any { task ->
                     val existing = dao.attachmentTask(userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality)
                     existing == null || existing.manifestRevision != task.manifestRevision || existing.status != task.status
@@ -250,8 +260,59 @@ class RoomWorkOrderRepository @Inject constructor(
         }
 
     override suspend fun synchronizeAttachments(accessToken: String, userId: Long, clientInstanceId: String?): WorkOrderAttachmentSyncResult {
+        clearExpiredPdfCaches(userId)
         synchronizeAttachmentManifest(accessToken, userId)
-        return downloadPendingAttachments(accessToken, userId, clientInstanceId)
+        val result = downloadPendingAttachments(accessToken, userId, clientInstanceId)
+        clearExpiredPdfCaches(userId)
+        return result
+    }
+
+    private suspend fun clearExpiredPdfCaches(userId: Long) {
+        val cutoff = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).minusMonths(3).toInstant()
+        dao.attachmentTasks(userId)
+            .filter { task ->
+                task.kind.equals("PDF", ignoreCase = true) &&
+                    task.status != ATTACHMENT_STATUS_DOWNLOADING &&
+                    retentionInstant(task)?.isBefore(cutoff) == true
+            }
+            .forEach { task ->
+                attachmentCacheRepository.clearAttachmentVersion(
+                    userId = task.userId,
+                    attachmentId = task.attachmentId,
+                    variant = task.variant,
+                    sha256 = task.sha256.takeUnless { it == "unknown" },
+                    sourceQuality = task.sourceQuality,
+                )
+                dao.deleteAttachmentTask(task.userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality)
+            }
+    }
+
+    private fun isWithinPdfRetention(sentAt: String?, now: Long): Boolean {
+        val sentInstant = sentAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return true
+        val cutoff = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(now), ZoneId.of("Asia/Shanghai"))
+            .minusMonths(3)
+            .toInstant()
+        return !sentInstant.isBefore(cutoff)
+    }
+
+    private fun retentionInstant(task: WechatAttachmentDownloadTaskEntity): Instant? {
+        task.localPath?.let { path ->
+            File(path).takeIf { it.isFile }?.lastModified()?.takeIf { it > 0L }?.let {
+                return Instant.ofEpochMilli(it)
+            }
+        }
+        return task.sentAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    }
+
+    private suspend fun hasRecentPdfCache(userId: Long, item: WorkOrderAttachmentManifestItemDto, now: Long): Boolean {
+        val hash = item.sha256 ?: "unknown"
+        val task = dao.attachmentTask(userId, item.attachmentId, ORIGINAL_VARIANT, hash, item.sourceQuality) ?: return false
+        val cutoff = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(now), ZoneId.of("Asia/Shanghai"))
+            .minusMonths(3)
+            .toInstant()
+        return (task.foregroundRequested || task.status == ATTACHMENT_STATUS_COMPLETED) &&
+            task.status != ATTACHMENT_STATUS_REVOKED &&
+            (task.foregroundRequested || retentionInstant(task)?.isAfter(cutoff) == true)
     }
 
     private suspend fun clearRevokedAttachmentFiles(userId: Long) {
@@ -311,6 +372,7 @@ class RoomWorkOrderRepository @Inject constructor(
             nextRetryAt = existing?.nextRetryAt,
             lastErrorCode = existing?.lastErrorCode,
             manifestRevision = manifestRevision,
+            sentAt = item.sentAt ?: existing?.sentAt,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
         )
@@ -501,6 +563,7 @@ class RoomWorkOrderRepository @Inject constructor(
             nextRetryAt = null,
             localPath = cached?.absolutePath ?: existing.localPath,
             downloadedBytes = cached?.length() ?: existing.downloadedBytes,
+            sentAt = if (cached == null && kind.equals("PDF", ignoreCase = true)) Instant.now().toString() else existing.sentAt,
             updatedAt = now,
         ) ?: WechatAttachmentDownloadTaskEntity(
             userId = userId,
@@ -520,6 +583,7 @@ class RoomWorkOrderRepository @Inject constructor(
             nextRetryAt = null,
             lastErrorCode = null,
             manifestRevision = existing?.manifestRevision ?: 0,
+            sentAt = Instant.now().toString(),
             createdAt = now,
             updatedAt = now,
         )

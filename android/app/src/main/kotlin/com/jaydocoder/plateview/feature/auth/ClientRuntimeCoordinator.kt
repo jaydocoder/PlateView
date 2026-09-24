@@ -85,6 +85,7 @@ class ClientRuntimeCoordinator @Inject constructor(
         if (session.wechatWorkOrderAccessEnabled && (policy.workOrderResultLimit > 0 || policy.wechatMessageResultLimit > 0)) {
             runCatching { workOrderRepository.synchronize(session.accessToken, session.userId, forceVersionCheck = true) }
             runCatching { workOrderRepository.synchronizeAttachmentManifest(session.accessToken, session.userId) }
+            // 清理后立即提交重建任务；即使前面的目录预同步失败，WorkManager 仍会在网络可用时重试。
             attachmentCacheSyncScheduler.scheduleImmediate()
         }
     }

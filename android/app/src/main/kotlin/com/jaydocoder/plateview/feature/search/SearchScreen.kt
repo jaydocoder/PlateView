@@ -275,7 +275,7 @@ fun SearchScreen(
             if (uiState.wechatMessages.isNotEmpty() || uiState.wechatMessageSectionState is SearchSectionState.Loading || uiState.wechatMessageSectionState is SearchSectionState.Error) {
                 stickyHeader(key = "wechat_message_heading") {
                     SearchStickyHeader(
-                        title = "微信聊天记录",
+                        title = "聊天记录",
                         state = uiState.wechatMessageSectionState,
                         count = uiState.wechatMessages.size,
                         testTag = "search_section_header_wechat_message",
@@ -376,7 +376,7 @@ private fun WechatSyncHealthBadge(health: WechatSyncHealth, modifier: Modifier =
     } else {
         MaterialTheme.colorScheme.onErrorContainer
     }
-    val title = if (healthy) "微信服务正常" else "微信同步异常"
+    val title = if (healthy) "微信正常" else "微信异常"
     val time = health.lastSuccessfulSyncAt?.let(::formatWechatSyncTime) ?: "尚无成功同步记录"
     Surface(
         modifier = modifier.height(38.dp),
@@ -387,20 +387,19 @@ private fun WechatSyncHealthBadge(health: WechatSyncHealth, modifier: Modifier =
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.Center,
         ) {
             Text(
                 title,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
                 softWrap = false,
             )
             Text(
-                text = "最后同步：$time",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                text = time,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                 maxLines = 1,
                 softWrap = false,
-                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -444,6 +443,7 @@ private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (Wecha
                                 WorkOrderPassageState.VOID,
                                 WorkOrderPassageState.AREA_MISMATCH,
                                 -> MaterialTheme.colorScheme.errorContainer
+                                WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.tertiaryContainer
                                 else -> MaterialTheme.colorScheme.tertiaryContainer
                             },
                             contentColor = when (state) {
@@ -452,6 +452,7 @@ private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (Wecha
                                 WorkOrderPassageState.VOID,
                                 WorkOrderPassageState.AREA_MISMATCH,
                                 -> MaterialTheme.colorScheme.onErrorContainer
+                                WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.onTertiaryContainer
                                 else -> MaterialTheme.colorScheme.onTertiaryContainer
                             },
                             modifier = Modifier.padding(top = 4.dp),
@@ -606,6 +607,7 @@ private fun WorkOrderStatusBadge(workOrder: WorkOrder, selectedPlate: String?, m
         WorkOrderPassageState.VOID,
         WorkOrderPassageState.AREA_MISMATCH,
         -> MaterialTheme.colorScheme.errorContainer
+        WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.tertiaryContainer
     }
     val contentColor = when (passageState) {
         WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -617,6 +619,7 @@ private fun WorkOrderStatusBadge(workOrder: WorkOrder, selectedPlate: String?, m
         WorkOrderPassageState.VOID,
         WorkOrderPassageState.AREA_MISMATCH,
         -> MaterialTheme.colorScheme.onErrorContainer
+        WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.onTertiaryContainer
     }
     CandidateCompactBadge(
         text = passageState.displayLabel(),

@@ -32,6 +32,7 @@ object WorkOrderDataModule {
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_2_3)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_3_4)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_4_5)
+            .addMigrations(WORK_ORDER_CACHE_MIGRATION_5_6)
             .build()
 
     @Provides
@@ -45,6 +46,12 @@ internal val WORK_ORDER_CACHE_MIGRATION_4_5 = object : Migration(4, 5) {
         db.execSQL("DROP TABLE `wechat_attachment_download_tasks`")
         db.execSQL("ALTER TABLE `wechat_attachment_download_tasks_new` RENAME TO `wechat_attachment_download_tasks`")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_wechat_attachment_download_tasks_userId_status_nextRetryAt_foregroundRequested_priority_createdAt` ON `wechat_attachment_download_tasks` (`userId`, `status`, `nextRetryAt`, `foregroundRequested`, `priority`, `createdAt`)")
+    }
+}
+
+internal val WORK_ORDER_CACHE_MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `wechat_attachment_download_tasks` ADD COLUMN `sentAt` TEXT")
     }
 }
 

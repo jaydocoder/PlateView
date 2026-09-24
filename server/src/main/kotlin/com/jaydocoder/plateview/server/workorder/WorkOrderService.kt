@@ -641,7 +641,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         requestedPage: Int,
         pageSize: Int,
     ): AttachmentCacheStatusSummary = dataSource.connection.use { connection ->
-        require(pageSize in setOf(10, 20, 50)) { "每页设备数量无效" }
+        require(pageSize in setOf(5, 10, 20)) { "每页设备数量无效" }
         val totals = connection.prepareStatement(
             """
             SELECT COUNT(*) AS client_count,
@@ -913,7 +913,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
     ): WorkOrderAttachmentCatalogPage = dataSource.connection.use { connection ->
         connection.prepareStatement(
             """
-            SELECT id, attachment_kind, file_name, sha256, original_content_type, original_size,
+            SELECT id, attachment_kind, file_name, sha256, original_content_type, original_size, sent_at,
                    original_path IS NOT NULL AS original_available,
                    preview_path IS NOT NULL AS preview_available,
                    thumbnail_path IS NOT NULL AS thumbnail_available,
@@ -941,6 +941,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                                 sha256 = result.getString("sha256"),
                                 contentType = result.getString("original_content_type"),
                                 originalSize = result.getLongOrNull("original_size"),
+                                sentAt = result.getTimestamp("sent_at")?.toInstant(),
                                 originalAvailable = result.getBoolean("original_available"),
                                 previewAvailable = result.getBoolean("preview_available"),
                                 thumbnailAvailable = result.getBoolean("thumbnail_available"),
@@ -2047,6 +2048,7 @@ internal data class WorkOrderAttachmentCatalogItem(
     val sha256: String?,
     val contentType: String?,
     val originalSize: Long?,
+    val sentAt: Instant?,
     val originalAvailable: Boolean,
     val previewAvailable: Boolean,
     val thumbnailAvailable: Boolean,
@@ -2136,7 +2138,7 @@ internal data class AttachmentCachePage(val page: Int, val totalPages: Int)
 
 internal fun resolveAttachmentCachePage(totalItems: Int, requestedPage: Int, pageSize: Int): AttachmentCachePage {
     require(totalItems >= 0) { "客户端数量不能为负数" }
-    require(pageSize in setOf(10, 20, 50)) { "每页设备数量无效" }
+    require(pageSize in setOf(5, 10, 20)) { "每页设备数量无效" }
     val totalPages = if (totalItems == 0) 0 else (totalItems + pageSize - 1) / pageSize
     return AttachmentCachePage(
         page = if (totalPages == 0) 1 else requestedPage.coerceIn(1, totalPages),

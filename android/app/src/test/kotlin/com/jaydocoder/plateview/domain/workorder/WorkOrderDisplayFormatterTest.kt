@@ -407,6 +407,23 @@ class WorkOrderDisplayFormatterTest {
     }
 
     @Test
+    fun `已分类通行消息没有具体区域时显示区域未知`() {
+        assertEquals(
+            WorkOrderPassageState.AREA_UNKNOWN,
+            resolveWechatMessagePassageState(sampleMessage("领导车辆：新HB8702，予以通行", "2026-09-20T03:00:00Z")),
+        )
+        assertEquals("通行区域未知", WorkOrderPassageState.AREA_UNKNOWN.displayLabel())
+    }
+
+    @Test
+    fun `已分类通行消息明确出现其他区域时仍显示区域不符`() {
+        assertEquals(
+            WorkOrderPassageState.AREA_MISMATCH,
+            resolveWechatMessagePassageState(sampleMessage("新HB8702，禾木区域予以通行", "2026-09-20T03:00:00Z")),
+        )
+    }
+
+    @Test
     fun `姓名行和下一条身份证行会合并并删除重复身份证`() {
         val people = listOf(
             WorkOrderPerson("1. 孙佐伟", null, null),
