@@ -5,10 +5,11 @@ import androidx.room.Index
 
 @Entity(
     tableName = "vehicle_snapshot_cache",
-    primaryKeys = ["generation", "vehicleId"],
-    indices = [Index(value = ["generation", "normalizedPlate"])],
+    primaryKeys = ["userId", "generation", "vehicleId"],
+    indices = [Index(value = ["userId", "generation", "normalizedPlate"])],
 )
 data class VehicleSnapshotCacheEntity(
+    val userId: Long,
     val generation: Long,
     val vehicleId: Long,
     val plateNumber: String,
@@ -22,9 +23,9 @@ data class VehicleSnapshotCacheEntity(
     val detailJson: String,
 )
 
-@Entity(tableName = "vehicle_catalog_state", primaryKeys = ["id"])
+@Entity(tableName = "vehicle_catalog_state", primaryKeys = ["userId"])
 data class VehicleCatalogStateEntity(
-    val id: Int = 1,
+    val userId: Long,
     val activeGeneration: Long,
     val catalogVersion: Long,
     val checkedAtEpochMillis: Long,

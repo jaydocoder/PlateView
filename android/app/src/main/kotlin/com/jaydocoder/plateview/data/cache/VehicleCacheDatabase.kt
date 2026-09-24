@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VehicleSnapshotCacheEntity::class,
         VehicleCatalogStateEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class VehicleCacheDatabase : RoomDatabase() {
@@ -64,6 +64,20 @@ abstract class VehicleCacheDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("DELETE FROM vehicle_snapshot_cache")
                 database.execSQL("DELETE FROM vehicle_catalog_state")
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("DROP TABLE IF EXISTS vehicle_snapshot_cache")
+                database.execSQL("DROP TABLE IF EXISTS vehicle_catalog_state")
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS vehicle_snapshot_cache (userId INTEGER NOT NULL, generation INTEGER NOT NULL, vehicleId INTEGER NOT NULL, plateNumber TEXT NOT NULL, normalizedPlate TEXT NOT NULL, category TEXT NOT NULL, categoryLabel TEXT NOT NULL, organizationName TEXT, plateColor TEXT, status TEXT NOT NULL, searchableText TEXT NOT NULL, detailJson TEXT NOT NULL, PRIMARY KEY(userId, generation, vehicleId))",
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_vehicle_snapshot_cache_userId_generation_normalizedPlate ON vehicle_snapshot_cache(userId, generation, normalizedPlate)")
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS vehicle_catalog_state (userId INTEGER NOT NULL, activeGeneration INTEGER NOT NULL, catalogVersion INTEGER NOT NULL, checkedAtEpochMillis INTEGER NOT NULL, updatedAtEpochMillis INTEGER NOT NULL, PRIMARY KEY(userId))",
+                )
             }
         }
     }

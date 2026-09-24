@@ -15,6 +15,7 @@ import com.jaydocoder.plateview.server.schedule.ScheduleNotFoundException
 import com.jaydocoder.plateview.server.schedule.SchedulePermissionException
 import com.jaydocoder.plateview.server.workorder.WorkOrderNotFoundException
 import com.jaydocoder.plateview.server.workorder.WorkOrderPermissionException
+import com.jaydocoder.plateview.server.workorder.WorkOrderCatalogVersionConflictException
 import com.jaydocoder.plateview.server.workorder.CollectorAuthenticationException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -35,6 +36,16 @@ internal fun Application.configureErrorHandling() {
                 message = ApiErrorResponse(
                     code = "VEHICLE_CATALOG_VERSION_CONFLICT",
                     message = cause.message ?: "车辆目录已更新，请重新同步",
+                    requestId = call.callId,
+                ),
+            )
+        }
+        exception<WorkOrderCatalogVersionConflictException> { call, cause ->
+            call.respondApiError(
+                status = HttpStatusCode.Conflict,
+                message = ApiErrorResponse(
+                    code = "WORK_ORDER_CATALOG_VERSION_CONFLICT",
+                    message = cause.message ?: "微信目录已更新，请重新同步",
                     requestId = call.callId,
                 ),
             )

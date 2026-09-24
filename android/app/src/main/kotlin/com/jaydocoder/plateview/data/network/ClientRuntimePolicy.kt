@@ -35,6 +35,8 @@ import okhttp3.Request
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.GET
+import com.jaydocoder.plateview.feature.consistency.ClientCatalogState
 
 private val Context.clientRuntimePolicyDataStore by preferencesDataStore("client_runtime_policy")
 private const val DEFAULT_UPDATE_BASE_URL = "https://api.chenxiruyu.dpdns.org/updates/"
@@ -71,6 +73,11 @@ data class ClientPolicyAckRequest(
 )
 
 interface ClientPolicyApi {
+    @GET("client/catalog-state")
+    suspend fun catalogState(
+        @Header("Authorization") authorization: String,
+    ): ClientCatalogState
+
     @POST("client/cache-reset/ack")
     suspend fun acknowledge(
         @Header("Authorization") authorization: String,

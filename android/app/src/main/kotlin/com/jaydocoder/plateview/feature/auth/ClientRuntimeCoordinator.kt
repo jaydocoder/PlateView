@@ -36,7 +36,7 @@ class ClientRuntimeCoordinator @Inject constructor(
             updatePromptStateRepository.clearCachedForcedUpdate(session.userId)
         }
         if (active.vehicleResultLimit == 0) {
-            vehicleCacheRepository.clearSnapshot()
+            vehicleCacheRepository.clearSnapshot(session.userId)
             searchHistoryRepository.clear(session.username)
         }
         if (active.workOrderResultLimit == 0) workOrderRepository.clearWorkOrders(session.userId)
@@ -68,7 +68,7 @@ class ClientRuntimeCoordinator @Inject constructor(
     }
 
     private suspend fun clearCaches(session: AuthSession) {
-        vehicleCacheRepository.clearSnapshot()
+        vehicleCacheRepository.clearSnapshot(session.userId)
         workOrderRepository.clear(session.userId)
         searchHistoryRepository.clear(session.username)
         File(context.filesDir, "avatars").listFiles()
@@ -79,11 +79,12 @@ class ClientRuntimeCoordinator @Inject constructor(
 
     private suspend fun rebuildCaches(session: AuthSession, policy: ClientRuntimePolicy) {
         if (policy.vehicleResultLimit > 0) {
-            runCatching { vehicleCacheRepository.synchronizeCatalog(session.accessToken, forceVersionCheck = true) }
+            runCatching { vehicleCacheRepository.synchronizeCatalog(session.accessToken, session.userId, forceVersionCheck = true) }
         }
         if (session.wechatWorkOrderAccessEnabled && (policy.workOrderResultLimit > 0 || policy.wechatMessageResultLimit > 0)) {
             runCatching { workOrderRepository.synchronize(session.accessToken, session.userId, forceVersionCheck = true) }
-            runCatching { workOrderRepository.synchronizeAttachments(session.accessToken, session.userId) }
+            runCatching { workOrderRepository.synchronizeAttachmentManifest(session.accessToken, session.userId) }
+            attachmentCacheSyncScheduler.scheduleImmediate()
         }
     }
 

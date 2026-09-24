@@ -124,6 +124,7 @@ data class WechatSyncIssueDto(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
     val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,
     val sha256: String? = null, val sourceQuality: String = "UNKNOWN",
+    val availability: String = "UNKNOWN",
     val candidates: List<WechatAttachmentCandidateDto> = emptyList(),
 )
 data class WechatAttachmentCandidateDto(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)

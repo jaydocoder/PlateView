@@ -26,7 +26,9 @@ import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
 import com.jaydocoder.plateview.domain.admin.VehicleCreationCapabilities
 import com.jaydocoder.plateview.domain.admin.WechatSyncSource
 import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
+import com.jaydocoder.plateview.domain.admin.WechatSyncIntegrity
 import com.jaydocoder.plateview.domain.admin.WechatSyncOverview
+import com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary
 import com.jaydocoder.plateview.domain.admin.WorkOrderCorrectionCommand
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
@@ -122,6 +124,37 @@ class AdminWorkspaceViewModelTest {
         assertEquals(2, viewModel.uiState.value.totalWechatAttachmentCount)
         assertEquals(1, viewModel.uiState.value.completedWechatAttachmentCount)
         assertEquals(1, viewModel.uiState.value.pendingWechatAttachmentCount)
+    }
+
+    @Test
+    fun `首次进入微信同步页会展示仓库返回的真实完整性与缓存统计`() = runTest {
+        val repository = FakeAdminRepository(
+            wechatIntegrity = WechatSyncIntegrity(
+                unconfirmedBatchCount = 2,
+                retryTaskCount = 3,
+                metadataOnlyAttachmentCount = 4,
+                failedTaskCount = 5,
+                status = "有缺口",
+            ),
+            wechatCacheStatus = WechatCacheStatusSummary(
+                clientCount = 2,
+                completedCount = 18,
+                completedPdfCount = 6,
+                pendingCount = 7,
+                failedCount = 1,
+                totalBytes = 4096,
+            ),
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+
+        viewModel.selectTab(AdminTab.WechatSync)
+        advanceUntilIdle()
+
+        assertEquals(4, viewModel.uiState.value.wechatSyncIntegrity.metadataOnlyAttachmentCount)
+        assertEquals(5, viewModel.uiState.value.wechatSyncIntegrity.failedTaskCount)
+        assertEquals(18, viewModel.uiState.value.wechatCacheStatus.completedCount)
+        assertEquals(4096, viewModel.uiState.value.wechatCacheStatus.totalBytes)
     }
 
     @Test
@@ -570,6 +603,8 @@ private class FakeAdminRepository(
         canChangeVehicleCategory = true,
     ),
     private val wechatIssues: List<WechatSyncIssue> = emptyList(),
+    private val wechatIntegrity: WechatSyncIntegrity = WechatSyncIntegrity(),
+    private val wechatCacheStatus: WechatCacheStatusSummary = WechatCacheStatusSummary(),
 ) : AdminRepository {
     var creationCapabilitiesRequestCount = 0
     var vehicleListRequestCount = 0
@@ -654,6 +689,8 @@ private class FakeAdminRepository(
         totalAttachmentCount = 2,
         completedAttachmentCount = 1,
         pendingAttachmentCount = 1,
+        integrity = wechatIntegrity,
+        cacheStatus = wechatCacheStatus,
     )
     override suspend fun getWechatPassageSenders(accessToken: String) = emptyList<com.jaydocoder.plateview.domain.admin.WechatPassageSender>()
     override suspend fun saveWechatPassageSender(accessToken: String, sender: com.jaydocoder.plateview.domain.admin.WechatPassageSender) = Unit

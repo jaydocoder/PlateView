@@ -14,6 +14,7 @@ import com.jaydocoder.plateview.server.statistics.configureVehicleStatisticsFeat
 import com.jaydocoder.plateview.server.schedule.configureScheduleFeature
 import com.jaydocoder.plateview.server.workorder.configureWorkOrderFeature
 import com.jaydocoder.plateview.server.client.configureClientPolicyFeature
+import com.jaydocoder.plateview.server.client.configureCatalogChangeLogMaintenance
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -28,6 +29,7 @@ import kotlinx.serialization.Serializable
 fun Application.module() {
     configureDatabaseMigration()
     configureDatabaseRuntime()
+    configureCatalogChangeLogMaintenance()
     configureSentry()
     configureRequestContext()
     configureRequestObservability()

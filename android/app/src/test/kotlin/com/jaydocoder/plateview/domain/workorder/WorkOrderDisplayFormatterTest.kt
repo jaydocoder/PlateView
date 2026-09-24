@@ -153,6 +153,10 @@ class WorkOrderDisplayFormatterTest {
             "早八晚九，中午两点到四点",
             extractWorkOrderPassageTimeRemark("早八晚九，中午两点到四点，车辆不得停靠三湾"),
         )
+        assertEquals(
+            "轻型车早八晚八，重型车早八晚十一，中午两点到四点",
+            extractWorkOrderPassageTimeRemark("轻型车早八晚八，重型车早八晚十一，中午两点到四点，车辆不得停靠三湾"),
+        )
     }
 
     @Test
@@ -277,6 +281,59 @@ class WorkOrderDisplayFormatterTest {
         assertEquals(
             WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
             resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 21, 15, 28), "新H30765"),
+        )
+    }
+
+    @Test
+    fun `轻型早八晚八重型早八晚十一并共享午间通行窗口`() {
+        val workOrder = sampleWorkOrder(status = "ACTIVE", location = "喀纳斯").copy(
+            orderNumber = "0924001",
+            rawPlate = "新A12345、新B67890",
+            rawValidTime = "9.24-9.25",
+            remarks = "轻型车早八晚八，重型车早八晚十一，中午两点到四点，车辆不得停靠三湾",
+            vehicles = listOf(
+                WorkOrderVehicle("轻型普通货车 新A12345", "新A12345", "新A12345", "轻型普通货车"),
+                WorkOrderVehicle("重型半挂牵引车 新B67890", "新B67890", "新B67890", "重型半挂牵引车"),
+            ),
+        )
+
+        assertEquals(
+            WorkOrderPassageState.VALID,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 24, 20, 0), "新A12345"),
+        )
+        assertEquals(
+            WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 24, 20, 0), "新B67890"),
+        )
+        assertEquals(
+            WorkOrderPassageState.VALID,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 24, 14, 30), "新A12345"),
+        )
+        assertEquals(
+            WorkOrderPassageState.VALID,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 24, 14, 30), "新B67890"),
+        )
+        assertEquals(
+            WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 24, 22, 59), "新B67890"),
+        )
+        assertEquals(
+            WorkOrderPassageState.VALID,
+            resolveWorkOrderPassageState(workOrder, beijingTime(2026, 9, 24, 23, 0), "新B67890"),
+        )
+    }
+
+    @Test
+    fun `重型早八晚十二仍保持午夜之后才可通行的既有语义`() {
+        assertEquals(
+            WorkOrderPassageValidity.OUTSIDE_ALLOWED_HOURS,
+            evaluateWorkOrderPassageValidity(
+                "9.24-9.25",
+                "重型车早八晚十二",
+                "2026-09-24T01:00:00Z",
+                beijingTime(2026, 9, 24, 23, 59),
+                "重型半挂牵引车",
+            ),
         )
     }
 

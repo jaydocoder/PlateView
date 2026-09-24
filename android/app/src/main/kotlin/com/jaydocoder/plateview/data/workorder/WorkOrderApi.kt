@@ -33,14 +33,32 @@ interface WorkOrderApi {
     suspend fun messageChanges(
         @Header("Authorization") authorization: String,
         @Query("afterVersion") afterVersion: Long,
+        @Query("afterId") afterId: Long,
+        @Query("targetRevision") targetRevision: Long,
         @Query("limit") limit: Int,
     ): WechatMessageChangesDto
+
+    @GET("work-orders/messages/catalog/full")
+    suspend fun fullMessageCatalog(
+        @Header("Authorization") authorization: String,
+        @Query("afterId") afterId: Long,
+        @Query("targetRevision") targetRevision: Long,
+        @Query("limit") limit: Int,
+    ): WechatMessageFullCatalogDto
 
     @GET("work-orders/catalog/version")
     suspend fun catalogVersion(@Header("Authorization") authorization: String): WorkOrderCatalogVersionDto
 
     @GET("work-orders/catalog/changes")
-    suspend fun changes(@Header("Authorization") authorization: String, @Query("afterVersion") afterVersion: Long, @Query("limit") limit: Int): WorkOrderChangesDto
+    suspend fun changes(@Header("Authorization") authorization: String, @Query("afterVersion") afterVersion: Long, @Query("afterId") afterId: Long, @Query("targetRevision") targetRevision: Long, @Query("limit") limit: Int): WorkOrderChangesDto
+
+    @GET("work-orders/catalog/full")
+    suspend fun fullWorkOrderCatalog(
+        @Header("Authorization") authorization: String,
+        @Query("afterId") afterId: Long,
+        @Query("targetRevision") targetRevision: Long,
+        @Query("limit") limit: Int,
+    ): WorkOrderFullCatalogDto
 
     @GET("work-orders/attachments")
     suspend fun attachmentCatalog(
@@ -102,8 +120,11 @@ data class WorkOrderHomeSearchResponseDto(
     val wechatMessageFailed: Boolean = false,
 )
 data class WorkOrderCatalogVersionDto(val catalogVersion: Long)
-data class WorkOrderChangesDto(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WorkOrderDto>)
-data class WechatMessageChangesDto(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WechatMessageDto>)
+data class CatalogTombstoneDto(val entityId: Long, val operation: String)
+data class WorkOrderChangesDto(val catalogVersion: Long, val nextVersion: Long, val nextId: Long, val hasMore: Boolean, val records: List<WorkOrderDto>, val tombstones: List<CatalogTombstoneDto> = emptyList(), val fullSyncRequired: Boolean = false)
+data class WechatMessageChangesDto(val catalogVersion: Long, val nextVersion: Long, val nextId: Long, val hasMore: Boolean, val records: List<WechatMessageDto>, val tombstones: List<CatalogTombstoneDto> = emptyList(), val fullSyncRequired: Boolean = false)
+data class WorkOrderFullCatalogDto(val catalogVersion: Long, val records: List<WorkOrderDto>, val nextAfterId: Long?, val hasMore: Boolean)
+data class WechatMessageFullCatalogDto(val catalogVersion: Long, val records: List<WechatMessageDto>, val nextAfterId: Long?, val hasMore: Boolean)
 data class WorkOrderHistoryDto(val records: List<WorkOrderDto>)
 data class WorkOrderDto(
     val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?,

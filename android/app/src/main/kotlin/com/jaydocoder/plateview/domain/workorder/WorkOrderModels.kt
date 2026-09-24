@@ -48,7 +48,15 @@ data class WorkOrderImage(
     val sourceQuality: String = "UNKNOWN",
 )
 
-data class WorkOrderSyncResult(val refreshed: Boolean)
+data class WorkOrderSyncResult(
+    val refreshed: Boolean,
+    val workOrderRevision: Long,
+    val messageRevision: Long,
+)
+data class AttachmentManifestSyncResult(
+    val refreshed: Boolean,
+    val appliedRevision: Long,
+)
 data class CachedWorkOrderImage(val file: File, val variant: String)
 
 data class WechatMessage(
@@ -92,6 +100,7 @@ data class AttachmentDownloadState(
     val attachmentId: Long,
     val kind: String,
     val fileName: String?,
+    val variant: String,
     val status: String,
     val downloadedBytes: Long,
     val expectedSize: Long?,
@@ -100,6 +109,12 @@ data class AttachmentDownloadState(
     val lastErrorCode: String?,
 ) {
     val progress: Float? get() = expectedSize?.takeIf { it > 0 }?.let { (downloadedBytes.toDouble() / it).coerceIn(0.0, 1.0).toFloat() }
+
+    fun completedFile(): CachedWorkOrderImage? = localPath
+        ?.takeIf { status == "COMPLETED" }
+        ?.let(::File)
+        ?.takeIf { it.isFile && it.length() > 0L }
+        ?.let { CachedWorkOrderImage(it, variant) }
 }
 
 data class WechatMessagePage(val records: List<WechatMessage>, val nextOffset: Int?)
@@ -124,9 +139,19 @@ interface WorkOrderRepository {
     suspend fun searchHomeRemote(accessToken: String, userId: Long, keyword: String, limit: Int): WorkOrderHomeSearchResult = searchHomeRemote(accessToken, userId, keyword)
     suspend fun getCachedWechatMessage(userId: Long, messageId: Long): WechatMessage?
     suspend fun refreshWechatMessage(accessToken: String, userId: Long, messageId: Long): WechatMessage
-    suspend fun synchronize(accessToken: String, userId: Long, forceVersionCheck: Boolean = false): WorkOrderSyncResult
-    suspend fun synchronizeAttachments(accessToken: String, userId: Long, clientInstanceId: String? = null): WorkOrderAttachmentSyncResult =
+    suspend fun synchronize(
+        accessToken: String,
+        userId: Long,
+        forceVersionCheck: Boolean = false,
+        targetWorkOrderRevision: Long? = null,
+        targetMessageRevision: Long? = null,
+    ): WorkOrderSyncResult
+    suspend fun synchronizeAttachmentManifest(accessToken: String, userId: Long): AttachmentManifestSyncResult =
+        AttachmentManifestSyncResult(refreshed = false, appliedRevision = 0)
+    suspend fun downloadPendingAttachments(accessToken: String, userId: Long, clientInstanceId: String? = null): WorkOrderAttachmentSyncResult =
         WorkOrderAttachmentSyncResult(0, 0, 0)
+    suspend fun synchronizeAttachments(accessToken: String, userId: Long, clientInstanceId: String? = null): WorkOrderAttachmentSyncResult =
+        downloadPendingAttachments(accessToken, userId, clientInstanceId)
     suspend fun reportAttachmentCacheStatus(accessToken: String, userId: Long, clientInstanceId: String) = Unit
     fun observeAttachmentDownload(userId: Long, attachmentId: Long): Flow<AttachmentDownloadState?> = flowOf(null)
     suspend fun retryAttachmentDownload(userId: Long, attachmentId: Long) = Unit
@@ -138,4 +163,5 @@ interface WorkOrderRepository {
     suspend fun clear(userId: Long? = null)
     suspend fun clearWorkOrders(userId: Long) = Unit
     suspend fun clearMessages(userId: Long) = Unit
+    suspend fun clearAttachmentCache(userId: Long) = Unit
 }

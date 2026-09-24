@@ -14,6 +14,7 @@ import com.jaydocoder.plateview.domain.workorder.WorkOrderHomeSearchResult
 import com.jaydocoder.plateview.domain.workorder.WorkOrderSyncResult
 import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachmentSyncResult
 import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
+import com.jaydocoder.plateview.domain.workorder.AttachmentManifestSyncResult
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
 import java.io.File
 import java.io.FileOutputStream
@@ -42,7 +43,8 @@ class RoomWorkOrderRepository @Inject constructor(
 ) : WorkOrderRepository {
     private val gson = Gson()
     private val synchronizationMutex = Mutex()
-    private val attachmentSynchronizationMutex = Mutex()
+    private val attachmentManifestMutex = Mutex()
+    private val attachmentDownloadMutex = Mutex()
 
     override suspend fun searchCached(userId: Long, keyword: String): List<WorkOrder> = searchCached(userId, keyword, MAXIMUM_RESULTS)
 
@@ -94,56 +96,112 @@ class RoomWorkOrderRepository @Inject constructor(
         return record
     }
 
-    override suspend fun synchronize(accessToken: String, userId: Long, forceVersionCheck: Boolean): WorkOrderSyncResult = synchronizationMutex.withLock {
+    override suspend fun synchronize(
+        accessToken: String,
+        userId: Long,
+        forceVersionCheck: Boolean,
+        targetWorkOrderRevision: Long?,
+        targetMessageRevision: Long?,
+    ): WorkOrderSyncResult = synchronizationMutex.withLock {
         val now = System.currentTimeMillis()
         var state = dao.state(userId) ?: WorkOrderCatalogStateEntity(userId, 0, 0, 0)
         if (!forceVersionCheck && state.checkedAtEpochMillis > 0 && now - state.checkedAtEpochMillis < VERSION_CHECK_INTERVAL_MILLIS) {
-            return@withLock WorkOrderSyncResult(false)
+            return@withLock WorkOrderSyncResult(false, state.catalogVersion, state.messageCatalogVersion)
         }
         var refreshed = false
         val limits = runtimePolicyProvider.policy.value
+        val pendingRecords = mutableListOf<WorkOrderCacheEntity>()
+        val pendingMessages = mutableListOf<WechatMessageCacheEntity>()
+        val removedRecordIds = mutableListOf<Long>()
+        val removedMessageIds = mutableListOf<Long>()
+        var replaceWorkOrders = false
+        var replaceMessages = false
         if (limits.workOrderResultLimit > 0) {
-            val remoteVersion = api.catalogVersion(bearer(accessToken)).catalogVersion
+            val remoteVersion = targetWorkOrderRevision ?: api.catalogVersion(bearer(accessToken)).catalogVersion
             var afterVersion = state.catalogVersion
-            while (afterVersion < remoteVersion) {
-                val page = api.changes(bearer(accessToken), afterVersion, PAGE_SIZE)
+            var afterId = 0L
+            var hasMore = afterVersion < remoteVersion
+            while (hasMore) {
+                val page = api.changes(bearer(accessToken), afterVersion, afterId, remoteVersion, PAGE_SIZE)
+                if (page.fullSyncRequired) {
+                    pendingRecords.clear()
+                    removedRecordIds.clear()
+                    replaceWorkOrders = true
+                    var fullAfterId = 0L
+                    do {
+                        val fullPage = api.fullWorkOrderCatalog(bearer(accessToken), fullAfterId, remoteVersion, PAGE_SIZE)
+                        check(fullPage.catalogVersion == remoteVersion) { "微信车单全量目录版本发生变化" }
+                        pendingRecords += fullPage.records.map { it.toDomain().toEntity(userId, gson, now, now) }
+                        fullAfterId = fullPage.nextAfterId ?: fullAfterId
+                    } while (fullPage.hasMore)
+                    refreshed = true
+                    break
+                }
                 if (page.records.isNotEmpty()) {
-                    dao.upsert(page.records.map { it.toDomain().toEntity(userId, gson, now, now) })
+                    pendingRecords += page.records.map { it.toDomain().toEntity(userId, gson, now, now) }
                     refreshed = true
                 }
+                removedRecordIds += page.tombstones.map { it.entityId }
                 afterVersion = page.nextVersion
-                state = state.copy(catalogVersion = afterVersion, checkedAtEpochMillis = now)
-                dao.updateState(state)
-                if (!page.hasMore) break
+                afterId = page.nextId
+                hasMore = page.hasMore
             }
             state = state.copy(catalogVersion = remoteVersion)
         }
         if (limits.wechatMessageResultLimit > 0) {
             var afterVersion = state.messageCatalogVersion
-            var remoteMessageVersion = afterVersion
+            var afterId = 0L
+            var remoteMessageVersion = targetMessageRevision ?: afterVersion
             do {
-                val page = api.messageChanges(bearer(accessToken), afterVersion, PAGE_SIZE)
+                val targetRevision = if (remoteMessageVersion > afterVersion) remoteMessageVersion else api.catalogVersion(bearer(accessToken)).catalogVersion
+                val page = api.messageChanges(bearer(accessToken), afterVersion, afterId, targetRevision, PAGE_SIZE)
                 remoteMessageVersion = page.catalogVersion
+                if (page.fullSyncRequired) {
+                    pendingMessages.clear()
+                    removedMessageIds.clear()
+                    replaceMessages = true
+                    var fullAfterId = 0L
+                    do {
+                        val fullPage = api.fullMessageCatalog(bearer(accessToken), fullAfterId, targetRevision, PAGE_SIZE)
+                        check(fullPage.catalogVersion == targetRevision) { "聊天记录全量目录版本发生变化" }
+                        pendingMessages += fullPage.records.map { dto ->
+                            dto.toDomain().toEntity(userId, gson, dto.catalogRevision, now, now)
+                        }
+                        fullAfterId = fullPage.nextAfterId ?: fullAfterId
+                    } while (fullPage.hasMore)
+                    remoteMessageVersion = targetRevision
+                    refreshed = true
+                    break
+                }
                 if (page.records.isNotEmpty()) {
-                    dao.upsertMessages(page.records.map { dto ->
+                    pendingMessages += page.records.map { dto ->
                         dto.toDomain().toEntity(userId, gson, dto.catalogRevision, now, now)
-                    })
+                    }
                     refreshed = true
                 }
+                removedMessageIds += page.tombstones.map { it.entityId }
                 afterVersion = page.nextVersion
-                state = state.copy(messageCatalogVersion = afterVersion, checkedAtEpochMillis = now)
-                dao.updateState(state)
+                afterId = page.nextId
             } while (page.hasMore)
             state = state.copy(messageCatalogVersion = remoteMessageVersion)
         }
-        dao.updateState(state.copy(checkedAtEpochMillis = now))
-        WorkOrderSyncResult(refreshed)
+        dao.applyCatalogSync(
+            records = pendingRecords,
+            messages = pendingMessages,
+            removedRecordIds = removedRecordIds.distinct(),
+            removedMessageIds = removedMessageIds.distinct(),
+            replaceWorkOrders = replaceWorkOrders,
+            replaceMessages = replaceMessages,
+            state = state.copy(checkedAtEpochMillis = now),
+        )
+        WorkOrderSyncResult(refreshed, state.catalogVersion, state.messageCatalogVersion)
     }
 
-    override suspend fun synchronizeAttachments(accessToken: String, userId: Long, clientInstanceId: String?): WorkOrderAttachmentSyncResult =
-        attachmentSynchronizationMutex.withLock {
+    override suspend fun synchronizeAttachmentManifest(accessToken: String, userId: Long): AttachmentManifestSyncResult =
+        attachmentManifestMutex.withLock {
             var afterId = 0L
             var manifestRevision: Long? = null
+            var changed = false
             do {
                 val page = api.attachmentManifest(bearer(accessToken), afterId, ATTACHMENT_PAGE_SIZE)
                 check(manifestRevision == null || manifestRevision == page.manifestRevision) {
@@ -151,15 +209,25 @@ class RoomWorkOrderRepository @Inject constructor(
                 }
                 manifestRevision = page.manifestRevision
                 val now = System.currentTimeMillis()
-                dao.upsertAttachmentTasks(page.items.map { item -> manifestTask(userId, item, page.manifestRevision, now) })
+                val tasks = page.items.map { item -> manifestTask(userId, item, page.manifestRevision, now) }
+                changed = changed || tasks.any { task ->
+                    val existing = dao.attachmentTask(userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality)
+                    existing == null || existing.manifestRevision != task.manifestRevision || existing.status != task.status
+                }
+                dao.upsertAttachmentTasks(tasks)
                 page.nextAfterId?.let { nextAfterId ->
                     check(nextAfterId > afterId) { "附件清单分页游标没有前进" }
                     afterId = nextAfterId
                 }
             } while (page.nextAfterId != null)
-            dao.revokeMissingAttachmentTasks(userId, manifestRevision, System.currentTimeMillis())
+            val appliedRevision = checkNotNull(manifestRevision) { "附件清单缺少修订号" }
+            dao.revokeMissingAttachmentTasks(userId, appliedRevision, System.currentTimeMillis())
             clearRevokedAttachmentFiles(userId)
+            AttachmentManifestSyncResult(changed, appliedRevision)
+        }
 
+    override suspend fun downloadPendingAttachments(accessToken: String, userId: Long, clientInstanceId: String?): WorkOrderAttachmentSyncResult =
+        attachmentDownloadMutex.withLock {
             var downloaded = 0
             var skipped = 0
             var failed = 0
@@ -180,6 +248,11 @@ class RoomWorkOrderRepository @Inject constructor(
             }
             WorkOrderAttachmentSyncResult(downloaded, skipped, failed, retryable)
         }
+
+    override suspend fun synchronizeAttachments(accessToken: String, userId: Long, clientInstanceId: String?): WorkOrderAttachmentSyncResult {
+        synchronizeAttachmentManifest(accessToken, userId)
+        return downloadPendingAttachments(accessToken, userId, clientInstanceId)
+    }
 
     private suspend fun clearRevokedAttachmentFiles(userId: Long) {
         dao.attachmentTasksByStatus(userId, ATTACHMENT_STATUS_REVOKED).forEach { task ->
@@ -481,16 +554,25 @@ class RoomWorkOrderRepository @Inject constructor(
     }
 
     override suspend fun clear(userId: Long?) = synchronizationMutex.withLock {
-        attachmentSynchronizationMutex.withLock {
-            if (userId == null) dao.clearAll() else dao.clear(userId)
-            attachmentCacheRepository.clear(userId)
-            Unit
+        attachmentManifestMutex.withLock {
+            attachmentDownloadMutex.withLock {
+                if (userId == null) dao.clearAll() else dao.clear(userId)
+                attachmentCacheRepository.clear(userId)
+                Unit
+            }
         }
     }
 
-    override suspend fun clearWorkOrders(userId: Long) = dao.clearRecords(userId)
+    override suspend fun clearWorkOrders(userId: Long) = dao.revokeWorkOrders(userId)
 
-    override suspend fun clearMessages(userId: Long) = dao.clearMessages(userId)
+    override suspend fun clearMessages(userId: Long) = dao.revokeMessages(userId)
+
+    override suspend fun clearAttachmentCache(userId: Long) = attachmentManifestMutex.withLock {
+        attachmentDownloadMutex.withLock {
+            dao.clearAttachmentTasks(userId)
+            attachmentCacheRepository.clear(userId)
+        }
+    }
 
     private fun fromEntity(entity: WorkOrderCacheEntity): WorkOrder = gson.fromJson(entity.detailJson, WorkOrder::class.java)
 
@@ -526,6 +608,7 @@ private fun WechatAttachmentDownloadTaskEntity.toDomain() = AttachmentDownloadSt
     attachmentId = attachmentId,
     kind = kind,
     fileName = fileName,
+    variant = variant,
     status = status,
     downloadedBytes = downloadedBytes,
     expectedSize = expectedSize,

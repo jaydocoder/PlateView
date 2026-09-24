@@ -35,6 +35,7 @@ object VehicleCacheDatabaseModule {
                 VehicleCacheDatabase.MIGRATION_4_5,
                 VehicleCacheDatabase.MIGRATION_5_6,
                 VehicleCacheDatabase.MIGRATION_6_7,
+                VehicleCacheDatabase.MIGRATION_7_8,
             )
             .build()
     }

@@ -14,6 +14,8 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -26,9 +28,12 @@ import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.concurrent.ConcurrentHashMap
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 import com.jaydocoder.plateview.data.network.ClientPolicyApi
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicy
+import com.jaydocoder.plateview.feature.consistency.CatalogConsistencyCoordinator
+import com.jaydocoder.plateview.feature.consistency.ClientCatalogState
 
 private val Context.authDataStore by preferencesDataStore("auth_session")
 
@@ -44,9 +49,9 @@ data class AuthSession(
     val wechatWorkOrderAccessEnabled: Boolean = false,
 )
 data class LoginRequest(val username: String, val password: String)
-data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto, val runtimePolicy: ClientRuntimePolicy)
+data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto, val runtimePolicy: ClientRuntimePolicy, val catalogState: ClientCatalogState? = null)
 data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false)
-data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false, val runtimePolicy: ClientRuntimePolicy? = null)
+data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false, val runtimePolicy: ClientRuntimePolicy? = null, val catalogState: ClientCatalogState? = null)
 data class ProfileUpdateRequest(
     val username: String? = null,
     val password: String? = null,
@@ -92,7 +97,11 @@ class AuthRepository @Inject constructor(
     private val api: AuthApi,
     private val workOrderRepository: WorkOrderRepository,
     private val runtimeCoordinator: ClientRuntimeCoordinator,
+    private val catalogConsistencyCoordinator: CatalogConsistencyCoordinator,
+    private val clientPolicyApi: ClientPolicyApi,
 ) : AuthSessionProvider {
+    private val catalogCheckMutex = Mutex()
+    private val catalogStates = AccountCatalogStateCache()
     override val session: Flow<AuthSession?> = context.authDataStore.data.map { p ->
         val access = p[ACCESS] ?: return@map null
         val refresh = p[REFRESH] ?: return@map null
@@ -125,12 +134,21 @@ class AuthRepository @Inject constructor(
             preferences[UPDATE_POLICY] = response.user.updatePolicy
             preferences[WECHAT_WORK_ORDER_ACCESS] = response.user.wechatWorkOrderAccessEnabled
         }
-        runtimeCoordinator.apply(response.user.toSession(response.accessToken, response.refreshToken), response.runtimePolicy)
+        val session = response.user.toSession(response.accessToken, response.refreshToken)
+        runtimeCoordinator.apply(session, response.runtimePolicy)
+        response.catalogState?.let { catalogConsistencyCoordinator.accept(session, it) }
+        response.catalogState?.let { rememberCatalogState(session.userId, it) }
     }
 
     override suspend fun logout() {
-        session.first()?.userId?.let { workOrderRepository.clear(it) }
-        context.authDataStore.edit { it.clear() }
+        val userId = session.first()?.userId
+        userId?.let { catalogConsistencyCoordinator.deactivate(it) }
+        userId?.let(catalogStates::remove)
+        completeLogout(
+            userId = userId,
+            clearSession = { context.authDataStore.edit { it.clear() } },
+            clearUserCache = workOrderRepository::clear,
+        )
     }
 
     suspend fun updateAvatarVersion(version: Long) {
@@ -142,11 +160,44 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun validateSession(session: AuthSession) {
+        catalogCheckMutex.withLock {
+            validateSessionLocked(session)
+        }
+    }
+
+    suspend fun checkCatalogState(session: AuthSession, force: Boolean = false) = catalogCheckMutex.withLock {
+        val now = System.currentTimeMillis()
+        val cached = catalogStates.get(session.userId)
+        if (!force && cached != null && now - cached.receivedAtEpochMillis <= CATALOG_STATE_REUSE_MILLIS) {
+            catalogConsistencyCoordinator.accept(session, cached.state)
+            return@withLock
+        }
+        val remote = clientPolicyApi.catalogState("Bearer ${session.accessToken}")
+        if (cached != null && cached.state.policyRevision != remote.policyRevision) {
+            validateSessionLocked(session)
+            return@withLock
+        }
+        rememberCatalogState(session.userId, remote)
+        catalogConsistencyCoordinator.accept(session, remote)
+    }
+
+    suspend fun reportValidationFailure(errorCode: String) {
+        catalogConsistencyCoordinator.markUnavailable(errorCode)
+    }
+
+    private fun rememberCatalogState(userId: Long, state: ClientCatalogState) {
+        catalogStates.remember(userId, state)
+    }
+
+    private suspend fun validateSessionLocked(session: AuthSession) {
         val profile = api.profile("Bearer ${session.accessToken}")
         profile.runtimePolicy?.let { runtimeCoordinator.apply(session, it) }
+        profile.catalogState?.let { catalogConsistencyCoordinator.accept(session, it) }
+        profile.catalogState?.let { rememberCatalogState(session.userId, it) }
     }
 
     private companion object {
+        const val CATALOG_STATE_REUSE_MILLIS = 5_000L
         val ACCESS = stringPreferencesKey("access")
         val REFRESH = stringPreferencesKey("refresh")
         val USERNAME = stringPreferencesKey("username")
@@ -157,6 +208,36 @@ class AuthRepository @Inject constructor(
         val UPDATE_POLICY = stringPreferencesKey("update_policy")
         val WECHAT_WORK_ORDER_ACCESS = androidx.datastore.preferences.core.booleanPreferencesKey("wechat_work_order_access")
     }
+}
+
+internal class AccountCatalogStateCache(
+    private val clockMillis: () -> Long = System::currentTimeMillis,
+) {
+    private val states = ConcurrentHashMap<Long, CachedCatalogState>()
+
+    fun remember(userId: Long, state: ClientCatalogState) {
+        states[userId] = CachedCatalogState(state, clockMillis())
+    }
+
+    fun get(userId: Long): CachedCatalogState? = states[userId]
+
+    fun remove(userId: Long) {
+        states.remove(userId)
+    }
+}
+
+internal data class CachedCatalogState(
+    val state: ClientCatalogState,
+    val receivedAtEpochMillis: Long,
+)
+
+internal suspend fun completeLogout(
+    userId: Long?,
+    clearSession: suspend () -> Unit,
+    clearUserCache: suspend (Long) -> Unit,
+) {
+    clearSession()
+    userId?.let { runCatching { clearUserCache(it) } }
 }
 
 @Module

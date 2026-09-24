@@ -13,6 +13,10 @@ import com.jaydocoder.plateview.domain.workorder.WorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.feature.consistency.CatalogConsistencyStateProvider
+import com.jaydocoder.plateview.feature.consistency.CatalogKind
+import com.jaydocoder.plateview.feature.consistency.CatalogSyncStatus
+import com.jaydocoder.plateview.feature.consistency.DefaultCatalogConsistencyStateProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +33,7 @@ class WorkOrderDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: WorkOrderRepository,
     private val sessionProvider: AuthSessionProvider,
+    private val consistencyStateProvider: CatalogConsistencyStateProvider = DefaultCatalogConsistencyStateProvider,
 ) : ViewModel() {
     private val destination = savedStateHandle.toRoute<WorkOrderDetailDestination>()
     private val recordId = destination.recordId
@@ -36,7 +41,10 @@ class WorkOrderDetailViewModel @Inject constructor(
     val uiState: StateFlow<WorkOrderDetailUiState> = _uiState.asStateFlow()
     private val imageStateJobs = mutableMapOf<Long, Job>()
 
-    init { refresh() }
+    init {
+        observeFreshness()
+        refresh()
+    }
 
     fun refresh() {
         viewModelScope.launch {
@@ -49,6 +57,8 @@ class WorkOrderDetailViewModel @Inject constructor(
             }
             val cached = runCatching { repository.getCachedWorkOrder(session.userId, recordId) }.getOrNull()
             if (cached != null) showRecord(cached, fromCache = true)
+            val freshness = consistencyStateProvider.freshness.value[CatalogKind.WORK_ORDER]
+            if (cached != null && freshness?.isConfirmed() == true) return@launch
             runCatching { repository.refreshWorkOrder(session.accessToken, session.userId, recordId) }
                 .onSuccess { record ->
                     showRecord(record, fromCache = false)
@@ -70,11 +80,13 @@ class WorkOrderDetailViewModel @Inject constructor(
         _uiState.update {
             it.copy(isLoading = false, isRefreshing = false, isOfflineCache = fromCache, record = record, error = null)
         }
+        record.images.forEach { observeImageState(it.id) }
     }
 
     fun openImage(image: WorkOrderImage) {
         _uiState.update { it.copy(selectedImage = image, imageFailures = it.imageFailures - image.id) }
         observeImageState(image.id)
+        if (image.availability != "AVAILABLE" && !image.thumbnailAvailable && !image.previewAvailable) return
         _uiState.value.record?.let { record -> loadImage(record, image, image.preferredVariant()) }
     }
 
@@ -110,7 +122,13 @@ class WorkOrderDetailViewModel @Inject constructor(
             val session = sessionProvider.session.first() ?: return@launch
             repository.observeAttachmentDownload(session.userId, imageId).collect { download ->
                 _uiState.update { state ->
-                    state.copy(imageDownloads = if (download == null) state.imageDownloads - imageId else state.imageDownloads + (imageId to download))
+                    val downloads = if (download == null) state.imageDownloads - imageId else state.imageDownloads + (imageId to download)
+                    val cached = download?.completedFile()
+                    state.copy(
+                        imageDownloads = downloads,
+                        imageFiles = if (cached == null) state.imageFiles else state.imageFiles + (imageId to preferred(state.imageFiles[imageId], cached)),
+                        imageFailures = if (cached == null) state.imageFailures else state.imageFailures - imageId,
+                    )
                 }
             }
         }
@@ -123,6 +141,26 @@ class WorkOrderDetailViewModel @Inject constructor(
     }
 
     private fun rank(variant: String) = when (variant) { "original" -> 3; "preview" -> 2; else -> 1 }
+
+    private fun observeFreshness() {
+        viewModelScope.launch {
+            consistencyStateProvider.freshness.collect { states ->
+                val freshness = states[CatalogKind.WORK_ORDER] ?: return@collect
+                _uiState.update {
+                    it.copy(
+                        dataConfirmed = freshness.isConfirmed(),
+                        freshnessLabel = when (freshness.status) {
+                            CatalogSyncStatus.CONFIRMED -> if (freshness.isConfirmed()) "数据已确认" else "数据未确认，请谨慎核验"
+                            CatalogSyncStatus.CHECKING -> "正在确认最新数据"
+                            CatalogSyncStatus.OUTDATED, CatalogSyncStatus.SYNCING -> "发现更新，正在同步"
+                            CatalogSyncStatus.PERMISSION_REVOKED -> "当前账号无权访问"
+                            CatalogSyncStatus.OFFLINE_STALE, CatalogSyncStatus.FAILED -> "数据未确认，请谨慎核验"
+                        },
+                    )
+                }
+            }
+        }
+    }
 
 }
 
@@ -141,4 +179,6 @@ data class WorkOrderDetailUiState(
     val imageDownloads: Map<Long, AttachmentDownloadState> = emptyMap(),
     val selectedImage: WorkOrderImage? = null,
     val error: AppError? = null,
+    val freshnessLabel: String = "正在确认最新数据",
+    val dataConfirmed: Boolean = false,
 )

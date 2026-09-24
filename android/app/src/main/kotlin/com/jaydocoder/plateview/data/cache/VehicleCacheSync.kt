@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.feature.auth.AuthRepository
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -35,19 +36,12 @@ class VehicleCatalogSyncWorker(
         )
         val sessionProvider = entryPoint.sessionProvider()
         val session = sessionProvider.session.first() ?: return Result.success()
-        if (entryPoint.runtimePolicyProvider().policy.value.vehicleResultLimit == 0) {
-            entryPoint.cacheRepository().clearSnapshot()
-            return Result.success()
-        }
         return runCatching {
-            entryPoint.cacheRepository().synchronizeCatalog(
-                accessToken = session.accessToken,
-                forceVersionCheck = true,
-            )
+            entryPoint.authRepository().checkCatalogState(session, force = true)
             Result.success()
         }.getOrElse { throwable ->
             if (throwable is HttpException && throwable.code() in listOf(HTTP_UNAUTHORIZED, HTTP_FORBIDDEN)) {
-                entryPoint.cacheRepository().clearSnapshot()
+                entryPoint.cacheRepository().clearSnapshot(session.userId)
                 if (throwable.code() == HTTP_UNAUTHORIZED) sessionProvider.logout()
                 Result.success()
             } else {
@@ -69,6 +63,7 @@ interface VehicleCacheWorkerEntryPoint {
 
     fun sessionProvider(): AuthSessionProvider
     fun runtimePolicyProvider(): ClientRuntimePolicyProvider
+    fun authRepository(): AuthRepository
 }
 
 @Singleton

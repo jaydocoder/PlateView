@@ -218,6 +218,20 @@ fun SearchScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
+            item(key = "catalog_freshness") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = if (uiState.dataConfirmed) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
+                    contentColor = if (uiState.dataConfirmed) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                    shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+                ) {
+                    Text(
+                        text = uiState.freshnessLabel,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
             item(key = "search_feedback") {
                 SearchFeedback(
                     resultState = uiState.resultState,
@@ -245,6 +259,7 @@ fun SearchScreen(
                 ) { candidate ->
                     VehicleCandidateRow(
                         candidate = candidate,
+                        freshnessLabel = if (uiState.dataConfirmed) "核验就绪" else uiState.freshnessLabel,
                         onSelected = onCandidateSelected,
                     )
                 }
@@ -750,6 +765,7 @@ private fun SectionTitle(
 @Composable
 private fun VehicleCandidateRow(
     candidate: VehicleCandidate,
+    freshnessLabel: String,
     onSelected: (VehicleCandidate) -> Unit,
 ) {
     ElevatedCard(
@@ -795,7 +811,7 @@ private fun VehicleCandidateRow(
                     )
                 }
                 CandidateCompactBadge(
-                    text = "核验就绪",
+                    text = freshnessLabel,
                     modifier = Modifier.padding(top = 4.dp),
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,

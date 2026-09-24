@@ -5,6 +5,8 @@ import com.jaydocoder.plateview.data.network.AppError
 
 data class VehicleDetailUiState(
     val content: VehicleDetailContent = VehicleDetailContent.Loading,
+    val freshnessLabel: String = "正在确认最新数据",
+    val dataConfirmed: Boolean = false,
 )
 
 sealed interface VehicleDetailContent {

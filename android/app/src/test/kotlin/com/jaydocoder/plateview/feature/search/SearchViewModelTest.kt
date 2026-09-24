@@ -7,6 +7,7 @@ import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
 import com.jaydocoder.plateview.domain.vehicle.CachedVehicleDetail
 import com.jaydocoder.plateview.domain.vehicle.CatalogSyncResult
 import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogPage
+import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogChangePage
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
 import com.jaydocoder.plateview.domain.vehicle.VehicleFullCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
@@ -364,9 +365,15 @@ private class FakeWorkOrderRepository(
     override suspend fun getCachedWechatMessage(userId: Long, messageId: Long): com.jaydocoder.plateview.domain.workorder.WechatMessage? = null
     override suspend fun refreshWechatMessage(accessToken: String, userId: Long, messageId: Long): com.jaydocoder.plateview.domain.workorder.WechatMessage =
         error("本测试不读取微信聊天详情")
-    override suspend fun synchronize(accessToken: String, userId: Long, forceVersionCheck: Boolean): WorkOrderSyncResult {
+    override suspend fun synchronize(
+        accessToken: String,
+        userId: Long,
+        forceVersionCheck: Boolean,
+        targetWorkOrderRevision: Long?,
+        targetMessageRevision: Long?,
+    ): WorkOrderSyncResult {
         synchronizeGate?.await()
-        return WorkOrderSyncResult(false)
+        return WorkOrderSyncResult(false, 0, 0)
     }
     override suspend fun getCachedWorkOrder(userId: Long, recordId: Long): WorkOrder? = null
     override suspend fun refreshWorkOrder(accessToken: String, userId: Long, recordId: Long): WorkOrder = error("本测试不读取车单详情")
@@ -416,6 +423,21 @@ private class FakeVehicleRepository(
         limit: Int,
         offset: Int,
     ): VehicleFullCatalogPage = VehicleFullCatalogPage(catalogVersion = version, total = 0, vehicles = emptyList())
+
+    override suspend fun getCatalogChanges(
+        accessToken: String,
+        afterRevision: Long,
+        afterId: Long,
+        targetRevision: Long,
+        limit: Int,
+    ): VehicleCatalogChangePage = VehicleCatalogChangePage(
+        catalogVersion = targetRevision,
+        nextRevision = targetRevision,
+        nextId = afterId,
+        hasMore = false,
+        fullSyncRequired = false,
+        changes = emptyList(),
+    )
 }
 
 private class FakeVehicleCacheRepository(
@@ -425,7 +447,7 @@ private class FakeVehicleCacheRepository(
 ) : VehicleCacheRepository {
     val searchKeywords = mutableListOf<String>()
 
-    override suspend fun search(normalizedKeyword: String): List<VehicleCandidate> {
+    override suspend fun search(userId: Long, normalizedKeyword: String): List<VehicleCandidate> {
         searchKeywords += normalizedKeyword
         searchGate?.await()
         searchFailure?.let { throw it }
@@ -434,12 +456,14 @@ private class FakeVehicleCacheRepository(
 
     override suspend fun synchronizeCatalog(
         accessToken: String,
+        userId: Long,
         forceVersionCheck: Boolean,
-    ): CatalogSyncResult = CatalogSyncResult(refreshed = false)
+        targetRevision: Long?,
+    ): CatalogSyncResult = CatalogSyncResult(refreshed = false, appliedRevision = 0)
 
-    override suspend fun getDetail(vehicleId: Long): CachedVehicleDetail? = null
+    override suspend fun getDetail(userId: Long, vehicleId: Long): CachedVehicleDetail? = null
 
-    override suspend fun clearSnapshot() = Unit
+    override suspend fun clearSnapshot(userId: Long) = Unit
 }
 
 private class FakeSearchHistoryRepository : SearchHistoryRepository {

@@ -22,6 +22,22 @@ data class VehicleFullCatalogResponseDto(
     val items: List<VehicleDetailDto>,
 )
 
+data class VehicleCatalogChangesResponseDto(
+    val catalogVersion: Long,
+    val nextRevision: Long,
+    val nextId: Long,
+    val hasMore: Boolean,
+    val fullSyncRequired: Boolean,
+    val items: List<VehicleCatalogChangeItemDto>,
+)
+
+data class VehicleCatalogChangeItemDto(
+    val revision: Long,
+    val entityId: Long,
+    val operation: String,
+    val record: VehicleDetailDto?,
+)
+
 data class VehicleCandidateDto(
     val id: Long,
     val plateNumber: String,

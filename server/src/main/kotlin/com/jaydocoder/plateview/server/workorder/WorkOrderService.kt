@@ -22,6 +22,12 @@ internal class WorkOrderService(private val dataSource: DataSource) {
 
     fun ingest(batch: WorkOrderMessageBatch): WorkOrderIngestResult = transaction { connection ->
         requireKnownSource(batch.sourceKey, batch.sourceName)
+        require((batch.batchId == null) == (batch.syncRunId == null)) { "批次标识和同步运行标识必须同时提供" }
+        val batchId = batch.batchId?.let(UUID::fromString)
+        val syncRunId = batch.syncRunId?.let(UUID::fromString)
+        if (batchId != null) {
+            connection.findSyncBatch(batchId)?.let { return@transaction it }
+        }
         val sourceId = connection.upsertSource(batch.sourceKey, batch.sourceName)
         var inserted = 0
         var duplicate = 0
@@ -65,8 +71,9 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             acceptedThroughTimestamp = last?.sentAt?.epochSecond,
             acceptedThroughLocalMessageId = last?.localMessageId,
         )
-        if (batch.batchId != null && batch.syncRunId != null && last != null) {
-            connection.recordSyncBatch(batch, sourceId, UUID.fromString(batch.batchId), UUID.fromString(batch.syncRunId), inserted + duplicate, last)
+        if (batchId != null && syncRunId != null && last != null) {
+            connection.ensureSyncRun(syncRunId)
+            connection.recordSyncBatch(batch, sourceId, batchId, syncRunId, inserted + duplicate, last)
         }
         result
     }
@@ -184,6 +191,10 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         require(sender.senderUsername.isNotBlank() && sender.senderUsername.length <= 255) { "微信发送者标识无效" }
         require(sender.displayAlias.isNotBlank() && sender.displayAlias.length <= 255) { "应用显示称呼无效" }
         transaction { connection ->
+            val normalizedSenderUsername = sender.senderUsername.trim()
+            val normalizedOriginalDisplayName = sender.originalDisplayName?.trim()
+            val normalizedDisplayAlias = sender.displayAlias.trim()
+            val previous = connection.passageSender(normalizedSenderUsername)
             connection.prepareStatement(
                 """
                 INSERT INTO wechat_passage_senders(sender_username, original_display_name, display_alias, enabled, updated_at)
@@ -192,13 +203,17 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     display_alias = EXCLUDED.display_alias, enabled = EXCLUDED.enabled, updated_at = CURRENT_TIMESTAMP
                 """.trimIndent(),
             ).use { statement ->
-                statement.setString(1, sender.senderUsername.trim())
-                statement.setString(2, sender.originalDisplayName?.trim())
-                statement.setString(3, sender.displayAlias.trim())
+                statement.setString(1, normalizedSenderUsername)
+                statement.setString(2, normalizedOriginalDisplayName)
+                statement.setString(3, normalizedDisplayAlias)
                 statement.setBoolean(4, sender.enabled)
                 statement.executeUpdate()
             }
-            connection.nextCatalogRevision()
+            val visibleDataChanged = previous?.enabled != sender.enabled ||
+                (sender.enabled && previous?.displayAlias != normalizedDisplayAlias)
+            if (visibleDataChanged) {
+                connection.refreshPassageSenderCatalog(normalizedSenderUsername, sender.enabled)
+            }
         }
     }
 
@@ -234,42 +249,176 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
-    fun changes(afterVersion: Long, limit: Int): WorkOrderChangePage = dataSource.connection.use { connection ->
+    fun changes(afterVersion: Long, afterId: Long, requestedTargetRevision: Long?, limit: Int): WorkOrderChangePage = repeatableRead { connection ->
         val safeLimit = limit.coerceIn(1, 200)
-        val records = connection.prepareStatement(
-            "$BASE_SELECT WHERE r.catalog_revision > ? ORDER BY r.catalog_revision, r.id LIMIT ?",
+        val currentRevision = connection.catalogRevision()
+        val targetRevision = requestedTargetRevision ?: currentRevision
+        require(targetRevision >= afterVersion.coerceAtLeast(0)) { "目标目录版本不能早于本地版本" }
+        require(targetRevision <= currentRevision) { "目标目录版本不能高于服务器当前版本" }
+        if (connection.fullSyncRequired("work_order_catalog_changes", afterVersion)) {
+            return@repeatableRead WorkOrderChangePage(targetRevision, afterVersion, afterId, false, emptyList(), emptyList(), true)
+        }
+        val changes = connection.prepareStatement(
+            "SELECT revision, entity_id, operation FROM work_order_catalog_changes " +
+                "WHERE (revision > ? OR (revision = ? AND entity_id > ?)) AND revision <= ? " +
+                "ORDER BY revision, entity_id LIMIT ?",
         ).use { statement ->
             statement.setLong(1, afterVersion.coerceAtLeast(0))
-            statement.setInt(2, safeLimit + 1)
-            statement.executeQuery().use { result -> buildList { while (result.next()) add(connection.readRecord(result)) } }
+            statement.setLong(2, afterVersion.coerceAtLeast(0))
+            statement.setLong(3, afterId.coerceAtLeast(0))
+            statement.setLong(4, targetRevision)
+            statement.setInt(5, safeLimit + 1)
+            statement.executeQuery().use { result ->
+                buildList { while (result.next()) add(CatalogChange(result.getLong(1), result.getLong(2), result.getString(3))) }
+            }
         }
-        val pageItems = records.take(safeLimit)
+        val pageChanges = changes.take(safeLimit)
+        if (connection.hasCatalogConflictAfter("work_order_catalog_changes", targetRevision)) {
+            throw WorkOrderCatalogVersionConflictException()
+        }
+        val recordsById = connection.recordsByIds(pageChanges.filter { it.operation == "UPSERT" }.map(CatalogChange::entityId))
         WorkOrderChangePage(
-            catalogVersion = connection.catalogRevision(),
-            nextVersion = pageItems.maxOfOrNull(WorkOrderRecord::catalogRevision) ?: afterVersion,
-            hasMore = records.size > safeLimit,
-            records = pageItems,
+            catalogVersion = targetRevision,
+            nextVersion = pageChanges.lastOrNull()?.revision ?: afterVersion,
+            nextId = pageChanges.lastOrNull()?.entityId ?: afterId,
+            hasMore = changes.size > safeLimit,
+            records = pageChanges.mapNotNull { recordsById[it.entityId] },
+            tombstones = pageChanges.filter { it.operation != "UPSERT" || recordsById[it.entityId] == null }
+                .map { CatalogTombstone(it.entityId, if (it.operation == "UPSERT") "REVOKE" else it.operation) },
+            fullSyncRequired = false,
         )
     }
 
-    fun messageChanges(afterVersion: Long, limit: Int): WechatMessageChangePage = dataSource.connection.use { connection ->
+    fun messageChanges(afterVersion: Long, afterId: Long, requestedTargetRevision: Long?, limit: Int): WechatMessageChangePage = repeatableRead { connection ->
         val safeLimit = limit.coerceIn(1, 200)
-        val records = connection.prepareStatement(
-            "$MESSAGE_BASE_SELECT WHERE m.catalog_revision > ? AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE') ORDER BY m.catalog_revision, m.id LIMIT ?",
+        val currentRevision = connection.catalogRevision()
+        val targetRevision = requestedTargetRevision ?: currentRevision
+        require(targetRevision >= afterVersion.coerceAtLeast(0)) { "目标目录版本不能早于本地版本" }
+        require(targetRevision <= currentRevision) { "目标目录版本不能高于服务器当前版本" }
+        if (connection.fullSyncRequired("wechat_message_catalog_changes", afterVersion)) {
+            return@repeatableRead WechatMessageChangePage(targetRevision, afterVersion, afterId, false, emptyList(), emptyList(), true)
+        }
+        val changes = connection.prepareStatement(
+            "SELECT revision, entity_id, operation FROM wechat_message_catalog_changes " +
+                "WHERE (revision > ? OR (revision = ? AND entity_id > ?)) AND revision <= ? " +
+                "ORDER BY revision, entity_id LIMIT ?",
         ).use { statement ->
             statement.setLong(1, afterVersion.coerceAtLeast(0))
-            statement.setInt(2, safeLimit + 1)
+            statement.setLong(2, afterVersion.coerceAtLeast(0))
+            statement.setLong(3, afterId.coerceAtLeast(0))
+            statement.setLong(4, targetRevision)
+            statement.setInt(5, safeLimit + 1)
             statement.executeQuery().use { result ->
-                buildList { while (result.next()) add(connection.readMessage(result, "", includeAttachments = false)) }
+                buildList { while (result.next()) add(CatalogChange(result.getLong(1), result.getLong(2), result.getString(3))) }
             }
         }
-        val pageItems = records.take(safeLimit)
+        val pageChanges = changes.take(safeLimit)
+        if (connection.hasCatalogConflictAfter("wechat_message_catalog_changes", targetRevision)) {
+            throw WorkOrderCatalogVersionConflictException()
+        }
+        val recordsById = connection.messagesByIds(pageChanges.filter { it.operation == "UPSERT" }.map(CatalogChange::entityId))
         WechatMessageChangePage(
-            catalogVersion = connection.catalogRevision(),
-            nextVersion = pageItems.maxOfOrNull(WechatMessageRecord::catalogRevision) ?: afterVersion,
-            hasMore = records.size > safeLimit,
-            records = connection.hydrateMessages(pageItems),
+            catalogVersion = targetRevision,
+            nextVersion = pageChanges.lastOrNull()?.revision ?: afterVersion,
+            nextId = pageChanges.lastOrNull()?.entityId ?: afterId,
+            hasMore = changes.size > safeLimit,
+            records = connection.hydrateMessages(pageChanges.mapNotNull { recordsById[it.entityId] }),
+            tombstones = pageChanges.filter { it.operation != "UPSERT" || recordsById[it.entityId] == null }
+                .map { CatalogTombstone(it.entityId, if (it.operation == "UPSERT") "REVOKE" else it.operation) },
+            fullSyncRequired = false,
         )
+    }
+
+    fun fullWorkOrderCatalog(afterId: Long, targetRevision: Long, limit: Int): WorkOrderFullCatalogPage =
+        repeatableRead { connection ->
+            val currentRevision = connection.catalogRevision()
+            require(targetRevision <= currentRevision) { "目标目录版本不能高于服务器当前版本" }
+            if (connection.hasCatalogConflictAfter("work_order_catalog_changes", targetRevision)) {
+                throw WorkOrderCatalogVersionConflictException()
+            }
+            val safeLimit = limit.coerceIn(1, 200)
+            val records = connection.prepareStatement(
+                "$BASE_SELECT WHERE r.id > ? AND r.status <> 'VOID' " +
+                    "AND r.created_catalog_revision <= ? AND r.catalog_revision <= ? ORDER BY r.id LIMIT ?",
+            ).use { statement ->
+                statement.setLong(1, afterId.coerceAtLeast(0))
+                statement.setLong(2, targetRevision)
+                statement.setLong(3, targetRevision)
+                statement.setInt(4, safeLimit + 1)
+                statement.executeQuery().use { result -> buildList { while (result.next()) add(connection.readRecord(result)) } }
+            }
+            WorkOrderFullCatalogPage(targetRevision, records.take(safeLimit), records.size > safeLimit)
+        }
+
+    fun fullMessageCatalog(afterId: Long, targetRevision: Long, limit: Int): WechatMessageFullCatalogPage =
+        repeatableRead { connection ->
+            val currentRevision = connection.catalogRevision()
+            require(targetRevision <= currentRevision) { "目标目录版本不能高于服务器当前版本" }
+            if (connection.hasCatalogConflictAfter("wechat_message_catalog_changes", targetRevision)) {
+                throw WorkOrderCatalogVersionConflictException()
+            }
+            val safeLimit = limit.coerceIn(1, 200)
+            val records = connection.prepareStatement(
+                "$MESSAGE_BASE_SELECT WHERE m.id > ? AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE') " +
+                    "AND m.created_catalog_revision <= ? AND m.catalog_revision <= ? ORDER BY m.id LIMIT ?",
+            ).use { statement ->
+                statement.setLong(1, afterId.coerceAtLeast(0))
+                statement.setLong(2, targetRevision)
+                statement.setLong(3, targetRevision)
+                statement.setInt(4, safeLimit + 1)
+                statement.executeQuery().use { result ->
+                    buildList { while (result.next()) add(connection.readMessage(result, "", includeAttachments = false)) }
+                }
+            }
+            val page = records.take(safeLimit)
+            WechatMessageFullCatalogPage(targetRevision, connection.hydrateMessages(page), records.size > safeLimit)
+        }
+
+    private fun Connection.hasCatalogConflictAfter(table: String, targetRevision: Long): Boolean {
+        return prepareStatement(
+            "SELECT 1 FROM $table WHERE revision > ? AND entity_created_revision <= ? LIMIT 1",
+        ).use { statement ->
+            statement.setLong(1, targetRevision)
+            statement.setLong(2, targetRevision)
+            statement.executeQuery().use(ResultSet::next)
+        }
+    }
+
+    private fun <T> repeatableRead(block: (Connection) -> T): T = dataSource.connection.use { connection ->
+        connection.autoCommit = false
+        connection.transactionIsolation = Connection.TRANSACTION_REPEATABLE_READ
+        try {
+            block(connection).also { connection.commit() }
+        } catch (throwable: Throwable) {
+            runCatching { connection.rollback() }
+            throw throwable
+        }
+    }
+
+    private fun Connection.fullSyncRequired(table: String, afterVersion: Long): Boolean {
+        if (afterVersion <= 0) return true
+        val earliest = prepareStatement("SELECT MIN(revision) FROM $table").use { statement ->
+            statement.executeQuery().use { result -> result.next(); result.getLong(1).takeUnless { result.wasNull() } }
+        } ?: return true
+        return afterVersion < earliest - 1
+    }
+
+    private fun Connection.recordsByIds(ids: List<Long>): Map<Long, WorkOrderRecord> {
+        if (ids.isEmpty()) return emptyMap()
+        return prepareStatement("$BASE_SELECT WHERE r.id = ANY (?)").use { statement ->
+            statement.setArray(1, createArrayOf("BIGINT", ids.toTypedArray()))
+            statement.executeQuery().use { result -> buildList { while (result.next()) add(readRecord(result)) } }
+        }.associateBy(WorkOrderRecord::id)
+    }
+
+    private fun Connection.messagesByIds(ids: List<Long>): Map<Long, WechatMessageRecord> {
+        if (ids.isEmpty()) return emptyMap()
+        return prepareStatement("$MESSAGE_BASE_SELECT WHERE m.id = ANY (?) AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')").use { statement ->
+            statement.setArray(1, createArrayOf("BIGINT", ids.toTypedArray()))
+            statement.executeQuery().use { result ->
+                buildList { while (result.next()) add(readMessage(result, "", includeAttachments = false)) }
+            }
+        }.associateBy(WechatMessageRecord::id)
     }
 
     fun syncStatus(): List<WechatSourceStatus> = dataSource.connection.use { connection ->
@@ -310,7 +459,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             SELECT 'UNSEARCHABLE_MESSAGE' AS issue_type, r.id AS record_id, NULL::BIGINT AS image_id,
                    s.display_name, m.sent_at, LEFT(m.raw_content, 240) AS summary,
                    NULL::VARCHAR AS attachment_kind, NULL::TEXT AS file_name, NULL::INTEGER AS page_count,
-                   NULL::VARCHAR AS sha256, NULL::VARCHAR AS source_quality
+                   NULL::VARCHAR AS sha256, NULL::VARCHAR AS source_quality, NULL::VARCHAR AS availability
             FROM work_order_records r
             JOIN wechat_messages m ON m.id = r.message_id
             JOIN wechat_sources s ON s.id = m.source_id
@@ -323,7 +472,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             """
             SELECT CASE WHEN candidate_count > 1 THEN 'ATTACHMENT_CONFLICT' ELSE 'ATTACHMENT_UNAVAILABLE' END AS issue_type,
                    NULL::BIGINT AS record_id, image_id, display_name, sent_at, summary, attachment_kind, file_name, page_count,
-                   sha256, source_quality
+                   sha256, source_quality, availability
             FROM (
                 SELECT i.id AS image_id, s.display_name, i.sent_at, i.attachment_kind, i.file_name, i.page_count,
                        i.sha256, i.source_quality,
@@ -655,6 +804,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
         connection.autoAssociateImage(imageId, sourceId, upload.localMessageId, upload.senderUsername, upload.sentAt)
         connection.autoAssociateMessageAttachment(imageId, sourceId, upload.senderUsername, upload.sentAt)
+        connection.touchAttachmentOwners(imageId)
         imageId
     }
 
@@ -794,30 +944,37 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
-    fun associateImage(imageId: Long, recordId: Long?) {
-        dataSource.connection.use { connection ->
-            if (recordId != null) {
-                connection.prepareStatement("SELECT 1 FROM work_order_records WHERE id = ?").use { statement ->
-                    statement.setLong(1, recordId)
-                    statement.executeQuery().use { if (!it.next()) throw WorkOrderNotFoundException() }
-                }
-            }
-            connection.prepareStatement("UPDATE work_order_images SET linked_record_id = ?, association_method = ? WHERE id = ?").use { statement ->
-                statement.setObject(1, recordId)
-                statement.setString(2, recordId?.let { "MANUAL" })
-                statement.setLong(3, imageId)
-                if (statement.executeUpdate() == 0) throw WorkOrderNotFoundException()
+    fun associateImage(imageId: Long, recordId: Long?) = transaction { connection ->
+        val previousRecordId = connection.prepareStatement(
+            "SELECT linked_record_id FROM work_order_images WHERE id = ? FOR UPDATE",
+        ).use { statement ->
+            statement.setLong(1, imageId)
+            statement.executeQuery().use { result ->
+                if (!result.next()) throw WorkOrderNotFoundException()
+                result.getLong(1).takeUnless { result.wasNull() }
             }
         }
+        if (recordId != null) {
+            connection.prepareStatement("SELECT 1 FROM work_order_records WHERE id = ?").use { statement ->
+                statement.setLong(1, recordId)
+                statement.executeQuery().use { if (!it.next()) throw WorkOrderNotFoundException() }
+            }
+        }
+        connection.prepareStatement("UPDATE work_order_images SET linked_record_id = ?, association_method = ? WHERE id = ?").use { statement ->
+            statement.setObject(1, recordId)
+            statement.setString(2, recordId?.let { "MANUAL" })
+            statement.setLong(3, imageId)
+            if (statement.executeUpdate() == 0) throw WorkOrderNotFoundException()
+        }
+        connection.touchAttachmentOwners(imageId, listOfNotNull(previousRecordId))
     }
 
-    fun ignoreImage(imageId: Long) {
-        dataSource.connection.use { connection ->
-            connection.prepareStatement("UPDATE work_order_images SET ignored_at = CURRENT_TIMESTAMP WHERE id = ?").use { statement ->
-                statement.setLong(1, imageId)
-                if (statement.executeUpdate() == 0) throw WorkOrderNotFoundException()
-            }
+    fun ignoreImage(imageId: Long) = transaction { connection ->
+        connection.prepareStatement("UPDATE work_order_images SET ignored_at = CURRENT_TIMESTAMP WHERE id = ?").use { statement ->
+            statement.setLong(1, imageId)
+            if (statement.executeUpdate() == 0) throw WorkOrderNotFoundException()
         }
+        connection.touchAttachmentOwners(imageId)
     }
 
     private fun Connection.autoAssociateImage(imageId: Long, sourceId: Long, localMessageId: String?, senderUsername: String?, sentAt: Instant) {
@@ -897,6 +1054,37 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             prepareStatement("UPDATE work_order_images SET linked_message_id = ? WHERE id = ? AND linked_message_id IS NULL").use { statement ->
                 statement.setLong(1, candidates.single())
                 statement.setLong(2, attachmentId)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun Connection.touchAttachmentOwners(imageId: Long, additionalRecordIds: List<Long> = emptyList()) {
+        val owners = prepareStatement(
+            "SELECT linked_record_id, linked_message_id FROM work_order_images WHERE id = ?",
+        ).use { statement ->
+            statement.setLong(1, imageId)
+            statement.executeQuery().use { result ->
+                if (!result.next()) throw WorkOrderNotFoundException()
+                AttachmentOwners(
+                    recordIds = (additionalRecordIds + listOfNotNull(result.getLong(1).takeUnless { result.wasNull() })).distinct(),
+                    messageIds = listOfNotNull(result.getLong(2).takeUnless { result.wasNull() }),
+                )
+            }
+        }
+        if (owners.recordIds.isEmpty() && owners.messageIds.isEmpty()) return
+        val revision = nextCatalogRevision()
+        if (owners.recordIds.isNotEmpty()) {
+            prepareStatement("UPDATE work_order_records SET catalog_revision = ? WHERE id = ANY (?)").use { statement ->
+                statement.setLong(1, revision)
+                statement.setArray(2, createArrayOf("BIGINT", owners.recordIds.toTypedArray()))
+                statement.executeUpdate()
+            }
+        }
+        if (owners.messageIds.isNotEmpty()) {
+            prepareStatement("UPDATE wechat_messages SET catalog_revision = ? WHERE id = ANY (?)").use { statement ->
+                statement.setLong(1, revision)
+                statement.setArray(2, createArrayOf("BIGINT", owners.messageIds.toTypedArray()))
                 statement.executeUpdate()
             }
         }
@@ -1336,20 +1524,80 @@ internal class WorkOrderService(private val dataSource: DataSource) {
     }
 
     private fun Connection.enrichMessageSender(sourceId: Long, message: WorkOrderIncomingMessage) {
+        val existing = prepareStatement(
+            "SELECT id, sender_username, sender_display, sender_group_nickname FROM wechat_messages WHERE source_id = ? AND local_message_id = ? FOR UPDATE",
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setString(2, message.localMessageId)
+            statement.executeQuery().use { result ->
+                if (!result.next()) return
+                ExistingMessageSender(result.getLong(1), result.getString(2), result.getString(3), result.getString(4))
+            }
+        }
+        val senderUsername = message.senderUsername?.takeIf(String::isNotBlank) ?: existing.senderUsername
+        val senderDisplay = message.senderDisplay?.takeIf(String::isNotBlank) ?: existing.senderDisplay
+        val senderGroupNickname = message.senderGroupNickname?.takeIf(String::isNotBlank) ?: existing.senderGroupNickname
+        if (senderUsername == existing.senderUsername && senderDisplay == existing.senderDisplay && senderGroupNickname == existing.senderGroupNickname) return
+        val revision = nextCatalogRevision()
         prepareStatement(
             """
             UPDATE wechat_messages SET
-                sender_username = COALESCE(NULLIF(?, ''), sender_username),
-                sender_display = COALESCE(NULLIF(?, ''), sender_display),
-                sender_group_nickname = COALESCE(NULLIF(?, ''), sender_group_nickname)
-            WHERE source_id = ? AND local_message_id = ?
+                sender_username = ?, sender_display = ?, sender_group_nickname = ?, catalog_revision = ?
+            WHERE id = ?
             """.trimIndent(),
         ).use { statement ->
-            statement.setString(1, message.senderUsername)
-            statement.setString(2, message.senderDisplay)
-            statement.setString(3, message.senderGroupNickname)
-            statement.setLong(4, sourceId)
-            statement.setString(5, message.localMessageId)
+            statement.setString(1, senderUsername)
+            statement.setString(2, senderDisplay)
+            statement.setString(3, senderGroupNickname)
+            statement.setLong(4, revision)
+            statement.setLong(5, existing.id)
+            statement.executeUpdate()
+        }
+    }
+
+    private fun Connection.passageSender(senderUsername: String): ExistingPassageSender? = prepareStatement(
+        "SELECT display_alias, enabled FROM wechat_passage_senders WHERE sender_username = ? FOR UPDATE",
+    ).use { statement ->
+        statement.setString(1, senderUsername)
+        statement.executeQuery().use { result ->
+            if (result.next()) ExistingPassageSender(result.getString(1), result.getBoolean(2)) else null
+        }
+    }
+
+    private fun Connection.refreshPassageSenderCatalog(senderUsername: String, enabled: Boolean) {
+        val messages = prepareStatement(
+            "SELECT id, raw_content FROM wechat_messages WHERE sender_username = ? ORDER BY id FOR UPDATE",
+        ).use { statement ->
+            statement.setString(1, senderUsername)
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) {
+                        add(
+                            PassageSenderMessage(
+                                id = result.getLong("id"),
+                                rawContent = result.getString("raw_content"),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        if (messages.isEmpty()) return
+        val revision = nextCatalogRevision()
+        prepareStatement("UPDATE wechat_messages SET business_type = ?, catalog_revision = ? WHERE id = ?").use { statement ->
+            messages.forEach { message ->
+                val parsed = WorkOrderParser.parse(message.rawContent)
+                statement.setString(1, WorkOrderParser.classify(parsed, message.rawContent, enabled))
+                statement.setLong(2, revision)
+                statement.setLong(3, message.id)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+        val messageIds = createArrayOf("BIGINT", messages.map(PassageSenderMessage::id).toTypedArray())
+        prepareStatement("UPDATE work_order_records SET catalog_revision = ? WHERE message_id = ANY (?)").use { statement ->
+            statement.setLong(1, revision)
+            statement.setArray(2, messageIds)
             statement.executeUpdate()
         }
     }
@@ -1391,6 +1639,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     pageCount = result.getIntOrNull("page_count"),
                     sha256 = result.getString("sha256"),
                     sourceQuality = result.getString("source_quality") ?: "UNKNOWN",
+                    availability = result.getString("availability") ?: "UNKNOWN",
                 ),
             )
         }
@@ -1664,7 +1913,24 @@ internal data class WorkOrderIngestResult(
     val acceptedThroughTimestamp: Long? = null,
     val acceptedThroughLocalMessageId: String? = null,
 )
-internal data class WorkOrderChangePage(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WorkOrderRecord>)
+internal data class CatalogTombstone(val entityId: Long, val operation: String)
+private data class CatalogChange(val revision: Long, val entityId: Long, val operation: String)
+private data class ExistingMessageSender(
+    val id: Long,
+    val senderUsername: String?,
+    val senderDisplay: String?,
+    val senderGroupNickname: String?,
+)
+internal data class WorkOrderChangePage(
+    val catalogVersion: Long,
+    val nextVersion: Long,
+    val nextId: Long,
+    val hasMore: Boolean,
+    val records: List<WorkOrderRecord>,
+    val tombstones: List<CatalogTombstone>,
+    val fullSyncRequired: Boolean,
+)
+internal data class WorkOrderFullCatalogPage(val catalogVersion: Long, val records: List<WorkOrderRecord>, val hasMore: Boolean)
 internal data class WorkOrderRecord(
     val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?,
     val declaredPeople: Int?, val rawValidTime: String?, val location: String?, val verificationMethod: String?, val reason: String?,
@@ -1726,8 +1992,20 @@ internal data class WechatMessageRecord(
     val catalogRevision: Long,
 )
 internal data class WechatMessagePage(val records: List<WechatMessageRecord>, val nextOffset: Int?)
-internal data class WechatMessageChangePage(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WechatMessageRecord>)
+internal data class WechatMessageChangePage(
+    val catalogVersion: Long,
+    val nextVersion: Long,
+    val nextId: Long,
+    val hasMore: Boolean,
+    val records: List<WechatMessageRecord>,
+    val tombstones: List<CatalogTombstone>,
+    val fullSyncRequired: Boolean,
+)
+internal data class WechatMessageFullCatalogPage(val catalogVersion: Long, val records: List<WechatMessageRecord>, val hasMore: Boolean)
 internal data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
+private data class ExistingPassageSender(val displayAlias: String, val enabled: Boolean)
+private data class PassageSenderMessage(val id: Long, val rawContent: String)
+private data class AttachmentOwners(val recordIds: List<Long>, val messageIds: List<Long>)
 internal data class WechatAttachmentAssociationStats(val total: Int, val completed: Int, val pending: Int)
 internal data class WechatSyncIntegrity(
     val unconfirmedBatchCount: Int,
@@ -1762,7 +2040,7 @@ internal data class AttachmentCacheClientStatus(
 internal data class WechatSyncIssue(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: Instant, val summary: String,
     val attachmentKind: String? = null, val fileName: String? = null, val pageCount: Int? = null,
-    val sha256: String? = null, val sourceQuality: String = "UNKNOWN",
+    val sha256: String? = null, val sourceQuality: String = "UNKNOWN", val availability: String = "UNKNOWN",
     val candidates: List<WechatAttachmentCandidate> = emptyList(),
 )
 internal data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String?, val sentAt: Instant, val summary: String)
@@ -1781,6 +2059,7 @@ internal data class WorkOrderImageUpload(
 internal data class StoredImageVariant(val relativePath: String, val contentType: String, val size: Long, val sha256: String?)
 internal class WorkOrderPermissionException : RuntimeException("当前账号没有微信车单访问权限")
 internal class WorkOrderNotFoundException : RuntimeException("微信车单不存在")
+internal class WorkOrderCatalogVersionConflictException : RuntimeException("微信目录已更新，请重新同步")
 
 internal fun shouldReplaceAttachmentQuality(current: String, incoming: String): Boolean =
     attachmentQualityRank(incoming) >= attachmentQualityRank(current)

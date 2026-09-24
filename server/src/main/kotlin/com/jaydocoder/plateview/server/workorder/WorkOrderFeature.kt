@@ -133,8 +133,19 @@ internal fun Application.configureWorkOrderFeature() {
                     val userId = call.requireWorkOrderAccess(service)
                     if (policyService.resultLimits(userId).wechatMessage == 0) throw WorkOrderPermissionException()
                     val afterVersion = call.request.queryParameters["afterVersion"]?.toLongOrNull() ?: 0L
+                    val afterId = call.request.queryParameters["afterId"]?.toLongOrNull() ?: 0L
+                    val targetRevision = call.request.queryParameters["targetRevision"]?.toLongOrNull()
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
-                    call.respond(service.messageChanges(afterVersion, limit).toResponse())
+                    call.respond(service.messageChanges(afterVersion, afterId, targetRevision, limit).toResponse())
+                }
+                get("/messages/catalog/full") {
+                    val userId = call.requireWorkOrderAccess(service)
+                    if (policyService.resultLimits(userId).wechatMessage == 0) throw WorkOrderPermissionException()
+                    val afterId = call.request.queryParameters["afterId"]?.toLongOrNull() ?: 0L
+                    val targetRevision = call.request.queryParameters["targetRevision"]?.toLongOrNull()
+                        ?: throw IllegalArgumentException("缺少目标目录版本")
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
+                    call.respond(service.fullMessageCatalog(afterId, targetRevision, limit).toResponse())
                 }
                 get("/messages/{messageId}/attachments/{attachmentId}") {
                     val userId = call.requireWorkOrderAccess(service)
@@ -157,8 +168,19 @@ internal fun Application.configureWorkOrderFeature() {
                     val userId = call.requireWorkOrderAccess(service)
                     if (policyService.resultLimits(userId).workOrder == 0) throw WorkOrderPermissionException()
                     val afterVersion = call.request.queryParameters["afterVersion"]?.toLongOrNull() ?: 0L
+                    val afterId = call.request.queryParameters["afterId"]?.toLongOrNull() ?: 0L
+                    val targetRevision = call.request.queryParameters["targetRevision"]?.toLongOrNull()
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
-                    call.respond(service.changes(afterVersion, limit).toResponse())
+                    call.respond(service.changes(afterVersion, afterId, targetRevision, limit).toResponse())
+                }
+                get("/catalog/full") {
+                    val userId = call.requireWorkOrderAccess(service)
+                    if (policyService.resultLimits(userId).workOrder == 0) throw WorkOrderPermissionException()
+                    val afterId = call.request.queryParameters["afterId"]?.toLongOrNull() ?: 0L
+                    val targetRevision = call.request.queryParameters["targetRevision"]?.toLongOrNull()
+                        ?: throw IllegalArgumentException("缺少目标目录版本")
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
+                    call.respond(service.fullWorkOrderCatalog(afterId, targetRevision, limit).toResponse())
                 }
                 get("/attachments") {
                     val userId = call.requireWorkOrderAccess(service)
@@ -525,8 +547,11 @@ private inline fun <T> runSearchSection(block: () -> T): Result<T> = runCatching
     if (it is CancellationException) throw it
 }
 @Serializable private data class WorkOrderCatalogVersionResponse(val catalogVersion: Long)
-@Serializable private data class WorkOrderChangeResponse(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WorkOrderResponse>)
-private fun WorkOrderChangePage.toResponse() = WorkOrderChangeResponse(catalogVersion, nextVersion, hasMore, records.map(WorkOrderRecord::toResponse))
+@Serializable private data class CatalogTombstoneResponse(val entityId: Long, val operation: String)
+@Serializable private data class WorkOrderChangeResponse(val catalogVersion: Long, val nextVersion: Long, val nextId: Long, val hasMore: Boolean, val records: List<WorkOrderResponse>, val tombstones: List<CatalogTombstoneResponse>, val fullSyncRequired: Boolean)
+private fun WorkOrderChangePage.toResponse() = WorkOrderChangeResponse(catalogVersion, nextVersion, nextId, hasMore, records.map(WorkOrderRecord::toResponse), tombstones.map { CatalogTombstoneResponse(it.entityId, it.operation) }, fullSyncRequired)
+@Serializable private data class WorkOrderFullCatalogResponse(val catalogVersion: Long, val records: List<WorkOrderResponse>, val nextAfterId: Long?, val hasMore: Boolean)
+private fun WorkOrderFullCatalogPage.toResponse() = WorkOrderFullCatalogResponse(catalogVersion, records.map(WorkOrderRecord::toResponse), records.lastOrNull()?.id?.takeIf { hasMore }, hasMore)
 @Serializable private data class WorkOrderHistoryResponse(val records: List<WorkOrderResponse>)
 @Serializable private data class WorkOrderResponse(
     val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?, val declaredPeople: Int?,
@@ -553,8 +578,10 @@ private fun WorkOrderRecord.toResponse() = WorkOrderResponse(
 )
 @Serializable private data class WechatMessagePageResponse(val records: List<WechatMessageResponse>, val nextOffset: Int?)
 private fun WechatMessagePage.toResponse() = WechatMessagePageResponse(records.map(WechatMessageRecord::toResponse), nextOffset)
-@Serializable private data class WechatMessageChangeResponse(val catalogVersion: Long, val nextVersion: Long, val hasMore: Boolean, val records: List<WechatMessageResponse>)
-private fun WechatMessageChangePage.toResponse() = WechatMessageChangeResponse(catalogVersion, nextVersion, hasMore, records.map(WechatMessageRecord::toResponse))
+@Serializable private data class WechatMessageChangeResponse(val catalogVersion: Long, val nextVersion: Long, val nextId: Long, val hasMore: Boolean, val records: List<WechatMessageResponse>, val tombstones: List<CatalogTombstoneResponse>, val fullSyncRequired: Boolean)
+private fun WechatMessageChangePage.toResponse() = WechatMessageChangeResponse(catalogVersion, nextVersion, nextId, hasMore, records.map(WechatMessageRecord::toResponse), tombstones.map { CatalogTombstoneResponse(it.entityId, it.operation) }, fullSyncRequired)
+@Serializable private data class WechatMessageFullCatalogResponse(val catalogVersion: Long, val records: List<WechatMessageResponse>, val nextAfterId: Long?, val hasMore: Boolean)
+private fun WechatMessageFullCatalogPage.toResponse() = WechatMessageFullCatalogResponse(catalogVersion, records.map(WechatMessageRecord::toResponse), records.lastOrNull()?.id?.takeIf { hasMore }, hasMore)
 @Serializable private data class WechatMessageResponse(
     val id: Long,
     val businessType: String,
@@ -681,11 +708,12 @@ private fun WechatSyncIntegrity.toResponse() = WechatSyncIntegrityResponse(uncon
 @Serializable private data class WechatSyncIssueResponse(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: String, val summary: String,
     val attachmentKind: String?, val fileName: String?, val pageCount: Int?, val sha256: String?, val sourceQuality: String,
+    val availability: String,
     val candidates: List<WechatAttachmentCandidateResponse>,
 )
 @Serializable private data class WechatAttachmentCandidateResponse(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
 private fun WechatSyncIssue.toResponse() = WechatSyncIssueResponse(
-    type, recordId, imageId, sourceName, sentAt.toString(), summary, attachmentKind, fileName, pageCount, sha256, sourceQuality,
+    type, recordId, imageId, sourceName, sentAt.toString(), summary, attachmentKind, fileName, pageCount, sha256, sourceQuality, availability,
     candidates.map { WechatAttachmentCandidateResponse(it.recordId, it.orderNumber, it.sentAt.toString(), it.summary) },
 )
 @Serializable private data class WorkOrderCorrectionRequest(

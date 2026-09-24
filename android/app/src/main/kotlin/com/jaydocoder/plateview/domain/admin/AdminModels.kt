@@ -191,6 +191,7 @@ data class WechatSyncIssue(
     val pageCount: Int? = null,
     val sha256: String? = null,
     val sourceQuality: String = "UNKNOWN",
+    val availability: String = "UNKNOWN",
     val candidates: List<WechatAttachmentCandidate> = emptyList(),
 )
 

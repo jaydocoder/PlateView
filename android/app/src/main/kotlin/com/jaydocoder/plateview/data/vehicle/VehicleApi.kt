@@ -38,4 +38,13 @@ interface VehicleApi {
         @Query("limit") limit: Int,
         @Query("offset") offset: Int,
     ): VehicleFullCatalogResponseDto
+
+    @GET("vehicles/catalog/changes")
+    suspend fun getCatalogChanges(
+        @Header("Authorization") authorization: String,
+        @Query("afterRevision") afterRevision: Long,
+        @Query("afterId") afterId: Long,
+        @Query("targetRevision") targetRevision: Long,
+        @Query("limit") limit: Int,
+    ): VehicleCatalogChangesResponseDto
 }

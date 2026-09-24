@@ -15,6 +15,14 @@ interface VehicleRepository {
         limit: Int,
         offset: Int,
     ): VehicleFullCatalogPage
+
+    suspend fun getCatalogChanges(
+        accessToken: String,
+        afterRevision: Long,
+        afterId: Long,
+        targetRevision: Long,
+        limit: Int,
+    ): VehicleCatalogChangePage
 }
 
 data class VehicleCatalogPage(
@@ -27,4 +35,20 @@ data class VehicleFullCatalogPage(
     val catalogVersion: Long,
     val total: Int,
     val vehicles: List<VehicleDetail>,
+)
+
+data class VehicleCatalogChange(
+    val revision: Long,
+    val entityId: Long,
+    val operation: String,
+    val vehicle: VehicleDetail?,
+)
+
+data class VehicleCatalogChangePage(
+    val catalogVersion: Long,
+    val nextRevision: Long,
+    val nextId: Long,
+    val hasMore: Boolean,
+    val fullSyncRequired: Boolean,
+    val changes: List<VehicleCatalogChange>,
 )

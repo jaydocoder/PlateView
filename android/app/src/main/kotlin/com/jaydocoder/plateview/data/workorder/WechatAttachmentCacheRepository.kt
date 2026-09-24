@@ -83,7 +83,7 @@ class WechatAttachmentCacheRepository @Inject constructor(
         if (userId == null) root.deleteRecursively() else File(root, userId.toString()).deleteRecursively()
     }
 
-    fun clearAttachmentVersion(
+    suspend fun clearAttachmentVersion(
         userId: Long,
         attachmentId: Long,
         variant: String,
@@ -91,8 +91,16 @@ class WechatAttachmentCacheRepository @Inject constructor(
         sourceQuality: String,
     ) {
         val cacheKey = attachmentCacheKey(attachmentId, variant, sha256, sourceQuality)
-        directory(userId).listFiles().orEmpty()
-            .filter { it.isFile && (it.nameWithoutExtension == cacheKey || it.name == "$cacheKey.download") }
-            .forEach(File::delete)
+        val lockKey = "$userId/$cacheKey"
+        val mutex = downloadMutexes.getOrPut(lockKey) { Mutex() }
+        try {
+            mutex.withLock {
+                directory(userId).listFiles().orEmpty()
+                    .filter { it.isFile && (it.nameWithoutExtension == cacheKey || it.name == "$cacheKey.download") }
+                    .forEach(File::delete)
+            }
+        } finally {
+            downloadMutexes.remove(lockKey, mutex)
+        }
     }
 }

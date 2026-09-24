@@ -18,61 +18,112 @@ class RoomVehicleCacheRepository @Inject constructor(
     private val dao: VehicleCacheDao,
     private val vehicleRepository: VehicleRepository,
 ) : VehicleCacheRepository {
-    private val synchronizationMutex = Mutex()
+    private val synchronizationMutexes = mutableMapOf<Long, Mutex>()
+    private val synchronizationMutexGuard = Mutex()
     private val gson = Gson()
 
-    override suspend fun search(normalizedKeyword: String): List<VehicleCandidate> = search(normalizedKeyword, 8)
+    override suspend fun search(userId: Long, normalizedKeyword: String): List<VehicleCandidate> = search(userId, normalizedKeyword, 8)
 
-    override suspend fun search(normalizedKeyword: String, limit: Int): List<VehicleCandidate> = dao
-        .searchCandidates(normalizedKeyword, limit.coerceIn(1, 50))
+    override suspend fun search(userId: Long, normalizedKeyword: String, limit: Int): List<VehicleCandidate> = dao
+        .searchCandidates(userId, normalizedKeyword, limit.coerceIn(1, 50))
         .map(VehicleSnapshotCacheEntity::toCandidate)
 
     override suspend fun synchronizeCatalog(
         accessToken: String,
+        userId: Long,
         forceVersionCheck: Boolean,
-    ): CatalogSyncResult = synchronizationMutex.withLock {
+        targetRevision: Long?,
+    ): CatalogSyncResult = synchronizationMutex(userId).withLock {
         val now = System.currentTimeMillis()
-        val current = dao.getCatalogState()
+        val current = dao.getCatalogState(userId)
         if (!forceVersionCheck && current != null && now - current.checkedAtEpochMillis < VERSION_CHECK_INTERVAL_MILLIS) {
-            return@withLock CatalogSyncResult(refreshed = false)
+            return@withLock CatalogSyncResult(refreshed = false, appliedRevision = current.catalogVersion)
         }
 
-        val remoteVersion = vehicleRepository.getCatalogVersion(accessToken)
+        val remoteVersion = targetRevision ?: vehicleRepository.getCatalogVersion(accessToken)
         if (current?.catalogVersion == remoteVersion) {
             dao.upsertCatalogState(current.copy(checkedAtEpochMillis = now))
-            return@withLock CatalogSyncResult(refreshed = false)
+            return@withLock CatalogSyncResult(refreshed = false, appliedRevision = remoteVersion)
+        }
+
+        if (current != null && current.catalogVersion > 0 && current.catalogVersion % 4L == remoteVersion % 4L) {
+            var afterRevision = current.catalogVersion
+            var afterId = 0L
+            val upserts = mutableListOf<VehicleSnapshotCacheEntity>()
+            val removals = mutableListOf<Long>()
+            var fullSyncRequired = false
+            do {
+                val page = vehicleRepository.getCatalogChanges(
+                    accessToken = accessToken,
+                    afterRevision = afterRevision,
+                    afterId = afterId,
+                    targetRevision = remoteVersion,
+                    limit = PAGE_SIZE,
+                )
+                fullSyncRequired = page.fullSyncRequired
+                if (fullSyncRequired) break
+                page.changes.forEach { change ->
+                    if (change.operation == "UPSERT" && change.vehicle != null) {
+                        upserts += change.vehicle.toEntity(userId, current.activeGeneration, gson)
+                    } else {
+                        removals += change.entityId
+                    }
+                }
+                afterRevision = page.nextRevision
+                afterId = page.nextId
+            } while (page.hasMore)
+            if (!fullSyncRequired) {
+                dao.applyChanges(
+                    userId = userId,
+                    generation = current.activeGeneration,
+                    upserts = upserts,
+                    removals = removals.distinct(),
+                    catalogVersion = remoteVersion,
+                    checkedAtEpochMillis = now,
+                    updatedAtEpochMillis = now,
+                )
+                return@withLock CatalogSyncResult(
+                    refreshed = upserts.isNotEmpty() || removals.isNotEmpty(),
+                    appliedRevision = remoteVersion,
+                )
+            }
         }
 
         val generation = now
-        dao.deleteGeneration(generation)
+        dao.deleteGeneration(userId, generation)
         var offset = 0
         var total = 0
         do {
             val page = vehicleRepository.getFullCatalog(accessToken, remoteVersion, PAGE_SIZE, offset)
             check(page.catalogVersion == remoteVersion) { "车辆目录版本在同步期间发生变化" }
             total = page.total
-            dao.insertSnapshots(page.vehicles.map { it.toEntity(generation, gson) })
+            dao.insertSnapshots(page.vehicles.map { it.toEntity(userId, generation, gson) })
             offset += page.vehicles.size
         } while (offset < total && offset > 0)
         check(offset == total) { "完整车辆目录分页结果不完整" }
         dao.promoteGeneration(
+            userId = userId,
             generation = generation,
             catalogVersion = remoteVersion,
             checkedAtEpochMillis = now,
             updatedAtEpochMillis = now,
         )
-        CatalogSyncResult(refreshed = true)
+        CatalogSyncResult(refreshed = true, appliedRevision = remoteVersion)
     }
 
-    override suspend fun getDetail(vehicleId: Long): CachedVehicleDetail? = dao.getDetail(vehicleId)?.let { entity ->
+    override suspend fun getDetail(userId: Long, vehicleId: Long): CachedVehicleDetail? = dao.getDetail(userId, vehicleId)?.let { entity ->
         CachedVehicleDetail(
             vehicle = gson.fromJson(entity.detailJson, VehicleDetail::class.java),
-            cachedAtEpochMillis = dao.getCatalogState()?.updatedAtEpochMillis ?: 0L,
+            cachedAtEpochMillis = dao.getCatalogState(userId)?.updatedAtEpochMillis ?: 0L,
         )
     }
 
-    override suspend fun clearSnapshot() {
-        dao.clearSnapshot()
+    override suspend fun clearSnapshot(userId: Long) {
+        dao.clearSnapshot(userId)
+    }
+
+    private suspend fun synchronizationMutex(userId: Long): Mutex = synchronizationMutexGuard.withLock {
+        synchronizationMutexes.getOrPut(userId) { Mutex() }
     }
 
     private companion object {
@@ -91,7 +142,8 @@ private fun VehicleSnapshotCacheEntity.toCandidate(): VehicleCandidate = Vehicle
     status = status,
 )
 
-private fun VehicleDetail.toEntity(generation: Long, gson: Gson): VehicleSnapshotCacheEntity = VehicleSnapshotCacheEntity(
+private fun VehicleDetail.toEntity(userId: Long, generation: Long, gson: Gson): VehicleSnapshotCacheEntity = VehicleSnapshotCacheEntity(
+    userId = userId,
     generation = generation,
     vehicleId = id,
     plateNumber = plateNumber,

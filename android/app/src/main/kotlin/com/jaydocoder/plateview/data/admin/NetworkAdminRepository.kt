@@ -253,6 +253,7 @@ class NetworkAdminRepository @Inject constructor(
                 it.pageCount,
                 it.sha256,
                 it.sourceQuality,
+                it.availability,
                 it.candidates.map { candidate -> com.jaydocoder.plateview.domain.admin.WechatAttachmentCandidate(candidate.recordId, candidate.orderNumber, candidate.sentAt, candidate.summary) },
             )
         }
@@ -345,6 +346,9 @@ class NetworkAdminRepository @Inject constructor(
         )
         return CachedAdminAttachment(cached.file, cached.variant)
     }
+
+    override fun observeWechatAttachmentDownload(userId: Long, imageId: Long) =
+        workOrderRepository.observeAttachmentDownload(userId, imageId)
 
     override suspend fun searchWechatWorkOrders(accessToken: String, keyword: String) =
         api.searchWechatWorkOrders(bearer(accessToken), keyword).candidates.map {

@@ -171,11 +171,36 @@ interface WorkOrderCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(records: List<WorkOrderCacheEntity>)
 
+    @Query("DELETE FROM work_order_cache WHERE userId = :userId AND recordId IN (:recordIds)")
+    suspend fun deleteRecords(userId: Long, recordIds: List<Long>)
+
+    @Query("DELETE FROM wechat_message_cache WHERE userId = :userId AND messageId IN (:messageIds)")
+    suspend fun deleteMessages(userId: Long, messageIds: List<Long>)
+
     @Query("SELECT * FROM work_order_catalog_state WHERE userId = :userId")
     suspend fun state(userId: Long): WorkOrderCatalogStateEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun updateState(state: WorkOrderCatalogStateEntity)
+
+    @Transaction
+    suspend fun applyCatalogSync(
+        records: List<WorkOrderCacheEntity>,
+        messages: List<WechatMessageCacheEntity>,
+        removedRecordIds: List<Long>,
+        removedMessageIds: List<Long>,
+        replaceWorkOrders: Boolean,
+        replaceMessages: Boolean,
+        state: WorkOrderCatalogStateEntity,
+    ) {
+        if (replaceWorkOrders) clearRecords(state.userId)
+        if (replaceMessages) clearMessages(state.userId)
+        if (records.isNotEmpty()) upsert(records)
+        if (messages.isNotEmpty()) upsertMessages(messages)
+        if (removedRecordIds.isNotEmpty()) deleteRecords(state.userId, removedRecordIds)
+        if (removedMessageIds.isNotEmpty()) deleteMessages(state.userId, removedMessageIds)
+        updateState(state)
+    }
 
     @Query("DELETE FROM work_order_cache WHERE userId = :userId")
     suspend fun clearRecords(userId: Long)
@@ -185,6 +210,20 @@ interface WorkOrderCacheDao {
 
     @Query("DELETE FROM wechat_message_cache WHERE userId = :userId")
     suspend fun clearMessages(userId: Long)
+
+    @Transaction
+    suspend fun revokeWorkOrders(userId: Long) {
+        clearRecords(userId)
+        val current = state(userId) ?: WorkOrderCatalogStateEntity(userId, 0, 0, 0)
+        updateState(current.copy(catalogVersion = 0, checkedAtEpochMillis = 0))
+    }
+
+    @Transaction
+    suspend fun revokeMessages(userId: Long) {
+        clearMessages(userId)
+        val current = state(userId) ?: WorkOrderCatalogStateEntity(userId, 0, 0, 0)
+        updateState(current.copy(messageCatalogVersion = 0, checkedAtEpochMillis = 0))
+    }
 
     @Query("DELETE FROM work_order_cache")
     suspend fun clearAllRecords()

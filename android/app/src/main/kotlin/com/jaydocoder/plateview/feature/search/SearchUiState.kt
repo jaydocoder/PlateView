@@ -16,6 +16,8 @@ data class SearchUiState(
     val workOrderSectionState: SearchSectionState = SearchSectionState.Idle,
     val wechatMessageSectionState: SearchSectionState = SearchSectionState.Idle,
     val history: List<SearchHistoryItem> = emptyList(),
+    val freshnessLabel: String = "正在确认最新数据",
+    val dataConfirmed: Boolean = false,
 )
 
 sealed interface SearchSectionState {

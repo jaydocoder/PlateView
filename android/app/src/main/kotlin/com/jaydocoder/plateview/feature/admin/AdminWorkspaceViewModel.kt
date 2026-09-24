@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -45,6 +46,7 @@ class AdminWorkspaceViewModel @Inject constructor(
     private var vehicleSearchJob: Job? = null
     private var vehicleLoadJob: Job? = null
     private var vehicleRequestVersion = 0L
+    private val wechatAttachmentStateJobs = mutableMapOf<Long, Job>()
     private val _uiState = MutableStateFlow(AdminUiState())
     val uiState: StateFlow<AdminUiState> = _uiState.asStateFlow()
 
@@ -96,6 +98,16 @@ class AdminWorkspaceViewModel @Inject constructor(
 
     fun openWechatAttachment(issue: com.jaydocoder.plateview.domain.admin.WechatSyncIssue) {
         val imageId = issue.imageId ?: return
+        if (issue.availability != "AVAILABLE") {
+            _uiState.update {
+                it.copy(
+                    selectedWechatAttachment = issue,
+                    isWechatAttachmentLoading = false,
+                    wechatAttachmentFailure = adminError("读取微信附件", AppErrorKind.NotFound, "采集器尚未取得原文件，将在原文件可用后自动补传"),
+                )
+            }
+            return
+        }
         val cachedOriginal = _uiState.value.wechatAttachmentFiles[imageId]?.takeIf { it.variant == "original" }
         _uiState.update {
             it.copy(
@@ -190,9 +202,12 @@ class AdminWorkspaceViewModel @Inject constructor(
                             totalWechatAttachmentCount = overview.totalAttachmentCount,
                             completedWechatAttachmentCount = overview.completedAttachmentCount,
                             pendingWechatAttachmentCount = overview.pendingAttachmentCount,
+                            wechatSyncIntegrity = overview.integrity,
+                            wechatCacheStatus = overview.cacheStatus,
                             wechatPassageSenders = repository.getWechatPassageSenders(accessToken),
                         )
                     }
+                    observeWechatAttachmentCaches(issues)
                 }
                 AdminTab.DataAccess -> {
                     requirePrimaryAdministrator()
@@ -351,6 +366,27 @@ class AdminWorkspaceViewModel @Inject constructor(
                 wechatCacheStatus = overview.cacheStatus,
                 isSaving = isSaving,
             )
+        }
+        observeWechatAttachmentCaches(overview.issues)
+    }
+
+    private suspend fun observeWechatAttachmentCaches(issues: List<com.jaydocoder.plateview.domain.admin.WechatSyncIssue>) {
+        val session = sessionProvider.session.first() ?: return
+        issues.mapNotNull { it.imageId }.distinct().forEach { imageId ->
+            if (wechatAttachmentStateJobs.containsKey(imageId)) return@forEach
+            wechatAttachmentStateJobs[imageId] = viewModelScope.launch {
+                repository.observeWechatAttachmentDownload(session.userId, imageId).collect { download ->
+                    val cached = download?.completedFile() ?: return@collect
+                    _uiState.update { state ->
+                        state.copy(
+                            wechatAttachmentFiles = state.wechatAttachmentFiles + (
+                                imageId to com.jaydocoder.plateview.domain.admin.CachedAdminAttachment(cached.file, cached.variant)
+                            ),
+                            wechatAttachmentFailures = state.wechatAttachmentFailures - imageId,
+                        )
+                    }
+                }
+            }
         }
     }
 

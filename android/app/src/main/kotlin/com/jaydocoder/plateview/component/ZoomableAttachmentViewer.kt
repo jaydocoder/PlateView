@@ -74,7 +74,9 @@ fun AttachmentThumbnail(
     modifier: Modifier = Modifier,
 ) {
     when {
-        file == null -> Box(modifier, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        file == null -> Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)), contentAlignment = Alignment.Center) {
+            Text("附件正在后台缓存", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         kind == "PDF" && variant == "original" -> RenderedPdfPage(
             file = file,
             pageIndex = 0,

@@ -1,5 +1,9 @@
 package com.jaydocoder.plateview.domain.admin
 
+import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+
 interface AdminRepository {
     suspend fun getDashboardSummary(accessToken: String): AdminDashboardSummary
     suspend fun getClientPolicy(accessToken: String): ClientPolicy = error("当前仓库未实现客户端策略")
@@ -68,5 +72,6 @@ interface AdminRepository {
         kind: String = "IMAGE",
         fileName: String? = null,
     ): CachedAdminAttachment
+    fun observeWechatAttachmentDownload(userId: Long, imageId: Long): Flow<AttachmentDownloadState?> = flowOf(null)
     suspend fun searchWechatWorkOrders(accessToken: String, keyword: String): List<WechatWorkOrderSearchItem>
 }

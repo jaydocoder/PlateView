@@ -5,6 +5,8 @@ import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleAttribute
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogPage
+import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogChange
+import com.jaydocoder.plateview.domain.vehicle.VehicleCatalogChangePage
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
 import com.jaydocoder.plateview.domain.vehicle.VehicleFullCatalogPage
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
@@ -56,6 +58,31 @@ class NetworkVehicleRepository @Inject constructor(
                 vehicles = response.items.map(VehicleDetailDto::toDomain),
             )
         }
+
+    override suspend fun getCatalogChanges(
+        accessToken: String,
+        afterRevision: Long,
+        afterId: Long,
+        targetRevision: Long,
+        limit: Int,
+    ): VehicleCatalogChangePage = api.getCatalogChanges(
+        authorization = bearer(accessToken),
+        afterRevision = afterRevision,
+        afterId = afterId,
+        targetRevision = targetRevision,
+        limit = limit,
+    ).let { response ->
+        VehicleCatalogChangePage(
+            catalogVersion = response.catalogVersion,
+            nextRevision = response.nextRevision,
+            nextId = response.nextId,
+            hasMore = response.hasMore,
+            fullSyncRequired = response.fullSyncRequired,
+            changes = response.items.map { item ->
+                VehicleCatalogChange(item.revision, item.entityId, item.operation, item.record?.toDomain())
+            },
+        )
+    }
 
     private fun bearer(accessToken: String): String = "Bearer $accessToken"
 }

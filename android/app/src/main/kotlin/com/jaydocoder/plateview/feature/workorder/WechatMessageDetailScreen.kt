@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -95,6 +96,15 @@ internal fun WechatMessageDetailScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(PlateViewDimensions.pageHorizontal, PlateViewDimensions.pageVertical),
                     verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
                 ) {
+                    item {
+                        Surface(
+                            color = if (state.dataConfirmed) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
+                            contentColor = if (state.dataConfirmed) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                            shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+                        ) {
+                            Text(state.freshnessLabel, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                     item {
                         MessagePanel("微信原始内容") {
                             if (message.hasAttachmentPlaceholderContent()) {

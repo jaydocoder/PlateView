@@ -70,16 +70,17 @@ internal class VehicleQueryService(
 
     fun findDetail(vehicleId: Long, accessScope: VehicleAccessScope): VehicleDetail? {
         require(vehicleId > 0) { "车辆标识无效" }
-        return dataSource.connection.use { connection ->
-            connection.prepareStatement(SELECT_VEHICLE_DETAIL).use { statement ->
-                statement.setLong(1, vehicleId)
-                statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
-                statement.executeQuery().use { result ->
-                    if (result.next()) result.toVehicleDetail().filteredFor(accessScope) else null
-                }
+        return dataSource.connection.use { connection -> connection.findDetail(vehicleId, accessScope) }
+    }
+
+    private fun Connection.findDetail(vehicleId: Long, accessScope: VehicleAccessScope): VehicleDetail? =
+        prepareStatement(SELECT_VEHICLE_DETAIL).use { statement ->
+            statement.setLong(1, vehicleId)
+            statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
+            statement.executeQuery().use { result ->
+                if (result.next()) result.toVehicleDetail().filteredFor(accessScope) else null
             }
         }
-    }
 
     fun recordQueryEvent(actorId: Long, vehicle: VehicleDetail) {
         dataSource.connection.use { connection ->
@@ -118,27 +119,123 @@ internal class VehicleQueryService(
     fun fullCatalog(accessScope: VehicleAccessScope, expectedRevision: Long, limit: Int, offset: Int): VehicleFullCatalogPage {
         require(expectedRevision >= 0) { "目录版本无效" }
         require(limit in 1..500) { "目录分页大小必须在1到500之间" }
-        val snapshot = loadFullCatalogSnapshot(accessScope, expectedRevision)
-        val safeOffset = offset.coerceAtLeast(0)
-        return VehicleFullCatalogPage(
-            revision = snapshot.revision,
-            total = snapshot.items.size,
-            items = snapshot.items.drop(safeOffset).take(limit),
+        return repeatableRead { connection ->
+            val expectedBits = accessScope.versionBits
+            require(expectedRevision % 4L == expectedBits) { "目标目录权限范围与当前账号不一致" }
+            val targetRawRevision = expectedRevision / 4L
+            val currentRevision = catalogVersion(catalogRevision(connection), accessScope)
+            require(expectedRevision <= currentRevision) { "目标目录版本不能高于服务器当前版本" }
+            if (connection.hasVehicleConflictAfter(targetRawRevision)) throw VehicleCatalogVersionConflictException()
+            val safeOffset = offset.coerceAtLeast(0)
+            val items = connection.prepareStatement(SELECT_FULL_CATALOG_PAGE).use { statement ->
+                statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
+                statement.setLong(2, targetRawRevision)
+                statement.setLong(3, targetRawRevision)
+                statement.setInt(4, limit)
+                statement.setInt(5, safeOffset)
+                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toVehicleDetail().filteredFor(accessScope)) } }
+            }
+            val total = connection.prepareStatement(
+                "SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED' AND (? OR category <> 'OTHER_LONG_TERM') " +
+                    "AND created_catalog_revision <= ? AND catalog_revision <= ?",
+            ).use { statement ->
+                statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
+                statement.setLong(2, targetRawRevision)
+                statement.setLong(3, targetRawRevision)
+                statement.executeQuery().use { result -> result.next(); result.getInt(1) }
+            }
+            VehicleFullCatalogPage(expectedRevision, total, items)
+        }
+    }
+
+    fun changes(
+        accessScope: VehicleAccessScope,
+        afterRevision: Long,
+        afterId: Long,
+        targetRevision: Long,
+        limit: Int,
+    ): VehicleCatalogChangePage = repeatableRead { connection ->
+        require(limit in 1..200) { "目录变更分页大小必须在1到200之间" }
+        val currentRevision = catalogVersion(catalogRevision(connection), accessScope)
+        require(targetRevision <= currentRevision) { "目标目录版本不能高于服务器当前版本" }
+        require(targetRevision >= afterRevision) { "目标目录版本不能早于本地版本" }
+        val expectedBits = accessScope.versionBits
+        if (afterRevision > 0 && afterRevision % 4L != expectedBits) {
+            return@repeatableRead VehicleCatalogChangePage(targetRevision, afterRevision, afterId, false, true, emptyList())
+        }
+        require(targetRevision % 4L == expectedBits) { "目标目录权限范围与当前账号不一致" }
+        val afterRawRevision = afterRevision / 4L
+        val targetRawRevision = targetRevision / 4L
+        val earliestRevision = connection.prepareStatement("SELECT MIN(revision) FROM vehicle_catalog_changes").use { statement ->
+            statement.executeQuery().use { result -> result.next(); result.getLong(1).takeUnless { result.wasNull() } }
+        }
+        if (afterRevision > 0 && earliestRevision != null && afterRawRevision < earliestRevision - 1) {
+            return@repeatableRead VehicleCatalogChangePage(targetRevision, afterRevision, afterId, false, true, emptyList())
+        }
+        val changes = connection.prepareStatement(
+            """
+            SELECT revision, entity_id, operation
+            FROM vehicle_catalog_changes
+            WHERE (revision > ? OR (revision = ? AND entity_id > ?)) AND revision <= ?
+            ORDER BY revision, entity_id
+            LIMIT ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, afterRawRevision)
+            statement.setLong(2, afterRawRevision)
+            statement.setLong(3, afterId.coerceAtLeast(0))
+            statement.setLong(4, targetRawRevision)
+            statement.setInt(5, limit + 1)
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) add(Triple(result.getLong(1), result.getLong(2), result.getString(3)))
+                }
+            }
+        }
+        val page = changes.take(limit)
+        if (connection.hasVehicleConflictAfter(targetRawRevision)) {
+            throw VehicleCatalogVersionConflictException()
+        }
+        val items = page.map { (revision, entityId, operation) ->
+            val record = if (operation == "UPSERT") connection.findDetail(entityId, accessScope) else null
+            VehicleCatalogChangeItem(
+                revision = revision * 4L + expectedBits,
+                entityId = entityId,
+                operation = if (operation == "UPSERT" && record == null) "REVOKE" else operation,
+                record = record,
+            )
+        }
+        VehicleCatalogChangePage(
+            catalogVersion = targetRevision,
+            nextRevision = items.lastOrNull()?.revision ?: afterRevision,
+            nextId = items.lastOrNull()?.entityId ?: afterId,
+            hasMore = changes.size > limit,
+            fullSyncRequired = false,
+            items = items,
         )
     }
 
-    private fun loadFullCatalogSnapshot(accessScope: VehicleAccessScope, expectedRevision: Long): VehicleFullCatalogSnapshot = dataSource.connection.use { connection ->
+    private fun Connection.hasVehicleConflictAfter(targetRevision: Long): Boolean {
+        return prepareStatement(
+            """
+            SELECT 1
+            FROM vehicle_catalog_changes c
+            WHERE c.revision > ?
+              AND c.entity_created_revision <= ?
+            LIMIT 1
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, targetRevision)
+            statement.setLong(2, targetRevision)
+            statement.executeQuery().use(ResultSet::next)
+        }
+    }
+
+    private fun <T> repeatableRead(block: (Connection) -> T): T = dataSource.connection.use { connection ->
         connection.autoCommit = false
         connection.transactionIsolation = Connection.TRANSACTION_REPEATABLE_READ
         try {
-            val revision = catalogVersion(catalogRevision(connection), accessScope)
-            if (revision != expectedRevision) throw VehicleCatalogVersionConflictException()
-            val items = connection.prepareStatement(SELECT_FULL_CATALOG).use { statement ->
-                statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
-                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toVehicleDetail()) } }
-            }.map { it.filteredFor(accessScope) }
-            connection.commit()
-            VehicleFullCatalogSnapshot(revision, items)
+            block(connection).also { connection.commit() }
         } catch (throwable: Throwable) {
             runCatching { connection.rollback() }
             throw throwable
@@ -261,7 +358,7 @@ internal class VehicleQueryService(
             WHERE v.id = ? AND v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
         """
 
-        const val SELECT_FULL_CATALOG = """
+        const val SELECT_FULL_CATALOG_PAGE = """
             SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.attributes::text,
                    rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
                    rp.remarks AS resident_remarks,
@@ -271,7 +368,9 @@ internal class VehicleQueryService(
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
             WHERE v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
+              AND v.created_catalog_revision <= ? AND v.catalog_revision <= ?
             ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id
+            LIMIT ? OFFSET ?
         """
     }
 }
@@ -319,9 +418,22 @@ internal data class LongTermVehicleProfile(
 internal data class VehicleCatalogPage(val revision: Long, val total: Int, val items: List<VehicleSearchCandidate>)
 
 @Serializable
-internal data class VehicleFullCatalogSnapshot(val revision: Long, val items: List<VehicleDetail>)
 
 internal data class VehicleFullCatalogPage(val revision: Long, val total: Int, val items: List<VehicleDetail>)
+internal data class VehicleCatalogChangeItem(
+    val revision: Long,
+    val entityId: Long,
+    val operation: String,
+    val record: VehicleDetail?,
+)
+internal data class VehicleCatalogChangePage(
+    val catalogVersion: Long,
+    val nextRevision: Long,
+    val nextId: Long,
+    val hasMore: Boolean,
+    val fullSyncRequired: Boolean,
+    val items: List<VehicleCatalogChangeItem>,
+)
 
 internal data class VehicleAccessScope(
     val otherLongTermAccessEnabled: Boolean,

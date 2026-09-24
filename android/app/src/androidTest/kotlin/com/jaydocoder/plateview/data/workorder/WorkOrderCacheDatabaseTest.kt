@@ -101,6 +101,74 @@ class WorkOrderCacheDatabaseTest {
         }
     }
 
+    @Test
+    fun 目录事务同时应用更新墓碑并推进版本() = runBlocking {
+        val dao = database.dao()
+        dao.upsert(listOf(entity(1, "0924001", "2026-09-24T03:00:00Z")))
+        dao.upsertMessages(listOf(messageEntity(7, 11)))
+
+        dao.applyCatalogSync(
+            records = listOf(entity(2, "0924002", "2026-09-24T04:00:00Z")),
+            messages = listOf(messageEntity(7, 12)),
+            removedRecordIds = listOf(1),
+            removedMessageIds = listOf(11),
+            replaceWorkOrders = false,
+            replaceMessages = false,
+            state = WorkOrderCatalogStateEntity(7, 20, 21, 1_000),
+        )
+
+        assertNull(dao.get(7, 1))
+        assertEquals(2L, dao.get(7, 2)?.recordId)
+        assertNull(dao.getMessage(7, 11))
+        assertEquals(12L, dao.getMessage(7, 12)?.messageId)
+        assertEquals(20L, dao.state(7)?.catalogVersion)
+        assertEquals(21L, dao.state(7)?.messageCatalogVersion)
+    }
+
+    @Test
+    fun 全量重建只替换指定账号对应目录() = runBlocking {
+        val dao = database.dao()
+        dao.upsert(listOf(entity(1, "旧车单", "2026-09-24T03:00:00Z"), entity(9, "其他账号", "2026-09-24T03:00:00Z", userId = 8)))
+        dao.upsertMessages(listOf(messageEntity(7, 11), messageEntity(8, 19)))
+
+        dao.applyCatalogSync(
+            records = listOf(entity(2, "新车单", "2026-09-24T04:00:00Z")),
+            messages = listOf(messageEntity(7, 12)),
+            removedRecordIds = emptyList(),
+            removedMessageIds = emptyList(),
+            replaceWorkOrders = true,
+            replaceMessages = true,
+            state = WorkOrderCatalogStateEntity(7, 30, 31, 2_000),
+        )
+
+        assertNull(dao.get(7, 1))
+        assertEquals(2L, dao.get(7, 2)?.recordId)
+        assertEquals(9L, dao.get(8, 9)?.recordId)
+        assertNull(dao.getMessage(7, 11))
+        assertEquals(19L, dao.getMessage(8, 19)?.messageId)
+    }
+
+    @Test
+    fun 权限撤销独立清理对应目录并将其版本归零() = runBlocking {
+        val dao = database.dao()
+        dao.upsert(listOf(entity(1, "0924001", "2026-09-24T03:00:00Z")))
+        dao.upsertMessages(listOf(messageEntity(7, 11)))
+        dao.updateState(WorkOrderCatalogStateEntity(7, 20, 21, 1_000))
+
+        dao.revokeWorkOrders(7)
+
+        assertNull(dao.get(7, 1))
+        assertEquals(11L, dao.getMessage(7, 11)?.messageId)
+        assertEquals(0L, dao.state(7)?.catalogVersion)
+        assertEquals(21L, dao.state(7)?.messageCatalogVersion)
+
+        dao.revokeMessages(7)
+
+        assertNull(dao.getMessage(7, 11))
+        assertEquals(0L, dao.state(7)?.messageCatalogVersion)
+        assertEquals(0L, dao.state(7)?.checkedAtEpochMillis)
+    }
+
     private fun attachmentTask(userId: Long, attachmentId: Long, priority: Int, foreground: Boolean) =
         WechatAttachmentDownloadTaskEntity(
             userId = userId,
@@ -124,8 +192,8 @@ class WorkOrderCacheDatabaseTest {
             updatedAt = 1_000,
         )
 
-    private fun entity(id: Long, orderNumber: String, sentAt: String) = WorkOrderCacheEntity(
-        userId = 7,
+    private fun entity(id: Long, orderNumber: String, sentAt: String, userId: Long = 7) = WorkOrderCacheEntity(
+        userId = userId,
         recordId = id,
         orderNumber = orderNumber,
         rawPlate = "新H27274",
@@ -138,6 +206,20 @@ class WorkOrderCacheDatabaseTest {
         catalogRevision = id,
         cachedAt = id,
         lastValidatedAt = id,
+        detailJson = "{}",
+    )
+
+    private fun messageEntity(userId: Long, messageId: Long) = WechatMessageCacheEntity(
+        userId = userId,
+        messageId = messageId,
+        businessType = "GENERAL_MESSAGE",
+        displayName = "测试发送者",
+        sourceName = "测试群",
+        sentAt = "2026-09-24T03:00:00Z",
+        searchableText = "测试消息$messageId",
+        catalogRevision = messageId,
+        cachedAt = messageId,
+        lastValidatedAt = messageId,
         detailJson = "{}",
     )
 }

@@ -31,12 +31,17 @@ import kotlinx.serialization.json.jsonPrimitive
 internal fun Application.configureClientPolicyFeature() {
     val dataSource = attributes.getOrNull(DataSourceKey) ?: return
     val service = ClientPolicyService(dataSource)
+    val catalogStateService = catalogStateService(dataSource)
     routing {
         authenticate("access-token") {
             get("/client/runtime-policy") {
                 val principal = call.principal<JWTPrincipal>()!!
                 val userId = principal.payload.getClaim("userId").asLong()
                 call.respond(service.runtimePolicy(userId))
+            }
+            get("/client/catalog-state") {
+                val userId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                call.respond(catalogStateService.state(userId))
             }
             post("/client/cache-reset/ack") {
                 val userId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()

@@ -19,6 +19,9 @@ import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 import com.jaydocoder.plateview.domain.workorder.WechatMessage
+import com.jaydocoder.plateview.feature.consistency.CatalogConsistencyStateProvider
+import com.jaydocoder.plateview.feature.consistency.CatalogKind
+import com.jaydocoder.plateview.feature.consistency.CatalogSyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -51,6 +54,7 @@ class SearchViewModel @Inject constructor(
     private val sessionProvider: AuthSessionProvider,
     private val workOrderRepository: WorkOrderRepository,
     private val runtimePolicyRepository: ClientRuntimePolicyProvider = DefaultClientRuntimePolicyProvider,
+    private val consistencyStateProvider: CatalogConsistencyStateProvider = com.jaydocoder.plateview.feature.consistency.DefaultCatalogConsistencyStateProvider,
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val retryVersion = MutableStateFlow(0)
@@ -63,7 +67,7 @@ class SearchViewModel @Inject constructor(
     init {
         observeQuery()
         observeHistory()
-        syncCatalogInBackground()
+        observeCatalogFreshness()
     }
 
     fun updateQuery(value: String) {
@@ -76,7 +80,7 @@ class SearchViewModel @Inject constructor(
     }
 
     fun onAppForeground() {
-        syncCatalogInBackground(forceVersionCheck = true)
+        // 应用级会话心跳负责前台立即确认，页面只观察统一状态。
     }
 
     fun selectCandidate(candidate: VehicleCandidate) {
@@ -188,9 +192,9 @@ class SearchViewModel @Inject constructor(
         supervisorScope {
             val jobs = mutableListOf<kotlinx.coroutines.Job>()
             if (limits.vehicleResultLimit == 0) {
-                jobs += launch { vehicleCacheRepository.clearSnapshot() }
+                jobs += launch { vehicleCacheRepository.clearSnapshot(session.userId) }
             } else jobs += launch {
-                runCatching { vehicleCacheRepository.search(normalizedQuery, limits.vehicleResultLimit) }
+                runCatching { vehicleCacheRepository.search(session.userId, normalizedQuery, limits.vehicleResultLimit) }
                     .onSuccess { local ->
                         _uiState.update {
                             it.copy(
@@ -237,7 +241,6 @@ class SearchViewModel @Inject constructor(
             }
             jobs.joinAll()
         }
-        syncCatalogInBackground()
         updateOverallSearchState()
     }
 
@@ -256,34 +259,30 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private fun syncCatalogInBackground(forceVersionCheck: Boolean = false) {
+    private fun observeCatalogFreshness() {
         viewModelScope.launch {
-            val session = sessionProvider.session.first() ?: return@launch
-            if (runtimePolicyRepository.cacheMaintenanceActive.value) return@launch
-            val limits = runtimePolicyRepository.policy.value
-            var catalogChanged = false
-            if (limits.vehicleResultLimit > 0) {
-                runCatching {
-                    vehicleCacheRepository.synchronizeCatalog(
-                        accessToken = session.accessToken,
-                        forceVersionCheck = forceVersionCheck,
+            var previousRevisions = emptyMap<CatalogKind, Long>()
+            consistencyStateProvider.freshness.collect { states ->
+                val currentRevisions = states.mapValues { it.value.appliedRevision }
+                if (previousRevisions.isNotEmpty() && currentRevisions != previousRevisions && query.value.isNotBlank()) {
+                    retryVersion.update(Int::inc)
+                }
+                previousRevisions = currentRevisions
+                val relevant = states.values.filter { it.kind != CatalogKind.ATTACHMENT }
+                val newestConfirmation = relevant.maxOfOrNull { it.lastConfirmedAtEpochMillis } ?: 0L
+                _uiState.update { state ->
+                    state.copy(
+                        freshnessLabel = when {
+                            relevant.any { it.status == CatalogSyncStatus.SYNCING } -> "发现更新，正在同步"
+                            relevant.any { it.status == CatalogSyncStatus.CHECKING } -> "正在确认最新数据"
+                            relevant.any { it.status in setOf(CatalogSyncStatus.OFFLINE_STALE, CatalogSyncStatus.FAILED) } -> "数据未确认，请谨慎核验"
+                            newestConfirmation > 0 -> "数据已确认 · ${formatConfirmationTime(newestConfirmation)}"
+                            else -> "正在确认最新数据"
+                        },
+                        dataConfirmed = relevant.isNotEmpty() && relevant.all { it.isConfirmed() || it.status == CatalogSyncStatus.PERMISSION_REVOKED },
                     )
-                }.onSuccess { catalogChanged = catalogChanged || it.refreshed
-                }.onFailure(Throwable::rethrowIfCancellation)
-            } else {
-                runCatching { vehicleCacheRepository.clearSnapshot() }
+                }
             }
-            if (session.wechatWorkOrderAccessEnabled && (limits.workOrderResultLimit > 0 || limits.wechatMessageResultLimit > 0)) {
-                runCatching { workOrderRepository.synchronize(session.accessToken, session.userId, forceVersionCheck) }
-                    .onSuccess { catalogChanged = catalogChanged || it.refreshed }
-                    .onFailure(Throwable::rethrowIfCancellation)
-            } else {
-                runCatching { workOrderRepository.clearWorkOrders(session.userId) }
-            }
-            if (!session.wechatWorkOrderAccessEnabled || limits.wechatMessageResultLimit == 0) {
-                runCatching { workOrderRepository.clearMessages(session.userId) }
-            }
-            if (catalogChanged && query.value.isNotBlank()) retryVersion.update(Int::inc)
         }
     }
 
@@ -317,6 +316,9 @@ class SearchViewModel @Inject constructor(
         const val HTTP_FORBIDDEN = 403
     }
 }
+
+private fun formatConfirmationTime(epochMillis: Long): String =
+    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.CHINA).format(java.util.Date(epochMillis))
 
 private fun searchError(kind: AppErrorKind, message: String) = AppError(
     operation = "查询车辆",

@@ -7,19 +7,23 @@ data class CachedVehicleDetail(
 
 data class CatalogSyncResult(
     val refreshed: Boolean,
+    val appliedRevision: Long,
 )
 
 interface VehicleCacheRepository {
-    suspend fun search(normalizedKeyword: String): List<VehicleCandidate>
+    suspend fun search(userId: Long, normalizedKeyword: String): List<VehicleCandidate>
 
-    suspend fun search(normalizedKeyword: String, limit: Int): List<VehicleCandidate> = search(normalizedKeyword).take(limit)
+    suspend fun search(userId: Long, normalizedKeyword: String, limit: Int): List<VehicleCandidate> =
+        search(userId, normalizedKeyword).take(limit)
 
     suspend fun synchronizeCatalog(
         accessToken: String,
+        userId: Long,
         forceVersionCheck: Boolean = false,
+        targetRevision: Long? = null,
     ): CatalogSyncResult
 
-    suspend fun getDetail(vehicleId: Long): CachedVehicleDetail?
+    suspend fun getDetail(userId: Long, vehicleId: Long): CachedVehicleDetail?
 
-    suspend fun clearSnapshot()
+    suspend fun clearSnapshot(userId: Long)
 }

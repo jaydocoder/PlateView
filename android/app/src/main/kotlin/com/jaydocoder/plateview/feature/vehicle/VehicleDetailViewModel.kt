@@ -17,6 +17,10 @@ import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.feature.consistency.CatalogConsistencyStateProvider
+import com.jaydocoder.plateview.feature.consistency.CatalogKind
+import com.jaydocoder.plateview.feature.consistency.CatalogSyncStatus
+import com.jaydocoder.plateview.feature.consistency.DefaultCatalogConsistencyStateProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +38,7 @@ class VehicleDetailViewModel @Inject constructor(
     private val statisticsRepository: StatisticsRepository,
     private val queryEventSyncScheduler: QueryEventSyncScheduler,
     private val sessionProvider: AuthSessionProvider,
+    private val consistencyStateProvider: CatalogConsistencyStateProvider = DefaultCatalogConsistencyStateProvider,
 ) : ViewModel() {
     private val vehicleId = savedStateHandle.toRoute<VehicleDetailDestination>().vehicleId
     private val _uiState = MutableStateFlow(VehicleDetailUiState())
@@ -42,6 +47,7 @@ class VehicleDetailViewModel @Inject constructor(
     val uiState: StateFlow<VehicleDetailUiState> = _uiState.asStateFlow()
 
     init {
+        observeFreshness()
         refresh()
     }
 
@@ -56,16 +62,17 @@ class VehicleDetailViewModel @Inject constructor(
             }
 
             val cached = runCatching {
-                vehicleCacheRepository.getDetail(vehicleId)
+                vehicleCacheRepository.getDetail(session.userId, vehicleId)
             }.getOrNull()
             if (cached != null) {
                 recordQueryOnce(session, cached.vehicle)
                 _uiState.update { it.copy(content = VehicleDetailContent.Data(cached.vehicle, isCached = true)) }
-                return@launch
+                val freshness = consistencyStateProvider.freshness.value[CatalogKind.VEHICLE]
+                if (freshness?.isConfirmed() == true) return@launch
             }
 
             try {
-                _uiState.update { it.copy(content = VehicleDetailContent.Loading) }
+                if (cached == null) _uiState.update { it.copy(content = VehicleDetailContent.Loading) }
                 val vehicle = vehicleRepository.getVehicle(session.accessToken, vehicleId)
                 recordQueryOnce(session, vehicle)
                 _uiState.update { it.copy(content = VehicleDetailContent.Data(vehicle)) }
@@ -74,7 +81,33 @@ class VehicleDetailViewModel @Inject constructor(
                 val error = AppErrorMapper.map("查看车辆详情", throwable)
                 if (error.kind == AppErrorKind.SessionExpired) sessionProvider.logout()
                 AppErrorTelemetry.report(error)
-                _uiState.update { it.copy(content = VehicleDetailContent.Error(error)) }
+                if (cached == null) _uiState.update { it.copy(content = VehicleDetailContent.Error(error)) }
+            }
+        }
+    }
+
+    private fun observeFreshness() {
+        viewModelScope.launch {
+            consistencyStateProvider.freshness.collect { states ->
+                val freshness = states[CatalogKind.VEHICLE] ?: return@collect
+                _uiState.update {
+                    it.copy(
+                        dataConfirmed = freshness.isConfirmed(),
+                        freshnessLabel = when (freshness.status) {
+                            CatalogSyncStatus.CONFIRMED -> if (freshness.isConfirmed()) "数据已确认" else "数据未确认，请谨慎核验"
+                            CatalogSyncStatus.CHECKING -> "正在确认最新数据"
+                            CatalogSyncStatus.OUTDATED, CatalogSyncStatus.SYNCING -> "发现更新，正在同步"
+                            CatalogSyncStatus.PERMISSION_REVOKED -> "当前账号无权访问"
+                            CatalogSyncStatus.OFFLINE_STALE, CatalogSyncStatus.FAILED -> "数据未确认，请谨慎核验"
+                        },
+                    )
+                }
+                if (freshness.status == CatalogSyncStatus.CONFIRMED && freshness.isConfirmed()) {
+                    val session = sessionProvider.session.first() ?: return@collect
+                    vehicleCacheRepository.getDetail(session.userId, vehicleId)?.let { cached ->
+                        _uiState.update { it.copy(content = VehicleDetailContent.Data(cached.vehicle, isCached = true)) }
+                    }
+                }
             }
         }
     }

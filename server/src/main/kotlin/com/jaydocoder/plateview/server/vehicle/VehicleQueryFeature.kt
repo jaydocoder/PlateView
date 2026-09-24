@@ -80,6 +80,20 @@ internal fun Application.configureVehicleQueryFeature() {
                         ),
                     )
                 }
+                get("/catalog/changes") {
+                    val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
+                    if (policyService.resultLimits(actorId).vehicle == 0) {
+                        call.respond(HttpStatusCode.Forbidden, mapOf("message" to "匹配车辆访问已关闭"))
+                        return@get
+                    }
+                    val accessScope = service.accessScope(actorId)
+                    val afterRevision = call.request.queryParameters["afterRevision"]?.toLongOrNull() ?: 0L
+                    val afterId = call.request.queryParameters["afterId"]?.toLongOrNull() ?: 0L
+                    val targetRevision = call.request.queryParameters["targetRevision"]?.toLongOrNull()
+                        ?: throw IllegalArgumentException("缺少目标目录版本")
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 200
+                    call.respond(service.changes(accessScope, afterRevision, afterId, targetRevision, limit).toResponse())
+                }
                 get("/{vehicleId}") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()
                     if (policyService.resultLimits(actorId).vehicle == 0) {
@@ -193,6 +207,40 @@ private data class VehicleFullCatalogResponse(
     val catalogVersion: Long,
     val total: Int,
     val items: List<VehicleDetailResponse>,
+)
+
+@Serializable
+private data class VehicleCatalogChangeResponse(
+    val catalogVersion: Long,
+    val nextRevision: Long,
+    val nextId: Long,
+    val hasMore: Boolean,
+    val fullSyncRequired: Boolean,
+    val items: List<VehicleCatalogChangeItemResponse>,
+)
+
+@Serializable
+private data class VehicleCatalogChangeItemResponse(
+    val revision: Long,
+    val entityId: Long,
+    val operation: String,
+    val record: VehicleDetailResponse?,
+)
+
+private fun VehicleCatalogChangePage.toResponse() = VehicleCatalogChangeResponse(
+    catalogVersion = catalogVersion,
+    nextRevision = nextRevision,
+    nextId = nextId,
+    hasMore = hasMore,
+    fullSyncRequired = fullSyncRequired,
+    items = items.map { item ->
+        VehicleCatalogChangeItemResponse(
+            revision = item.revision,
+            entityId = item.entityId,
+            operation = item.operation,
+            record = item.record?.toResponse(catalogVersion),
+        )
+    },
 )
 
 @Serializable
