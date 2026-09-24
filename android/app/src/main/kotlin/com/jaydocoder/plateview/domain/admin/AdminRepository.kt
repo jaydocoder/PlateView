@@ -65,6 +65,8 @@ interface AdminRepository {
         variant: String = "preview",
         sha256: String? = null,
         sourceQuality: String = "UNKNOWN",
+        kind: String = "IMAGE",
+        fileName: String? = null,
     ): CachedAdminAttachment
     suspend fun searchWechatWorkOrders(accessToken: String, keyword: String): List<WechatWorkOrderSearchItem>
 }

@@ -223,6 +223,17 @@ internal class WorkOrderService(private val dataSource: DataSource) {
 
     fun catalogVersion(): Long = dataSource.connection.use { connection -> connection.catalogRevision() }
 
+    fun attachmentManifestRevision(workOrderAllowed: Boolean, messageAllowed: Boolean): Long = dataSource.connection.use { connection ->
+        connection.prepareStatement(
+            "SELECT revision FROM work_order_attachment_manifest_state WHERE id = 1",
+        ).use { statement ->
+            statement.executeQuery().use { result ->
+                check(result.next()) { "无法读取附件清单版本" }
+                result.getLong(1) * 4L + (if (workOrderAllowed) 2L else 0L) + (if (messageAllowed) 1L else 0L)
+            }
+        }
+    }
+
     fun changes(afterVersion: Long, limit: Int): WorkOrderChangePage = dataSource.connection.use { connection ->
         val safeLimit = limit.coerceIn(1, 200)
         val records = connection.prepareStatement(
@@ -388,9 +399,18 @@ internal class WorkOrderService(private val dataSource: DataSource) {
 
     fun saveAttachmentCacheStatus(userId: Long, request: AttachmentCacheStatusRequest) = transaction { connection ->
         require(request.clientInstanceId.isNotBlank() && request.clientInstanceId.length <= 128) { "客户端实例标识无效" }
+        if (request.items.isEmpty()) {
+            connection.prepareStatement(
+                "DELETE FROM client_attachment_cache_status WHERE user_id = ? AND client_instance_id = ?",
+            ).use { statement ->
+                statement.setLong(1, userId)
+                statement.setString(2, request.clientInstanceId)
+                statement.executeUpdate()
+            }
+        }
         request.items.forEach { item ->
             require(item.variant in setOf("original", "preview", "thumbnail")) { "附件规格无效" }
-            require(item.status in setOf("DISCOVERED", "WAITING_NETWORK", "DOWNLOADING", "PAUSED", "RETRY_WAIT", "COMPLETED", "FAILED", "REVOKED")) { "附件缓存状态无效" }
+            require(item.status in setOf("DISCOVERED", "WAITING_NETWORK", "DOWNLOADING", "PAUSED", "RETRY_WAIT", "COMPLETED", "FAILED", "REVOKED", "SOURCE_UNAVAILABLE")) { "附件缓存状态无效" }
             connection.prepareStatement(
                 """
                 INSERT INTO client_attachment_cache_status(user_id, client_instance_id, manifest_revision, attachment_id, variant, status,
@@ -419,12 +439,51 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
-    fun attachmentCacheStatusSummary(): AttachmentCacheStatusSummary = dataSource.connection.use { connection ->
+    fun attachmentCacheStatusSummary(currentClientInstanceId: String?): AttachmentCacheStatusSummary = dataSource.connection.use { connection ->
         connection.prepareStatement(
-            "SELECT COUNT(DISTINCT user_id || ':' || client_instance_id), COUNT(*) FILTER (WHERE status = 'COMPLETED'), COUNT(*) FILTER (WHERE status NOT IN ('COMPLETED', 'FAILED', 'REVOKED')), COUNT(*) FILTER (WHERE status = 'FAILED'), COALESCE(SUM(downloaded_bytes), 0) FROM client_attachment_cache_status",
+            """
+            SELECT s.user_id, s.client_instance_id,
+                   COUNT(*) FILTER (WHERE s.status = 'COMPLETED') AS completed_count,
+                   COUNT(*) FILTER (WHERE s.status = 'COMPLETED' AND i.attachment_kind = 'PDF') AS completed_pdf_count,
+                   COUNT(*) FILTER (WHERE s.status IN ('DISCOVERED','WAITING_NETWORK','DOWNLOADING','PAUSED','RETRY_WAIT')) AS pending_count,
+                   COUNT(*) FILTER (WHERE s.status = 'FAILED') AS failed_count,
+                   COUNT(*) FILTER (WHERE s.status = 'SOURCE_UNAVAILABLE') AS source_unavailable_count,
+                   COALESCE(SUM(s.downloaded_bytes), 0) AS total_bytes,
+                   MAX(s.updated_at) AS updated_at
+            FROM client_attachment_cache_status s
+            JOIN work_order_images i ON i.id = s.attachment_id
+            GROUP BY s.user_id, s.client_instance_id
+            ORDER BY MAX(s.updated_at) DESC
+            """.trimIndent(),
         ).use { statement -> statement.executeQuery().use { result ->
-            result.next()
-            AttachmentCacheStatusSummary(result.getInt(1), result.getInt(2), result.getInt(3), result.getInt(4), result.getLong(5))
+            val clients = buildList {
+                while (result.next()) {
+                    add(
+                        AttachmentCacheClientStatus(
+                            userId = result.getLong("user_id"),
+                            clientInstanceId = result.getString("client_instance_id"),
+                            completedCount = result.getInt("completed_count"),
+                            completedPdfCount = result.getInt("completed_pdf_count"),
+                            pendingCount = result.getInt("pending_count"),
+                            failedCount = result.getInt("failed_count"),
+                            sourceUnavailableCount = result.getInt("source_unavailable_count"),
+                            totalBytes = result.getLong("total_bytes"),
+                            updatedAt = result.getTimestamp("updated_at").toInstant(),
+                            current = result.getString("client_instance_id") == currentClientInstanceId,
+                        ),
+                    )
+                }
+            }
+            AttachmentCacheStatusSummary(
+                clientCount = clients.size,
+                completedCount = clients.sumOf(AttachmentCacheClientStatus::completedCount),
+                completedPdfCount = clients.sumOf(AttachmentCacheClientStatus::completedPdfCount),
+                pendingCount = clients.sumOf(AttachmentCacheClientStatus::pendingCount),
+                failedCount = clients.sumOf(AttachmentCacheClientStatus::failedCount),
+                sourceUnavailableCount = clients.sumOf(AttachmentCacheClientStatus::sourceUnavailableCount),
+                totalBytes = clients.sumOf(AttachmentCacheClientStatus::totalBytes),
+                clients = clients,
+            )
         } }
     }
 
@@ -1680,9 +1739,24 @@ internal data class WechatSyncIntegrity(
 internal data class AttachmentCacheStatusSummary(
     val clientCount: Int,
     val completedCount: Int,
+    val completedPdfCount: Int,
     val pendingCount: Int,
     val failedCount: Int,
+    val sourceUnavailableCount: Int,
     val totalBytes: Long,
+    val clients: List<AttachmentCacheClientStatus>,
+)
+internal data class AttachmentCacheClientStatus(
+    val userId: Long,
+    val clientInstanceId: String,
+    val completedCount: Int,
+    val completedPdfCount: Int,
+    val pendingCount: Int,
+    val failedCount: Int,
+    val sourceUnavailableCount: Int,
+    val totalBytes: Long,
+    val updatedAt: Instant,
+    val current: Boolean,
 )
 
 internal data class WechatSyncIssue(

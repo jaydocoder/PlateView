@@ -1,16 +1,9 @@
 package com.jaydocoder.plateview.data.workorder
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class AttachmentCachePolicyTest {
-    @Test
-    fun `服务器存在原文件时选择原文件否则选择缩略图`() {
-        assertEquals("original", attachmentCacheVariant(originalAvailable = true))
-        assertEquals("thumbnail", attachmentCacheVariant(originalAvailable = false))
-    }
-
     @Test
     fun `附件质量或内容升级后缓存键必须变化`() {
         val thumbnail = attachmentCacheKey(41L, "thumbnail", "low", "THUMBNAIL")

@@ -120,13 +120,16 @@ fun WorkOrderDetailScreen(
     }
     uiState.selectedImage?.let { selected ->
         val cached = uiState.imageFiles[selected.id]
+        val download = uiState.imageDownloads[selected.id]
         AttachmentViewerDialog(
             title = selected.fileName ?: if (selected.kind == "PDF") "PDF附件" else "微信图片",
             file = cached?.file,
             kind = selected.kind,
             variant = cached?.variant ?: "original",
             pageCount = selected.pageCount ?: 1,
-            failureMessage = "原文件加载失败".takeIf { selected.id in uiState.imageFailures },
+            failureMessage = workOrderAttachmentFailure(download, selected.id in uiState.imageFailures),
+            progress = download?.progress,
+            statusText = workOrderAttachmentStatus(download),
             onRetry = onLoadOriginal,
             onDismissRequest = onCloseImage,
         )
@@ -214,7 +217,7 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(190.dp)
-                                    .clickable(enabled = cached != null) { onOpenImage(image) }
+                                    .clickable { onOpenImage(image) }
                                     .testTag("work_order_image_${image.id}"),
                                 shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                                 color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
@@ -254,6 +257,24 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
             }
         }
     }
+}
+
+private fun workOrderAttachmentStatus(download: com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState?): String = when (download?.status) {
+    "DISCOVERED" -> "等待下载原文件"
+    "WAITING_NETWORK" -> "等待网络连接"
+    "DOWNLOADING" -> download.progress?.let { "正在下载原文件 ${(it * 100).toInt()}%" } ?: "正在下载原文件"
+    "RETRY_WAIT" -> "下载中断，等待自动重试"
+    "SOURCE_UNAVAILABLE" -> "服务器暂未提供原文件"
+    "REVOKED" -> "当前账号已无权访问此附件"
+    "FAILED" -> "原文件下载失败"
+    else -> "正在准备原文件"
+}
+
+private fun workOrderAttachmentFailure(download: com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState?, failed: Boolean): String? = when {
+    download?.status == "SOURCE_UNAVAILABLE" -> "服务器暂未提供原文件"
+    download?.status == "REVOKED" -> "当前账号已无权访问此附件"
+    download?.status == "FAILED" || failed -> "原文件加载失败"
+    else -> null
 }
 
 @Composable

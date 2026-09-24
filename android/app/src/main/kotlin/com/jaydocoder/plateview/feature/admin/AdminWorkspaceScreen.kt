@@ -2784,7 +2784,15 @@ private fun WechatSyncPane(
                     Text("未确认批次：${integrity.unconfirmedBatchCount} · 待重试附件：${integrity.retryTaskCount}", style = MaterialTheme.typography.bodyMedium)
                     Text("仅元数据附件：${integrity.metadataOnlyAttachmentCount} · 失败任务：${integrity.failedTaskCount}", style = MaterialTheme.typography.bodyMedium)
                     Text("客户端：${cacheStatus.clientCount} · 已缓存：${cacheStatus.completedCount} · 待下载：${cacheStatus.pendingCount} · 失败：${cacheStatus.failedCount}", style = MaterialTheme.typography.bodyMedium)
+                    Text("已完成 PDF：${cacheStatus.completedPdfCount} · 等待原文件：${cacheStatus.sourceUnavailableCount}", style = MaterialTheme.typography.bodyMedium)
                     Text("已缓存大小：${cacheStatus.totalBytes / 1024 / 1024} MB", style = MaterialTheme.typography.bodyMedium)
+                    cacheStatus.clients.take(8).forEach { client ->
+                        Text(
+                            "${if (client.current) "当前设备" else "设备 ${client.clientInstanceId.take(8)}"}：完成 ${client.completedCount} · PDF ${client.completedPdfCount} · 待下载 ${client.pendingCount} · 失败 ${client.failedCount}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

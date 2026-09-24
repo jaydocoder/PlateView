@@ -1,6 +1,8 @@
 package com.jaydocoder.plateview.domain.workorder
 
 import java.io.File
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 data class WorkOrder(
     val id: Long,
@@ -79,7 +81,26 @@ data class WorkOrderAttachment(
     val sourceQuality: String = "UNKNOWN",
 )
 
-data class WorkOrderAttachmentSyncResult(val downloaded: Int, val skipped: Int, val failed: Int)
+data class WorkOrderAttachmentSyncResult(
+    val downloaded: Int,
+    val skipped: Int,
+    val failed: Int,
+    val retryable: Int = 0,
+)
+
+data class AttachmentDownloadState(
+    val attachmentId: Long,
+    val kind: String,
+    val fileName: String?,
+    val status: String,
+    val downloadedBytes: Long,
+    val expectedSize: Long?,
+    val localPath: String?,
+    val attemptCount: Int,
+    val lastErrorCode: String?,
+) {
+    val progress: Float? get() = expectedSize?.takeIf { it > 0 }?.let { (downloadedBytes.toDouble() / it).coerceIn(0.0, 1.0).toFloat() }
+}
 
 data class WechatMessagePage(val records: List<WechatMessage>, val nextOffset: Int?)
 data class WorkOrderHomeSearchResult(
@@ -104,9 +125,11 @@ interface WorkOrderRepository {
     suspend fun getCachedWechatMessage(userId: Long, messageId: Long): WechatMessage?
     suspend fun refreshWechatMessage(accessToken: String, userId: Long, messageId: Long): WechatMessage
     suspend fun synchronize(accessToken: String, userId: Long, forceVersionCheck: Boolean = false): WorkOrderSyncResult
-    suspend fun synchronizeAttachments(accessToken: String, userId: Long): WorkOrderAttachmentSyncResult =
+    suspend fun synchronizeAttachments(accessToken: String, userId: Long, clientInstanceId: String? = null): WorkOrderAttachmentSyncResult =
         WorkOrderAttachmentSyncResult(0, 0, 0)
     suspend fun reportAttachmentCacheStatus(accessToken: String, userId: Long, clientInstanceId: String) = Unit
+    fun observeAttachmentDownload(userId: Long, attachmentId: Long): Flow<AttachmentDownloadState?> = flowOf(null)
+    suspend fun retryAttachmentDownload(userId: Long, attachmentId: Long) = Unit
     suspend fun getCachedWorkOrder(userId: Long, recordId: Long): WorkOrder?
     suspend fun refreshWorkOrder(accessToken: String, userId: Long, recordId: Long): WorkOrder
     suspend fun getHistory(accessToken: String, recordId: Long): List<WorkOrder>

@@ -35,7 +35,9 @@ import com.jaydocoder.plateview.domain.admin.ClientPolicyUpdateCommand
 import com.jaydocoder.plateview.domain.admin.ClientPolicyLimitsCommand
 import com.jaydocoder.plateview.domain.admin.CacheResetStatus
 import com.jaydocoder.plateview.domain.admin.VehicleWriteCommand
-import com.jaydocoder.plateview.data.workorder.WechatAttachmentCacheRepository
+import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment
+import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
+import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,7 +48,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 @Singleton
 class NetworkAdminRepository @Inject constructor(
     private val api: AdminApi,
-    private val attachmentCacheRepository: WechatAttachmentCacheRepository,
+    private val workOrderRepository: WorkOrderRepository,
+    private val runtimePolicyProvider: ClientRuntimePolicyProvider,
 ) : AdminRepository {
     override suspend fun getDashboardSummary(accessToken: String) = api.getDashboardSummary(bearer(accessToken)).let {
         com.jaydocoder.plateview.domain.admin.AdminDashboardSummary(
@@ -243,7 +246,7 @@ class NetworkAdminRepository @Inject constructor(
 
     override suspend fun getWechatSyncOverview(accessToken: String): WechatSyncOverview {
         val response = api.getWechatSyncIssues(bearer(accessToken))
-        val cacheStatus = api.getWechatCacheStatus(bearer(accessToken))
+        val cacheStatus = api.getWechatCacheStatus(bearer(accessToken), runtimePolicyProvider.clientInstanceId())
         val issues = response.items.map {
             WechatSyncIssue(
                 it.type, it.recordId, it.imageId, it.sourceName, it.sentAt, it.summary, it.attachmentKind, it.fileName,
@@ -266,7 +269,20 @@ class NetworkAdminRepository @Inject constructor(
                 response.integrity.status,
             ),
             cacheStatus = com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary(
-                cacheStatus.clientCount, cacheStatus.completedCount, cacheStatus.pendingCount, cacheStatus.failedCount, cacheStatus.totalBytes,
+                cacheStatus.clientCount,
+                cacheStatus.completedCount,
+                cacheStatus.completedPdfCount,
+                cacheStatus.pendingCount,
+                cacheStatus.failedCount,
+                cacheStatus.sourceUnavailableCount,
+                cacheStatus.totalBytes,
+                cacheStatus.clients.map { client ->
+                    com.jaydocoder.plateview.domain.admin.WechatCacheClientStatus(
+                        client.userId, client.clientInstanceId, client.completedCount, client.completedPdfCount,
+                        client.pendingCount, client.failedCount, client.sourceUnavailableCount, client.totalBytes,
+                        client.updatedAt, client.current,
+                    )
+                },
             ),
         )
     }
@@ -305,14 +321,27 @@ class NetworkAdminRepository @Inject constructor(
         variant: String,
         sha256: String?,
         sourceQuality: String,
+        kind: String,
+        fileName: String?,
     ): CachedAdminAttachment {
-        val cached = attachmentCacheRepository.getOrDownload(
+        val cached = workOrderRepository.attachment(
+            accessToken = accessToken,
             userId = userId,
-            attachmentId = imageId,
+            messageId = 0,
+            attachment = WorkOrderAttachment(
+                id = imageId,
+                kind = kind,
+                fileName = fileName,
+                sha256 = sha256,
+                contentType = null,
+                originalSize = null,
+                previewAvailable = false,
+                thumbnailAvailable = false,
+                availability = "AVAILABLE",
+                pageCount = null,
+                sourceQuality = sourceQuality,
+            ),
             variant = variant,
-            sha256 = sha256,
-            sourceQuality = sourceQuality,
-            request = { range -> api.downloadWechatAttachment(bearer(accessToken), range, imageId, variant) },
         )
         return CachedAdminAttachment(cached.file, cached.variant)
     }

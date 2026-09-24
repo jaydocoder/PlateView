@@ -31,10 +31,21 @@ object WorkOrderDataModule {
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_1_2)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_2_3)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_3_4)
+            .addMigrations(WORK_ORDER_CACHE_MIGRATION_4_5)
             .build()
 
     @Provides
     fun provideDao(database: WorkOrderCacheDatabase): WorkOrderCacheDao = database.dao()
+}
+
+internal val WORK_ORDER_CACHE_MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE `wechat_attachment_download_tasks_new` (`userId` INTEGER NOT NULL, `attachmentId` INTEGER NOT NULL, `kind` TEXT NOT NULL, `fileName` TEXT, `variant` TEXT NOT NULL, `sha256` TEXT NOT NULL, `sourceQuality` TEXT NOT NULL, `expectedSize` INTEGER, `downloadedBytes` INTEGER NOT NULL, `localPath` TEXT, `status` TEXT NOT NULL, `priority` INTEGER NOT NULL, `foregroundRequested` INTEGER NOT NULL, `attemptCount` INTEGER NOT NULL, `nextRetryAt` INTEGER, `lastErrorCode` TEXT, `manifestRevision` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`, `attachmentId`, `variant`, `sha256`, `sourceQuality`))")
+        db.execSQL("INSERT INTO `wechat_attachment_download_tasks_new` (`userId`, `attachmentId`, `kind`, `fileName`, `variant`, `sha256`, `sourceQuality`, `expectedSize`, `downloadedBytes`, `localPath`, `status`, `priority`, `foregroundRequested`, `attemptCount`, `nextRetryAt`, `lastErrorCode`, `manifestRevision`, `createdAt`, `updatedAt`) SELECT `userId`, `attachmentId`, 'IMAGE', NULL, `variant`, `sha256`, 'UNKNOWN', `expectedSize`, `downloadedBytes`, `localPath`, `status`, 100, 0, `attemptCount`, `nextRetryAt`, `lastErrorCode`, `manifestRevision`, `updatedAt`, `updatedAt` FROM `wechat_attachment_download_tasks`")
+        db.execSQL("DROP TABLE `wechat_attachment_download_tasks`")
+        db.execSQL("ALTER TABLE `wechat_attachment_download_tasks_new` RENAME TO `wechat_attachment_download_tasks`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_wechat_attachment_download_tasks_userId_status_nextRetryAt_foregroundRequested_priority_createdAt` ON `wechat_attachment_download_tasks` (`userId`, `status`, `nextRetryAt`, `foregroundRequested`, `priority`, `createdAt`)")
+    }
 }
 
 private val WORK_ORDER_CACHE_MIGRATION_1_2 = object : Migration(1, 2) {

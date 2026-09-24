@@ -120,7 +120,9 @@ fun SearchRoute(
     }
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) viewModel.onAppForeground()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onAppForeground()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

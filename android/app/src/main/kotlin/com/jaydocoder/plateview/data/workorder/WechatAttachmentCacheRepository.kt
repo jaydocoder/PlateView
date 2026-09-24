@@ -24,6 +24,8 @@ class WechatAttachmentCacheRepository @Inject constructor(
         variant: String,
         sha256: String?,
         sourceQuality: String,
+        expectedSize: Long? = null,
+        onProgress: suspend (Long) -> Unit = {},
         request: suspend (String?) -> Response<ResponseBody>,
     ): CachedWorkOrderImage {
         val cacheKey = attachmentCacheKey(attachmentId, variant, sha256, sourceQuality)
@@ -37,6 +39,7 @@ class WechatAttachmentCacheRepository @Inject constructor(
                     variant = variant,
                     sha256 = sha256,
                     sourceQuality = sourceQuality,
+                    expectedSize = expectedSize,
                 )?.let { return@withLock CachedWorkOrderImage(it, variant) }
                 downloadAttachmentVariant(
                     request = request,
@@ -44,6 +47,8 @@ class WechatAttachmentCacheRepository @Inject constructor(
                     cacheKey = cacheKey,
                     variant = variant,
                     expectedSha256 = sha256.takeIf { variant == "original" },
+                    expectedSize = expectedSize,
+                    onProgress = onProgress,
                 )
             }
         } finally {
@@ -57,6 +62,7 @@ class WechatAttachmentCacheRepository @Inject constructor(
         variant: String,
         sha256: String?,
         sourceQuality: String,
+        expectedSize: Long? = null,
     ): File? {
         val cacheKey = attachmentCacheKey(attachmentId, variant, sha256, sourceQuality)
         return findCachedAttachmentFile(
@@ -65,6 +71,7 @@ class WechatAttachmentCacheRepository @Inject constructor(
             id = attachmentId,
             variant = variant,
             expectedSha256 = sha256.takeIf { variant == "original" },
+            expectedSize = expectedSize,
         )
     }
 
@@ -74,5 +81,18 @@ class WechatAttachmentCacheRepository @Inject constructor(
     fun clear(userId: Long?) {
         val root = File(context.filesDir, "work-order-images")
         if (userId == null) root.deleteRecursively() else File(root, userId.toString()).deleteRecursively()
+    }
+
+    fun clearAttachmentVersion(
+        userId: Long,
+        attachmentId: Long,
+        variant: String,
+        sha256: String?,
+        sourceQuality: String,
+    ) {
+        val cacheKey = attachmentCacheKey(attachmentId, variant, sha256, sourceQuality)
+        directory(userId).listFiles().orEmpty()
+            .filter { it.isFile && (it.nameWithoutExtension == cacheKey || it.name == "$cacheKey.download") }
+            .forEach(File::delete)
     }
 }

@@ -12,6 +12,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +31,8 @@ fun AttachmentViewerDialog(
     variant: String,
     pageCount: Int,
     failureMessage: String? = null,
+    progress: Float? = null,
+    statusText: String? = null,
     onRetry: (() -> Unit)? = null,
     onDismissRequest: () -> Unit,
 ) {
@@ -59,6 +62,20 @@ fun AttachmentViewerDialog(
                 ) {
                     Text(failureMessage, color = MaterialTheme.colorScheme.error)
                     onRetry?.let { retry -> TextButton(onClick = retry) { Text("重新加载") } }
+                }
+            } else if (file == null) {
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (progress != null) {
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                        Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    Text(statusText ?: "正在准备原文件", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 ZoomableAttachmentViewer(

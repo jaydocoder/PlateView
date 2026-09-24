@@ -4,11 +4,13 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
+import androidx.room.Index
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "work_order_cache", primaryKeys = ["userId", "recordId"])
 data class WorkOrderCacheEntity(
@@ -53,21 +55,28 @@ data class WechatMessageCacheEntity(
 
 @Entity(
     tableName = "wechat_attachment_download_tasks",
-    primaryKeys = ["userId", "attachmentId", "variant", "sha256"],
+    primaryKeys = ["userId", "attachmentId", "variant", "sha256", "sourceQuality"],
+    indices = [Index(value = ["userId", "status", "nextRetryAt", "foregroundRequested", "priority", "createdAt"])],
 )
 data class WechatAttachmentDownloadTaskEntity(
     val userId: Long,
     val attachmentId: Long,
+    val kind: String,
+    val fileName: String?,
     val variant: String,
     val sha256: String,
+    val sourceQuality: String,
     val expectedSize: Long?,
     val downloadedBytes: Long,
     val localPath: String?,
     val status: String,
+    val priority: Int,
+    val foregroundRequested: Boolean,
     val attemptCount: Int,
     val nextRetryAt: Long?,
     val lastErrorCode: String?,
     val manifestRevision: Long,
+    val createdAt: Long,
     val updatedAt: Long,
 )
 
@@ -81,6 +90,43 @@ interface WorkOrderCacheDao {
 
     @Query("SELECT * FROM wechat_attachment_download_tasks WHERE userId = :userId")
     suspend fun attachmentTasks(userId: Long): List<WechatAttachmentDownloadTaskEntity>
+
+    @Query("SELECT * FROM wechat_attachment_download_tasks WHERE userId = :userId AND status = :status")
+    suspend fun attachmentTasksByStatus(userId: Long, status: String): List<WechatAttachmentDownloadTaskEntity>
+
+    @Query("SELECT * FROM wechat_attachment_download_tasks WHERE userId = :userId AND attachmentId = :attachmentId AND status <> 'REVOKED' ORDER BY updatedAt DESC, priority DESC LIMIT 1")
+    fun observeAttachmentTask(userId: Long, attachmentId: Long): Flow<WechatAttachmentDownloadTaskEntity?>
+
+    @Query("SELECT * FROM wechat_attachment_download_tasks WHERE userId = :userId AND attachmentId = :attachmentId AND variant = :variant AND sha256 = :sha256 AND sourceQuality = :sourceQuality LIMIT 1")
+    suspend fun attachmentTask(userId: Long, attachmentId: Long, variant: String, sha256: String, sourceQuality: String): WechatAttachmentDownloadTaskEntity?
+
+    @Query(
+        "SELECT * FROM wechat_attachment_download_tasks WHERE userId = :userId AND status IN ('DISCOVERED', 'WAITING_NETWORK', 'RETRY_WAIT') AND (nextRetryAt IS NULL OR nextRetryAt <= :now) ORDER BY foregroundRequested DESC, priority DESC, createdAt DESC LIMIT :limit",
+    )
+    suspend fun readyAttachmentTasks(userId: Long, now: Long, limit: Int): List<WechatAttachmentDownloadTaskEntity>
+
+    @Query("UPDATE wechat_attachment_download_tasks SET status = :status, downloadedBytes = :downloadedBytes, localPath = :localPath, attemptCount = :attemptCount, nextRetryAt = :nextRetryAt, lastErrorCode = :lastErrorCode, foregroundRequested = :foregroundRequested, updatedAt = :updatedAt WHERE userId = :userId AND attachmentId = :attachmentId AND variant = :variant AND sha256 = :sha256 AND sourceQuality = :sourceQuality")
+    suspend fun updateAttachmentTask(
+        userId: Long,
+        attachmentId: Long,
+        variant: String,
+        sha256: String,
+        sourceQuality: String,
+        status: String,
+        downloadedBytes: Long,
+        localPath: String?,
+        attemptCount: Int,
+        nextRetryAt: Long?,
+        lastErrorCode: String?,
+        foregroundRequested: Boolean,
+        updatedAt: Long,
+    )
+
+    @Query("UPDATE wechat_attachment_download_tasks SET priority = :priority, foregroundRequested = 1, status = CASE WHEN status = 'FAILED' THEN 'DISCOVERED' ELSE status END, attemptCount = CASE WHEN status = 'FAILED' THEN 0 ELSE attemptCount END, nextRetryAt = NULL, updatedAt = :updatedAt WHERE userId = :userId AND attachmentId = :attachmentId AND status <> 'REVOKED'")
+    suspend fun prioritizeAttachment(userId: Long, attachmentId: Long, priority: Int, updatedAt: Long)
+
+    @Query("UPDATE wechat_attachment_download_tasks SET status = 'REVOKED', foregroundRequested = 0, updatedAt = :updatedAt WHERE userId = :userId AND manifestRevision <> :manifestRevision AND status <> 'REVOKED'")
+    suspend fun revokeMissingAttachmentTasks(userId: Long, manifestRevision: Long, updatedAt: Long)
     @Query(
         """
         SELECT c.* FROM work_order_cache AS c
@@ -159,7 +205,7 @@ interface WorkOrderCacheDao {
     suspend fun clearAll() { clearAllRecords(); clearAllStates(); clearAllMessages(); clearAllAttachmentTasks() }
 }
 
-@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 4, exportSchema = true)
+@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 5, exportSchema = true)
 abstract class WorkOrderCacheDatabase : RoomDatabase() {
     abstract fun dao(): WorkOrderCacheDao
 }

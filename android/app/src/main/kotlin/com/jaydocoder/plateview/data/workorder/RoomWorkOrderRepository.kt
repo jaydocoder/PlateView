@@ -13,6 +13,7 @@ import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 import com.jaydocoder.plateview.domain.workorder.WorkOrderHomeSearchResult
 import com.jaydocoder.plateview.domain.workorder.WorkOrderSyncResult
 import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachmentSyncResult
+import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
 import java.io.File
 import java.io.FileOutputStream
@@ -24,9 +25,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import java.util.concurrent.ConcurrentHashMap
 import retrofit2.Response
 import okhttp3.ResponseBody
+import retrofit2.HttpException
+import kotlin.math.min
+import kotlin.random.Random
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 @Singleton
 class RoomWorkOrderRepository @Inject constructor(
@@ -135,87 +140,187 @@ class RoomWorkOrderRepository @Inject constructor(
         WorkOrderSyncResult(refreshed)
     }
 
-    override suspend fun synchronizeAttachments(accessToken: String, userId: Long): WorkOrderAttachmentSyncResult =
+    override suspend fun synchronizeAttachments(accessToken: String, userId: Long, clientInstanceId: String?): WorkOrderAttachmentSyncResult =
         attachmentSynchronizationMutex.withLock {
             var afterId = 0L
+            var manifestRevision: Long? = null
+            do {
+                val page = api.attachmentManifest(bearer(accessToken), afterId, ATTACHMENT_PAGE_SIZE)
+                check(manifestRevision == null || manifestRevision == page.manifestRevision) {
+                    "附件清单在分页同步期间发生变化，请重新同步"
+                }
+                manifestRevision = page.manifestRevision
+                val now = System.currentTimeMillis()
+                dao.upsertAttachmentTasks(page.items.map { item -> manifestTask(userId, item, page.manifestRevision, now) })
+                page.nextAfterId?.let { nextAfterId ->
+                    check(nextAfterId > afterId) { "附件清单分页游标没有前进" }
+                    afterId = nextAfterId
+                }
+            } while (page.nextAfterId != null)
+            dao.revokeMissingAttachmentTasks(userId, manifestRevision, System.currentTimeMillis())
+            clearRevokedAttachmentFiles(userId)
+
             var downloaded = 0
             var skipped = 0
             var failed = 0
-            val activeCacheKeys = ConcurrentHashMap.newKeySet<String>()
-            do {
-                val page = api.attachmentManifest(bearer(accessToken), afterId, ATTACHMENT_PAGE_SIZE)
-                val now = System.currentTimeMillis()
-                dao.upsertAttachmentTasks(page.items.map { item ->
-                    WechatAttachmentDownloadTaskEntity(
-                        userId = userId,
-                        attachmentId = item.attachmentId,
-                        variant = attachmentCacheVariant(item.originalAvailable),
-                        sha256 = item.sha256 ?: "unknown",
-                        expectedSize = item.originalSize,
-                        downloadedBytes = 0,
-                        localPath = null,
-                        status = "DISCOVERED",
-                        attemptCount = 0,
-                        nextRetryAt = null,
-                        lastErrorCode = null,
-                        manifestRevision = page.manifestRevision,
-                        updatedAt = now,
-                    )
-                })
-                page.items.chunked(ATTACHMENT_DOWNLOAD_CONCURRENCY).forEach { batch ->
-                    val outcomes = coroutineScope {
-                        batch.map { item ->
-                            async {
-                                val variant = attachmentCacheVariant(item.originalAvailable)
-                                val key = attachmentCacheKey(item.attachmentId, variant, item.sha256, item.sourceQuality)
-                                activeCacheKeys += key
-                                val cachedFile = attachmentCacheRepository.findCached(userId, item.attachmentId, variant, item.sha256, item.sourceQuality)
-                                if (cachedFile != null) {
-                                    dao.upsertAttachmentTasks(listOf(taskFor(userId, item, variant, page.manifestRevision, "COMPLETED", cachedFile.absolutePath)))
-                                    AttachmentDownloadOutcome.SKIPPED
-                                } else {
-                                    runCatching {
-                                        downloadVariant(
-                                            request = { range -> api.attachmentFile(bearer(accessToken), range, item.attachmentId, variant) },
-                                            userId = userId,
-                                            id = item.attachmentId,
-                                            sha256 = item.sha256,
-                                            variant = variant,
-                                            sourceQuality = item.sourceQuality,
-                                        )
-                                    }.fold(
-                                        onSuccess = { cached ->
-                                            dao.upsertAttachmentTasks(listOf(taskFor(userId, item, variant, page.manifestRevision, "COMPLETED", cached.file.absolutePath)))
-                                            AttachmentDownloadOutcome.DOWNLOADED
-                                        },
-                                        onFailure = { error ->
-                                            dao.upsertAttachmentTasks(listOf(taskFor(userId, item, variant, page.manifestRevision, "RETRY_WAIT", key, error::class.simpleName)))
-                                            AttachmentDownloadOutcome.FAILED
-                                        },
-                                    )
-                                }
-                            }
-                        }.awaitAll()
-                    }
-                    downloaded += outcomes.count { it == AttachmentDownloadOutcome.DOWNLOADED }
-                    skipped += outcomes.count { it == AttachmentDownloadOutcome.SKIPPED }
-                    failed += outcomes.count { it == AttachmentDownloadOutcome.FAILED }
+            var retryable = 0
+            while (true) {
+                val tasks = dao.readyAttachmentTasks(userId, System.currentTimeMillis(), ATTACHMENT_DOWNLOAD_CONCURRENCY)
+                if (tasks.isEmpty()) break
+                val outcomes = coroutineScope {
+                    tasks.map { task -> async { downloadTask(accessToken, task) } }.awaitAll()
                 }
-                afterId = page.nextAfterId ?: afterId
-            } while (page.nextAfterId != null)
-            if (failed == 0) pruneAttachmentCache(attachmentCacheRepository.directory(userId), activeCacheKeys)
-            WorkOrderAttachmentSyncResult(downloaded, skipped, failed)
+                downloaded += outcomes.count { it == AttachmentDownloadOutcome.DOWNLOADED }
+                skipped += outcomes.count { it == AttachmentDownloadOutcome.SKIPPED || it == AttachmentDownloadOutcome.SOURCE_UNAVAILABLE }
+                failed += outcomes.count { it == AttachmentDownloadOutcome.RETRYABLE_FAILED || it == AttachmentDownloadOutcome.TERMINAL_FAILED }
+                retryable += outcomes.count { it == AttachmentDownloadOutcome.RETRYABLE_FAILED }
+                clientInstanceId?.let { instanceId ->
+                    runCatching { reportAttachmentCacheStatus(accessToken, userId, instanceId) }
+                }
+            }
+            WorkOrderAttachmentSyncResult(downloaded, skipped, failed, retryable)
         }
+
+    private suspend fun clearRevokedAttachmentFiles(userId: Long) {
+        dao.attachmentTasksByStatus(userId, ATTACHMENT_STATUS_REVOKED).forEach { task ->
+            attachmentCacheRepository.clearAttachmentVersion(
+                userId = userId,
+                attachmentId = task.attachmentId,
+                variant = task.variant,
+                sha256 = task.sha256.takeUnless { it == "unknown" },
+                sourceQuality = task.sourceQuality,
+            )
+            dao.updateAttachmentTask(
+                task.userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality, ATTACHMENT_STATUS_REVOKED,
+                0, null, task.attemptCount, null, task.lastErrorCode, false, System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private suspend fun manifestTask(
+        userId: Long,
+        item: WorkOrderAttachmentManifestItemDto,
+        manifestRevision: Long,
+        now: Long,
+    ): WechatAttachmentDownloadTaskEntity {
+        val sha256 = item.sha256 ?: "unknown"
+        val existing = dao.attachmentTask(userId, item.attachmentId, ORIGINAL_VARIANT, sha256, item.sourceQuality)
+        val cached = attachmentCacheRepository.findCached(
+            userId = userId,
+            attachmentId = item.attachmentId,
+            variant = ORIGINAL_VARIANT,
+            sha256 = item.sha256,
+            sourceQuality = item.sourceQuality,
+            expectedSize = item.originalSize,
+        )
+        val status = when {
+            !item.originalAvailable -> ATTACHMENT_STATUS_SOURCE_UNAVAILABLE
+            cached != null -> ATTACHMENT_STATUS_COMPLETED
+            existing?.status == ATTACHMENT_STATUS_FAILED && existing.manifestRevision == manifestRevision -> ATTACHMENT_STATUS_FAILED
+            existing?.status == ATTACHMENT_STATUS_RETRY_WAIT -> ATTACHMENT_STATUS_RETRY_WAIT
+            else -> ATTACHMENT_STATUS_DISCOVERED
+        }
+        return WechatAttachmentDownloadTaskEntity(
+            userId = userId,
+            attachmentId = item.attachmentId,
+            kind = item.kind,
+            fileName = item.fileName,
+            variant = ORIGINAL_VARIANT,
+            sha256 = sha256,
+            sourceQuality = item.sourceQuality,
+            expectedSize = item.originalSize,
+            downloadedBytes = cached?.length() ?: existing?.downloadedBytes ?: 0,
+            localPath = cached?.absolutePath ?: existing?.localPath,
+            status = status,
+            priority = existing?.priority ?: PRIORITY_HISTORY,
+            foregroundRequested = existing?.foregroundRequested ?: false,
+            attemptCount = existing?.attemptCount ?: 0,
+            nextRetryAt = existing?.nextRetryAt,
+            lastErrorCode = existing?.lastErrorCode,
+            manifestRevision = manifestRevision,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now,
+        )
+    }
+
+    private suspend fun downloadTask(accessToken: String, task: WechatAttachmentDownloadTaskEntity): AttachmentDownloadOutcome {
+        if (task.status == ATTACHMENT_STATUS_COMPLETED) return AttachmentDownloadOutcome.SKIPPED
+        val now = System.currentTimeMillis()
+        dao.updateAttachmentTask(
+            task.userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality, ATTACHMENT_STATUS_DOWNLOADING,
+            task.downloadedBytes, null, task.attemptCount, null, null, task.foregroundRequested, now,
+        )
+        var persistedBytes = task.downloadedBytes
+        return runCatching {
+            downloadVariant(
+                request = { range -> api.attachmentFile(bearer(accessToken), range, task.attachmentId, ORIGINAL_VARIANT) },
+                userId = task.userId,
+                id = task.attachmentId,
+                sha256 = task.sha256.takeUnless { it == "unknown" },
+                variant = ORIGINAL_VARIANT,
+                sourceQuality = task.sourceQuality,
+                expectedSize = task.expectedSize,
+                onProgress = { bytes ->
+                    if (bytes - persistedBytes >= PROGRESS_PERSIST_STEP_BYTES || bytes == task.expectedSize) {
+                        persistedBytes = bytes
+                        dao.updateAttachmentTask(
+                            task.userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality, ATTACHMENT_STATUS_DOWNLOADING,
+                            bytes, null, task.attemptCount, null, null, task.foregroundRequested, System.currentTimeMillis(),
+                        )
+                    }
+                },
+            )
+        }.fold(
+            onSuccess = { cached ->
+                dao.updateAttachmentTask(
+                    task.userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality, ATTACHMENT_STATUS_COMPLETED,
+                    cached.file.length(), cached.file.absolutePath, task.attemptCount, null, null, false, System.currentTimeMillis(),
+                )
+                AttachmentDownloadOutcome.DOWNLOADED
+            },
+            onFailure = { error ->
+                val attempts = task.attemptCount + 1
+                val status = when {
+                    error is HttpException && error.code() in setOf(401, 403) -> ATTACHMENT_STATUS_REVOKED
+                    error is HttpException && error.code() == 404 -> ATTACHMENT_STATUS_SOURCE_UNAVAILABLE
+                    attempts >= MAXIMUM_ATTACHMENT_ATTEMPTS -> ATTACHMENT_STATUS_FAILED
+                    error is HttpException && error.code() == 400 -> ATTACHMENT_STATUS_FAILED
+                    else -> ATTACHMENT_STATUS_RETRY_WAIT
+                }
+                val retryAt = retryAt(attempts).takeIf { status == ATTACHMENT_STATUS_RETRY_WAIT }
+                dao.updateAttachmentTask(
+                    task.userId, task.attachmentId, task.variant, task.sha256, task.sourceQuality, status,
+                    maxOf(task.downloadedBytes, persistedBytes), null, attempts, retryAt,
+                    errorCode(error), task.foregroundRequested, System.currentTimeMillis(),
+                )
+                when (status) {
+                    ATTACHMENT_STATUS_RETRY_WAIT -> AttachmentDownloadOutcome.RETRYABLE_FAILED
+                    ATTACHMENT_STATUS_SOURCE_UNAVAILABLE -> AttachmentDownloadOutcome.SOURCE_UNAVAILABLE
+                    else -> AttachmentDownloadOutcome.TERMINAL_FAILED
+                }
+            },
+        )
+    }
 
     override suspend fun reportAttachmentCacheStatus(accessToken: String, userId: Long, clientInstanceId: String) {
         val tasks = dao.attachmentTasks(userId)
-        if (tasks.isEmpty()) return
-        api.saveAttachmentCacheStatus(
-            bearer(accessToken),
-            AttachmentCacheStatusRequestDto(
-                clientInstanceId = clientInstanceId,
-                manifestRevision = tasks.maxOf { it.manifestRevision },
-                items = tasks.map {
+            .groupBy { it.attachmentId to it.variant }
+            .values
+            .mapNotNull { versions ->
+                versions.maxWithOrNull(
+                    compareBy<WechatAttachmentDownloadTaskEntity> { it.status != ATTACHMENT_STATUS_REVOKED }
+                        .thenBy { it.updatedAt },
+                )
+            }
+        val manifestRevision = tasks.maxOfOrNull { it.manifestRevision } ?: 0L
+        val batches = if (tasks.isEmpty()) listOf(emptyList()) else tasks.chunked(ATTACHMENT_STATUS_REPORT_BATCH_SIZE)
+        batches.forEach { batch ->
+            api.saveAttachmentCacheStatus(
+                bearer(accessToken),
+                AttachmentCacheStatusRequestDto(
+                    clientInstanceId = clientInstanceId,
+                    manifestRevision = manifestRevision,
+                    items = batch.map {
                     AttachmentCacheStatusItemDto(
                         attachmentId = it.attachmentId,
                         variant = it.variant,
@@ -226,26 +331,18 @@ class RoomWorkOrderRepository @Inject constructor(
                         attemptCount = it.attemptCount,
                         lastErrorCode = it.lastErrorCode,
                     )
-                },
-            ),
-        )
+                    },
+                ),
+            )
+        }
     }
 
-    private fun taskFor(
-        userId: Long,
-        item: WorkOrderAttachmentManifestItemDto,
-        variant: String,
-        manifestRevision: Long,
-        status: String,
-        cacheKey: String,
-        errorCode: String? = null,
-    ) = WechatAttachmentDownloadTaskEntity(
-        userId, item.attachmentId, variant, item.sha256 ?: "unknown", item.originalSize,
-        if (status == "COMPLETED") item.originalSize ?: 0 else 0,
-        cacheKey, status, if (status == "RETRY_WAIT") 1 else 0,
-        if (status == "RETRY_WAIT") System.currentTimeMillis() + 60_000 else null,
-        errorCode, manifestRevision, System.currentTimeMillis(),
-    )
+    override fun observeAttachmentDownload(userId: Long, attachmentId: Long): Flow<AttachmentDownloadState?> =
+        dao.observeAttachmentTask(userId, attachmentId).map { it?.toDomain() }
+
+    override suspend fun retryAttachmentDownload(userId: Long, attachmentId: Long) {
+        dao.prioritizeAttachment(userId, attachmentId, PRIORITY_FOREGROUND, System.currentTimeMillis())
+    }
 
     override suspend fun getCachedWorkOrder(userId: Long, recordId: Long): WorkOrder? = dao.get(userId, recordId)?.let(::fromEntity)
 
@@ -261,6 +358,19 @@ class RoomWorkOrderRepository @Inject constructor(
 
     override suspend fun image(accessToken: String, userId: Long, recordId: Long, image: WorkOrderImage, variant: String): CachedWorkOrderImage {
         check(!runtimePolicyProvider.cacheMaintenanceActive.value) { "客户端缓存正在清理" }
+        if (variant == ORIGINAL_VARIANT) {
+            return foregroundOriginal(
+                accessToken = accessToken,
+                userId = userId,
+                attachmentId = image.id,
+                kind = image.kind,
+                fileName = image.fileName,
+                sha256 = image.sha256,
+                sourceQuality = image.sourceQuality,
+                expectedSize = image.originalSize,
+                originalAvailable = image.availability == "AVAILABLE",
+            )
+        }
         return downloadVariant(
             request = { range -> api.image(bearer(accessToken), range, recordId, image.id, variant) },
             userId = userId,
@@ -272,7 +382,17 @@ class RoomWorkOrderRepository @Inject constructor(
     }
 
     override suspend fun attachment(accessToken: String, userId: Long, messageId: Long, attachment: WorkOrderAttachment, variant: String): CachedWorkOrderImage =
-        downloadVariant(
+        if (variant == ORIGINAL_VARIANT) foregroundOriginal(
+            accessToken = accessToken,
+            userId = userId,
+            attachmentId = attachment.id,
+            kind = attachment.kind,
+            fileName = attachment.fileName,
+            sha256 = attachment.sha256,
+            sourceQuality = attachment.sourceQuality,
+            expectedSize = attachment.originalSize,
+            originalAvailable = attachment.availability == "AVAILABLE",
+        ) else downloadVariant(
             request = { range -> api.attachmentFile(bearer(accessToken), range, attachment.id, variant) },
             userId = userId,
             id = attachment.id,
@@ -281,6 +401,63 @@ class RoomWorkOrderRepository @Inject constructor(
             sourceQuality = attachment.sourceQuality,
         ).also { check(!runtimePolicyProvider.cacheMaintenanceActive.value) { "客户端缓存正在清理" } }
 
+    private suspend fun foregroundOriginal(
+        accessToken: String,
+        userId: Long,
+        attachmentId: Long,
+        kind: String,
+        fileName: String?,
+        sha256: String?,
+        sourceQuality: String,
+        expectedSize: Long?,
+        originalAvailable: Boolean,
+    ): CachedWorkOrderImage {
+        check(originalAvailable) { "服务器暂未提供原文件" }
+        val now = System.currentTimeMillis()
+        val hash = sha256 ?: "unknown"
+        val cached = attachmentCacheRepository.findCached(userId, attachmentId, ORIGINAL_VARIANT, sha256, sourceQuality, expectedSize)
+        val existing = dao.attachmentTask(userId, attachmentId, ORIGINAL_VARIANT, hash, sourceQuality)
+        val task = existing?.copy(
+            kind = kind,
+            fileName = fileName,
+            sourceQuality = sourceQuality,
+            expectedSize = expectedSize,
+            status = if (cached != null) ATTACHMENT_STATUS_COMPLETED else ATTACHMENT_STATUS_DISCOVERED,
+            priority = PRIORITY_FOREGROUND,
+            foregroundRequested = true,
+            nextRetryAt = null,
+            localPath = cached?.absolutePath ?: existing.localPath,
+            downloadedBytes = cached?.length() ?: existing.downloadedBytes,
+            updatedAt = now,
+        ) ?: WechatAttachmentDownloadTaskEntity(
+            userId = userId,
+            attachmentId = attachmentId,
+            kind = kind,
+            fileName = fileName,
+            variant = ORIGINAL_VARIANT,
+            sha256 = hash,
+            sourceQuality = sourceQuality,
+            expectedSize = expectedSize,
+            downloadedBytes = cached?.length() ?: 0,
+            localPath = cached?.absolutePath,
+            status = if (cached != null) ATTACHMENT_STATUS_COMPLETED else ATTACHMENT_STATUS_DISCOVERED,
+            priority = PRIORITY_FOREGROUND,
+            foregroundRequested = true,
+            attemptCount = 0,
+            nextRetryAt = null,
+            lastErrorCode = null,
+            manifestRevision = existing?.manifestRevision ?: 0,
+            createdAt = now,
+            updatedAt = now,
+        )
+        dao.upsertAttachmentTasks(listOf(task))
+        cached?.let { return CachedWorkOrderImage(it, ORIGINAL_VARIANT) }
+        val outcome = downloadTask(accessToken, task)
+        val completed = attachmentCacheRepository.findCached(userId, attachmentId, ORIGINAL_VARIANT, sha256, sourceQuality, expectedSize)
+        check(outcome == AttachmentDownloadOutcome.DOWNLOADED && completed != null) { "原文件下载失败，请重试" }
+        return CachedWorkOrderImage(completed, ORIGINAL_VARIANT)
+    }
+
     private suspend fun downloadVariant(
         request: suspend (String?) -> Response<ResponseBody>,
         userId: Long,
@@ -288,6 +465,8 @@ class RoomWorkOrderRepository @Inject constructor(
         sha256: String?,
         variant: String,
         sourceQuality: String = "UNKNOWN",
+        expectedSize: Long? = null,
+        onProgress: suspend (Long) -> Unit = {},
     ): CachedWorkOrderImage {
         return attachmentCacheRepository.getOrDownload(
             userId = userId,
@@ -295,6 +474,8 @@ class RoomWorkOrderRepository @Inject constructor(
             variant = variant,
             sha256 = sha256,
             sourceQuality = sourceQuality,
+            expectedSize = expectedSize,
+            onProgress = onProgress,
             request = request,
         )
     }
@@ -317,12 +498,49 @@ class RoomWorkOrderRepository @Inject constructor(
         const val MAXIMUM_RESULTS = 8
         const val PAGE_SIZE = 200
         const val ATTACHMENT_PAGE_SIZE = 200
-        const val ATTACHMENT_DOWNLOAD_CONCURRENCY = 3
+        const val ATTACHMENT_DOWNLOAD_CONCURRENCY = 2
+        const val ORIGINAL_VARIANT = "original"
+        const val PRIORITY_HISTORY = 100
+        const val PRIORITY_FOREGROUND = 1_000
+        const val MAXIMUM_ATTACHMENT_ATTEMPTS = 20
+        const val PROGRESS_PERSIST_STEP_BYTES = 256 * 1024L
+        const val ATTACHMENT_STATUS_REPORT_BATCH_SIZE = 200
         const val VERSION_CHECK_INTERVAL_MILLIS = 15 * 60 * 1_000L
         fun bearer(token: String) = "Bearer $token"
         fun normalize(value: String) = value.uppercase().replace(Regex("[\\s，。；：、,.;:()（）【】\\[\\]_-]+"), "")
     }
 }
+
+private fun retryAt(attempt: Int): Long {
+    val baseMinutes = when (attempt) { 1 -> 1L; 2 -> 3L; 3 -> 8L; else -> min(60L, 8L shl (attempt - 3).coerceAtMost(3)) }
+    val jitterMillis = Random.nextLong(0L, 15_001L)
+    return System.currentTimeMillis() + baseMinutes * 60_000L + jitterMillis
+}
+
+private fun errorCode(error: Throwable): String = when (error) {
+    is HttpException -> "HTTP_${error.code()}"
+    else -> error::class.simpleName ?: "UNKNOWN"
+}
+
+private fun WechatAttachmentDownloadTaskEntity.toDomain() = AttachmentDownloadState(
+    attachmentId = attachmentId,
+    kind = kind,
+    fileName = fileName,
+    status = status,
+    downloadedBytes = downloadedBytes,
+    expectedSize = expectedSize,
+    localPath = localPath,
+    attemptCount = attemptCount,
+    lastErrorCode = lastErrorCode,
+)
+
+internal const val ATTACHMENT_STATUS_DISCOVERED = "DISCOVERED"
+internal const val ATTACHMENT_STATUS_DOWNLOADING = "DOWNLOADING"
+internal const val ATTACHMENT_STATUS_RETRY_WAIT = "RETRY_WAIT"
+internal const val ATTACHMENT_STATUS_COMPLETED = "COMPLETED"
+internal const val ATTACHMENT_STATUS_FAILED = "FAILED"
+internal const val ATTACHMENT_STATUS_REVOKED = "REVOKED"
+internal const val ATTACHMENT_STATUS_SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
 
 internal suspend fun downloadAttachmentVariant(
     request: suspend (String?) -> Response<ResponseBody>,
@@ -330,24 +548,32 @@ internal suspend fun downloadAttachmentVariant(
     cacheKey: String,
     variant: String,
     expectedSha256: String?,
+    expectedSize: Long? = null,
+    onProgress: suspend (Long) -> Unit = {},
 ): CachedWorkOrderImage {
     val temporary = File(directory, "$cacheKey.download")
     var downloadedBytes = temporary.length().coerceAtLeast(0L)
     var response = request(downloadedBytes.takeIf { it > 0L }?.let { "bytes=$it-" })
-    if (response.code() == HTTP_RANGE_NOT_SATISFIABLE || !response.isSuccessful) {
+    if (response.code() == HTTP_RANGE_NOT_SATISFIABLE) {
         response.body()?.close()
+        if (temporary.isCompleteAttachment(expectedSize, expectedSha256)) {
+            val target = File(directory, "$cacheKey.${attachmentExtension(null, variant)}")
+            check(temporary.renameTo(target) || run { temporary.copyTo(target, overwrite = true); temporary.delete(); true }) {
+                "无法写入微信附件缓存"
+            }
+            onProgress(target.length())
+            return CachedWorkOrderImage(target, variant)
+        }
         temporary.delete()
         downloadedBytes = 0L
         response = request(null)
     }
-    val body = checkNotNull(response.body()) { "服务器未返回微信附件" }
-    val extension = when (body.contentType()?.subtype) {
-        "jpeg" -> "jpg"
-        "png" -> "png"
-        "gif" -> "gif"
-        "pdf" -> "pdf"
-        else -> "webp"
+    if (!response.isSuccessful) {
+        response.body()?.close()
+        throw retrofit2.HttpException(response)
     }
+    val body = checkNotNull(response.body()) { "服务器未返回微信附件" }
+    val extension = attachmentExtension(body.contentType()?.subtype, variant)
     val target = File(directory, "$cacheKey.$extension")
     val partial = downloadedBytes > 0L && response.code() == HTTP_PARTIAL_CONTENT
     if (partial) {
@@ -360,10 +586,27 @@ internal suspend fun downloadAttachmentVariant(
     }
     body.use { responseBody ->
         responseBody.byteStream().use { input ->
-            FileOutputStream(temporary, partial).buffered().use { output -> input.copyTo(output) }
+            FileOutputStream(temporary, partial).buffered().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    downloadedBytes += read
+                    onProgress(downloadedBytes)
+                }
+            }
         }
     }
-    check(temporary.length() > 0L) { "服务器返回了空图片" }
+    if (temporary.length() <= 0L) {
+        temporary.delete()
+        error("服务器返回了空附件")
+    }
+    if (expectedSize != null && temporary.length() != expectedSize) {
+        val actualSize = temporary.length()
+        temporary.delete()
+        error("微信附件大小校验失败：预期${expectedSize}字节，实际${actualSize}字节")
+    }
     if (!expectedSha256.isNullOrBlank()) {
         val actualSha256 = temporary.sha256()
         check(actualSha256.equals(expectedSha256, ignoreCase = true)) {
@@ -372,7 +615,7 @@ internal suspend fun downloadAttachmentVariant(
         }
     }
     check(temporary.renameTo(target) || run { temporary.copyTo(target, overwrite = true); temporary.delete(); true }) {
-        "无法写入微信车单图片缓存"
+        "无法写入微信附件缓存"
     }
     return CachedWorkOrderImage(target, variant)
 }
@@ -383,13 +626,29 @@ internal fun findCachedAttachmentFile(
     id: Long,
     variant: String,
     expectedSha256: String?,
+    expectedSize: Long? = null,
 ): File? {
     val files = directory.listFiles().orEmpty().filter { it.isFile && it.extension != "download" }
-    files.firstOrNull { it.nameWithoutExtension == cacheKey }?.let { return it }
+    files.firstOrNull { it.nameWithoutExtension == cacheKey && (expectedSize == null || it.length() == expectedSize) }?.let { return it }
     if (expectedSha256.isNullOrBlank()) return null
     return files.firstOrNull { candidate ->
-        candidate.name.startsWith("$id-$variant-") && candidate.sha256().equals(expectedSha256, ignoreCase = true)
+        candidate.name.startsWith("$id-$variant-") &&
+            (expectedSize == null || candidate.length() == expectedSize) &&
+            candidate.sha256().equals(expectedSha256, ignoreCase = true)
     }
+}
+
+private fun File.isCompleteAttachment(expectedSize: Long?, expectedSha256: String?): Boolean =
+    length() > 0L &&
+        (expectedSize == null || length() == expectedSize) &&
+        (expectedSha256.isNullOrBlank() || sha256().equals(expectedSha256, ignoreCase = true))
+
+private fun attachmentExtension(contentSubtype: String?, variant: String): String = when (contentSubtype) {
+    "jpeg" -> "jpg"
+    "png" -> "png"
+    "gif" -> "gif"
+    "pdf" -> "pdf"
+    else -> if (variant == "original") "bin" else "webp"
 }
 
 private fun File.sha256(): String = inputStream().buffered().use { input ->
@@ -407,20 +666,16 @@ private const val HTTP_PARTIAL_CONTENT = 206
 private const val HTTP_RANGE_NOT_SATISFIABLE = 416
 private const val HTTP_CONTENT_RANGE_HEADER = "Content-Range"
 
-private enum class AttachmentDownloadOutcome { DOWNLOADED, SKIPPED, FAILED }
-
-internal fun attachmentCacheVariant(originalAvailable: Boolean): String =
-    if (originalAvailable) "original" else "thumbnail"
+private enum class AttachmentDownloadOutcome {
+    DOWNLOADED,
+    SKIPPED,
+    RETRYABLE_FAILED,
+    TERMINAL_FAILED,
+    SOURCE_UNAVAILABLE,
+}
 
 internal fun attachmentCacheKey(id: Long, variant: String, sha256: String?, sourceQuality: String): String =
     "$id-$variant-${sourceQuality.lowercase()}-${sha256.orEmpty()}"
-
-internal fun pruneAttachmentCache(directory: File, activeCacheKeys: Set<String>) {
-    directory.listFiles().orEmpty().filter(File::isFile).forEach { file ->
-        val cacheKey = if (file.extension == "download") file.name.removeSuffix(".download") else file.nameWithoutExtension
-        if (cacheKey !in activeCacheKeys) file.delete()
-    }
-}
 
 private fun WorkOrderDto.toDomain() = WorkOrder(
     id, orderNumber, rawPlate, normalizedPlate, vehicleType, declaredPeople, rawValidTime, location, verificationMethod,

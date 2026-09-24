@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import retrofit2.Response
@@ -87,16 +88,67 @@ class AttachmentVariantDownloaderTest {
     }
 
     @Test
-    fun `目录同步成功后清理编号相同但摘要不同的旧附件`() {
-        val oldPdf = File(directory, "459-original-original-old.pdf").apply { writeText("旧PDF") }
-        val currentImage = File(directory, "459-original-original-new.jpg").apply { writeText("新图片") }
-        val unrelated = File(directory, "458-original-original-old.jpg").apply { writeText("旧图片") }
+    fun `下载过程持续报告进度并校验最终大小`() = runTest {
+        val payload = ByteArray(32 * 1024) { (it % 251).toByte() }
+        val progress = mutableListOf<Long>()
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/pdf").setBody(okio.Buffer().write(payload)))
 
-        pruneAttachmentCache(directory, setOf("459-original-original-new"))
+        val result = downloadAttachmentVariant(
+            request = api::download,
+            directory = directory,
+            cacheKey = "501-original-original-${payload.sha256()}",
+            variant = "original",
+            expectedSha256 = payload.sha256(),
+            expectedSize = payload.size.toLong(),
+            onProgress = progress::add,
+        )
 
-        assertFalse(oldPdf.exists())
-        assertFalse(unrelated.exists())
-        assertEquals(true, currentImage.exists())
+        assertEquals(payload.size.toLong(), result.file.length())
+        assertEquals(payload.size.toLong(), progress.last())
+        assertTrue(progress.zipWithNext().all { (left, right) -> right >= left })
+    }
+
+    @Test
+    fun `文件大小不一致时不会生成正式缓存`() = runTest {
+        val payload = "不完整文件".toByteArray()
+        val cacheKey = "502-original-original-${payload.sha256()}"
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/pdf").setBody(okio.Buffer().write(payload)))
+
+        val result = runCatching {
+            downloadAttachmentVariant(
+                request = api::download,
+                directory = directory,
+                cacheKey = cacheKey,
+                variant = "original",
+                expectedSha256 = payload.sha256(),
+                expectedSize = payload.size + 1L,
+            )
+        }
+
+        assertTrue(result.isFailure)
+        assertFalse(directory.listFiles().orEmpty().any { it.nameWithoutExtension == cacheKey && it.extension != "download" })
+        assertFalse(File(directory, "$cacheKey.download").exists())
+    }
+
+    @Test
+    fun `续传范围失效但临时文件完整时直接完成`() = runTest {
+        val payload = "已经完整下载的PDF".toByteArray()
+        val cacheKey = "503-original-original-${payload.sha256()}"
+        File(directory, "$cacheKey.download").writeBytes(payload)
+        server.enqueue(MockResponse().setResponseCode(416))
+
+        val result = downloadAttachmentVariant(
+            request = api::download,
+            directory = directory,
+            cacheKey = cacheKey,
+            variant = "original",
+            expectedSha256 = payload.sha256(),
+            expectedSize = payload.size.toLong(),
+        )
+
+        assertEquals(payload.toList(), result.file.readBytes().toList())
+        assertFalse(File(directory, "$cacheKey.download").exists())
+        assertEquals("bytes=${payload.size}-", server.takeRequest().getHeader("Range"))
     }
 
     private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")

@@ -11,6 +11,7 @@ import com.jaydocoder.plateview.domain.workorder.WechatMessage
 import com.jaydocoder.plateview.domain.workorder.CachedWorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
+import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 
 @HiltViewModel
 class WechatMessageDetailViewModel @Inject constructor(
@@ -30,6 +33,7 @@ class WechatMessageDetailViewModel @Inject constructor(
     private val messageId = savedStateHandle.toRoute<WechatMessageDetailDestination>().messageId
     private val _uiState = MutableStateFlow(WechatMessageDetailUiState())
     val uiState: StateFlow<WechatMessageDetailUiState> = _uiState.asStateFlow()
+    private val attachmentStateJobs = mutableMapOf<Long, Job>()
 
     init { refresh() }
 
@@ -67,6 +71,7 @@ class WechatMessageDetailViewModel @Inject constructor(
 
     fun openAttachment(attachment: WorkOrderAttachment) {
         _uiState.update { it.copy(selectedAttachment = attachment) }
+        observeAttachmentState(attachment.id)
         _uiState.value.message?.let { message ->
             loadAttachment(message.id, attachment, attachment.preferredVariant())
         }
@@ -76,7 +81,7 @@ class WechatMessageDetailViewModel @Inject constructor(
         val state = _uiState.value
         val message = state.message ?: return
         val attachment = state.selectedAttachment ?: return
-        loadAttachment(message.id, attachment, attachment.preferredVariant())
+        loadAttachment(message.id, attachment, "original")
     }
 
     fun closeAttachment() { _uiState.update { it.copy(selectedAttachment = null) } }
@@ -113,6 +118,18 @@ class WechatMessageDetailViewModel @Inject constructor(
         }
     }
 
+    private fun observeAttachmentState(attachmentId: Long) {
+        if (attachmentStateJobs.containsKey(attachmentId)) return
+        attachmentStateJobs[attachmentId] = viewModelScope.launch {
+            val session = sessionProvider.session.first() ?: return@launch
+            repository.observeAttachmentDownload(session.userId, attachmentId).collect { download ->
+                _uiState.update { state ->
+                    state.copy(attachmentDownloads = if (download == null) state.attachmentDownloads - attachmentId else state.attachmentDownloads + (attachmentId to download))
+                }
+            }
+        }
+    }
+
     private fun preferred(current: CachedWorkOrderImage?, incoming: CachedWorkOrderImage): CachedWorkOrderImage = when {
         current == null -> incoming
         rank(incoming.variant) >= rank(current.variant) -> incoming
@@ -133,6 +150,7 @@ data class WechatMessageDetailUiState(
     val attachmentFiles: Map<Long, CachedWorkOrderImage> = emptyMap(),
     val attachmentLoading: Set<Long> = emptySet(),
     val attachmentFailures: Set<Long> = emptySet(),
+    val attachmentDownloads: Map<Long, AttachmentDownloadState> = emptyMap(),
     val selectedAttachment: WorkOrderAttachment? = null,
     val error: AppError? = null,
 )

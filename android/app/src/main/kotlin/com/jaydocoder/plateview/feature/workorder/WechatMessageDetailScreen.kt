@@ -102,6 +102,7 @@ internal fun WechatMessageDetailScreen(
                                     attachments = message.attachments,
                                     files = state.attachmentFiles,
                                     failures = state.attachmentFailures,
+                                    downloads = state.attachmentDownloads,
                                     prominent = true,
                                     onOpenAttachment = onOpenAttachment,
                                 )
@@ -145,6 +146,7 @@ internal fun WechatMessageDetailScreen(
                                 attachments = message.attachments,
                                 files = state.attachmentFiles,
                                 failures = state.attachmentFailures,
+                                downloads = state.attachmentDownloads,
                                 prominent = false,
                                 onOpenAttachment = onOpenAttachment,
                             )
@@ -156,13 +158,16 @@ internal fun WechatMessageDetailScreen(
     }
     state.selectedAttachment?.let { attachment ->
         val cached = state.attachmentFiles[attachment.id]
+        val download = state.attachmentDownloads[attachment.id]
         AttachmentViewerDialog(
             title = attachment.fileName ?: if (attachment.kind == "PDF") "PDF附件" else "微信图片",
             file = cached?.file,
             kind = attachment.kind,
             variant = cached?.variant ?: attachment.preferredDisplayVariant(),
             pageCount = attachment.pageCount ?: 1,
-            failureMessage = "原文件加载失败".takeIf { attachment.id in state.attachmentFailures },
+            failureMessage = attachmentFailureMessage(download, attachment.id in state.attachmentFailures),
+            progress = download?.progress,
+            statusText = attachmentStatusText(download),
             onRetry = onLoadOriginal,
             onDismissRequest = onCloseAttachment,
         )
@@ -177,11 +182,13 @@ private fun AttachmentPreviewList(
     attachments: List<WorkOrderAttachment>,
     files: Map<Long, com.jaydocoder.plateview.domain.workorder.CachedWorkOrderImage>,
     failures: Set<Long>,
+    downloads: Map<Long, com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState>,
     prominent: Boolean,
     onOpenAttachment: (WorkOrderAttachment) -> Unit,
 ) {
     attachments.forEach { attachment ->
         val cached = files[attachment.id]
+        val download = downloads[attachment.id]
         Column(
             modifier = Modifier.fillMaxWidth().clickable { onOpenAttachment(attachment) },
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -206,6 +213,9 @@ private fun AttachmentPreviewList(
                     Text(
                         when {
                             attachment.kind == "PDF" && cached?.variant == "original" -> "${attachment.pageCount ?: 1} 页 · 原文件已缓存"
+                            download?.status == "DOWNLOADING" -> attachmentStatusText(download)
+                            download?.status == "RETRY_WAIT" -> "下载中断，等待自动重试"
+                            download?.status == "SOURCE_UNAVAILABLE" -> "服务器暂未提供原文件"
                             attachment.kind == "PDF" -> "正在缓存原 PDF 文件"
                             cached?.variant == "original" -> "原始微信图片已缓存"
                             attachment.id in failures -> "原文件加载失败，点击重试"
@@ -221,6 +231,24 @@ private fun AttachmentPreviewList(
             }
         }
     }
+}
+
+private fun attachmentStatusText(download: com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState?): String = when (download?.status) {
+    "DISCOVERED" -> "等待下载原文件"
+    "WAITING_NETWORK" -> "等待网络连接"
+    "DOWNLOADING" -> download.progress?.let { "正在下载原文件 ${(it * 100).toInt()}%" } ?: "正在下载原文件"
+    "RETRY_WAIT" -> "下载中断，等待自动重试"
+    "SOURCE_UNAVAILABLE" -> "服务器暂未提供原文件"
+    "REVOKED" -> "当前账号已无权访问此附件"
+    "FAILED" -> "原文件下载失败"
+    else -> "正在准备原文件"
+}
+
+private fun attachmentFailureMessage(download: com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState?, failed: Boolean): String? = when {
+    download?.status == "SOURCE_UNAVAILABLE" -> "服务器暂未提供原文件"
+    download?.status == "REVOKED" -> "当前账号已无权访问此附件"
+    download?.status == "FAILED" || failed -> "原文件加载失败"
+    else -> null
 }
 
 @Composable

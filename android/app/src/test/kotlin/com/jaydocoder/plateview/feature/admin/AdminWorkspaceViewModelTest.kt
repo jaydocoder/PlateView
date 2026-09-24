@@ -655,6 +655,8 @@ private class FakeAdminRepository(
         variant: String,
         sha256: String?,
         sourceQuality: String,
+        kind: String,
+        fileName: String?,
     ): com.jaydocoder.plateview.domain.admin.CachedAdminAttachment {
         downloadedWechatAttachments += imageId to variant
         return com.jaydocoder.plateview.domain.admin.CachedAdminAttachment(kotlin.io.path.createTempFile().toFile(), variant)

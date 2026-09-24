@@ -9,12 +9,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.core.content.FileProvider
 import com.jaydocoder.plateview.feature.update.AppUpdateViewModel
+import com.jaydocoder.plateview.data.workorder.WechatAttachmentCacheSyncScheduler
 import java.io.File
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val appUpdateViewModel: AppUpdateViewModel by viewModels()
+    @Inject lateinit var attachmentCacheSyncScheduler: WechatAttachmentCacheSyncScheduler
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,6 +32,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         appUpdateViewModel.checkForUpdate()
+        attachmentCacheSyncScheduler.scheduleImmediate()
     }
 
     private fun installUpdate(apkFile: File) {

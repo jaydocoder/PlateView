@@ -173,8 +173,10 @@ internal fun Application.configureWorkOrderFeature() {
                     val limits = policyService.resultLimits(userId)
                     val afterId = call.request.queryParameters["afterId"]?.toLongOrNull() ?: 0L
                     val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 200).coerceIn(1, 500)
-                    val page = service.attachmentCatalog(afterId, limit, limits.workOrder > 0, limits.wechatMessage > 0)
-                    call.respond(page.toManifestResponse(service.catalogVersion()))
+                    val workOrderAllowed = limits.workOrder > 0
+                    val messageAllowed = limits.wechatMessage > 0
+                    val page = service.attachmentCatalog(afterId, limit, workOrderAllowed, messageAllowed)
+                    call.respond(page.toManifestResponse(service.attachmentManifestRevision(workOrderAllowed, messageAllowed)))
                 }
                 post("/attachments/cache-status") {
                     val userId = call.requireWorkOrderAccess(service)
@@ -240,7 +242,7 @@ internal fun Application.configureWorkOrderFeature() {
                 }
                 get("/cache-status") {
                     call.requirePrimaryAdministrator(dataSource)
-                    call.respond(service.attachmentCacheStatusSummary().toResponse())
+                    call.respond(service.attachmentCacheStatusSummary(call.request.queryParameters["clientInstanceId"]).toResponse())
                 }
                 get("/issues") {
                     call.requirePrimaryAdministrator(dataSource)
@@ -622,6 +624,7 @@ private fun WorkOrderAttachmentCatalogPage.toManifestResponse(revision: Long) = 
         WorkOrderAttachmentManifestItemResponse(
             item.id, item.kind, item.fileName, item.originalSize, item.sha256, item.sourceQuality,
             item.originalAvailable, item.previewAvailable, item.thumbnailAvailable,
+            "work-orders/attachments/${item.id}?variant=original",
         )
     },
     nextAfterId = items.lastOrNull()?.id?.takeIf { hasMore },
@@ -635,13 +638,31 @@ private fun WechatPassageSender.toResponse() = WechatPassageSenderResponse(sende
 @Serializable private data class AttachmentCacheStatusSummaryResponse(
     val clientCount: Int,
     val completedCount: Int,
+    val completedPdfCount: Int,
     val pendingCount: Int,
     val failedCount: Int,
+    val sourceUnavailableCount: Int,
     val totalBytes: Long,
+    val clients: List<AttachmentCacheClientStatusResponse>,
+)
+@Serializable private data class AttachmentCacheClientStatusResponse(
+    val userId: Long,
+    val clientInstanceId: String,
+    val completedCount: Int,
+    val completedPdfCount: Int,
+    val pendingCount: Int,
+    val failedCount: Int,
+    val sourceUnavailableCount: Int,
+    val totalBytes: Long,
+    val updatedAt: String,
+    val current: Boolean,
 )
 @Serializable private data class WechatSourceStatusResponse(val sourceKey: String, val displayName: String, val status: String, val latestMessageAt: String?, val lastHeartbeatAt: String?, val lastUploadedAt: String?, val backlogCount: Int, val errorCode: String?)
 private fun WechatSourceStatus.toResponse() = WechatSourceStatusResponse(sourceKey, displayName, status, latestMessageAt?.toString(), lastHeartbeatAt?.toString(), lastUploadedAt?.toString(), backlogCount, errorCode)
-private fun AttachmentCacheStatusSummary.toResponse() = AttachmentCacheStatusSummaryResponse(clientCount, completedCount, pendingCount, failedCount, totalBytes)
+private fun AttachmentCacheStatusSummary.toResponse() = AttachmentCacheStatusSummaryResponse(
+    clientCount, completedCount, completedPdfCount, pendingCount, failedCount, sourceUnavailableCount, totalBytes,
+    clients.map { AttachmentCacheClientStatusResponse(it.userId, it.clientInstanceId, it.completedCount, it.completedPdfCount, it.pendingCount, it.failedCount, it.sourceUnavailableCount, it.totalBytes, it.updatedAt.toString(), it.current) },
+)
 @Serializable private data class WechatSyncIssuesResponse(
     val items: List<WechatSyncIssueResponse>,
     val totalAttachmentCount: Int,
@@ -690,6 +711,7 @@ private fun WechatSyncIssue.toResponse() = WechatSyncIssueResponse(
     val originalAvailable: Boolean,
     val previewAvailable: Boolean,
     val thumbnailAvailable: Boolean,
+    val downloadUrl: String,
 )
 @Serializable internal data class AttachmentCacheStatusRequest(
     val clientInstanceId: String,

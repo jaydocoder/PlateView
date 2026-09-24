@@ -11,6 +11,7 @@ import com.jaydocoder.plateview.domain.workorder.CachedWorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.WorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
+import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 
 @HiltViewModel
 class WorkOrderDetailViewModel @Inject constructor(
@@ -31,6 +34,7 @@ class WorkOrderDetailViewModel @Inject constructor(
     private val recordId = destination.recordId
     private val _uiState = MutableStateFlow(WorkOrderDetailUiState(sourceQuery = destination.query))
     val uiState: StateFlow<WorkOrderDetailUiState> = _uiState.asStateFlow()
+    private val imageStateJobs = mutableMapOf<Long, Job>()
 
     init { refresh() }
 
@@ -70,6 +74,7 @@ class WorkOrderDetailViewModel @Inject constructor(
 
     fun openImage(image: WorkOrderImage) {
         _uiState.update { it.copy(selectedImage = image, imageFailures = it.imageFailures - image.id) }
+        observeImageState(image.id)
         _uiState.value.record?.let { record -> loadImage(record, image, image.preferredVariant()) }
     }
 
@@ -99,6 +104,18 @@ class WorkOrderDetailViewModel @Inject constructor(
         }
     }
 
+    private fun observeImageState(imageId: Long) {
+        if (imageStateJobs.containsKey(imageId)) return
+        imageStateJobs[imageId] = viewModelScope.launch {
+            val session = sessionProvider.session.first() ?: return@launch
+            repository.observeAttachmentDownload(session.userId, imageId).collect { download ->
+                _uiState.update { state ->
+                    state.copy(imageDownloads = if (download == null) state.imageDownloads - imageId else state.imageDownloads + (imageId to download))
+                }
+            }
+        }
+    }
+
     private fun preferred(current: CachedWorkOrderImage?, incoming: CachedWorkOrderImage): CachedWorkOrderImage = when {
         current == null -> incoming
         rank(incoming.variant) >= rank(current.variant) -> incoming
@@ -121,6 +138,7 @@ data class WorkOrderDetailUiState(
     val history: List<WorkOrder> = emptyList(),
     val imageFiles: Map<Long, CachedWorkOrderImage> = emptyMap(),
     val imageFailures: Set<Long> = emptySet(),
+    val imageDownloads: Map<Long, AttachmentDownloadState> = emptyMap(),
     val selectedImage: WorkOrderImage? = null,
     val error: AppError? = null,
 )

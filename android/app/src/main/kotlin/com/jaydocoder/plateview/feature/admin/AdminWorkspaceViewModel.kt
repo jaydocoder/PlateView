@@ -116,6 +116,8 @@ class AdminWorkspaceViewModel @Inject constructor(
                     "original",
                     issue.sha256,
                     issue.sourceQuality,
+                    issue.attachmentKind ?: "IMAGE",
+                    issue.fileName,
                 )
             }
                 .onSuccess { attachment ->

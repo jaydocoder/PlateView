@@ -202,7 +202,28 @@ data class WechatSyncOverview(
     val integrity: WechatSyncIntegrity = WechatSyncIntegrity(),
     val cacheStatus: WechatCacheStatusSummary = WechatCacheStatusSummary(),
 )
-data class WechatCacheStatusSummary(val clientCount: Int = 0, val completedCount: Int = 0, val pendingCount: Int = 0, val failedCount: Int = 0, val totalBytes: Long = 0)
+data class WechatCacheStatusSummary(
+    val clientCount: Int = 0,
+    val completedCount: Int = 0,
+    val completedPdfCount: Int = 0,
+    val pendingCount: Int = 0,
+    val failedCount: Int = 0,
+    val sourceUnavailableCount: Int = 0,
+    val totalBytes: Long = 0,
+    val clients: List<WechatCacheClientStatus> = emptyList(),
+)
+data class WechatCacheClientStatus(
+    val userId: Long,
+    val clientInstanceId: String,
+    val completedCount: Int,
+    val completedPdfCount: Int,
+    val pendingCount: Int,
+    val failedCount: Int,
+    val sourceUnavailableCount: Int,
+    val totalBytes: Long,
+    val updatedAt: String,
+    val current: Boolean,
+)
 data class WechatSyncIntegrity(
     val unconfirmedBatchCount: Int = 0,
     val retryTaskCount: Int = 0,

@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.BackoffPolicy
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
@@ -40,21 +41,25 @@ class WechatAttachmentCacheSyncWorker(
         val policy = entryPoint.runtimePolicyProvider().policy.value
         if (!session.wechatWorkOrderAccessEnabled || (policy.workOrderResultLimit == 0 && policy.wechatMessageResultLimit == 0)) {
             entryPoint.repository().clear(session.userId)
-            return Result.success()
-        }
-        return runCatching {
-            val result = entryPoint.repository().synchronizeAttachments(session.accessToken, session.userId)
             entryPoint.repository().reportAttachmentCacheStatus(
                 session.accessToken,
                 session.userId,
                 entryPoint.runtimePolicyProvider().clientInstanceId(),
             )
-            if (result.failed > 0) Result.retry() else Result.success()
+            return Result.success()
+        }
+        return runCatching {
+            val clientInstanceId = entryPoint.runtimePolicyProvider().clientInstanceId()
+            val result = entryPoint.repository().synchronizeAttachments(session.accessToken, session.userId, clientInstanceId)
+            entryPoint.repository().reportAttachmentCacheStatus(
+                session.accessToken,
+                session.userId,
+                clientInstanceId,
+            )
+            if (result.retryable > 0) Result.retry() else Result.success()
         }.getOrElse { error ->
             if (error is HttpException && error.code() in listOf(HTTP_UNAUTHORIZED, HTTP_FORBIDDEN)) {
-                entryPoint.repository().clear(session.userId)
-                if (error.code() == HTTP_UNAUTHORIZED) sessionProvider.logout()
-                Result.success()
+                Result.retry()
             } else {
                 Result.retry()
             }
@@ -83,6 +88,7 @@ class WechatAttachmentCacheSyncScheduler @Inject constructor(
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         val periodic = PeriodicWorkRequestBuilder<WechatAttachmentCacheSyncWorker>(15, TimeUnit.MINUTES)
             .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PERIODIC_WORK_NAME,
@@ -91,6 +97,7 @@ class WechatAttachmentCacheSyncScheduler @Inject constructor(
         )
         val immediate = OneTimeWorkRequestBuilder<WechatAttachmentCacheSyncWorker>()
             .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             IMMEDIATE_WORK_NAME,
@@ -102,6 +109,7 @@ class WechatAttachmentCacheSyncScheduler @Inject constructor(
     fun scheduleImmediate() {
         val request = OneTimeWorkRequestBuilder<WechatAttachmentCacheSyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             IMMEDIATE_WORK_NAME,

@@ -207,7 +207,10 @@ interface AdminApi {
     suspend fun getWechatSyncIssues(@Header("Authorization") authorization: String): WechatSyncIssuesResponseDto
 
     @GET("admin/wechat-sync/cache-status")
-    suspend fun getWechatCacheStatus(@Header("Authorization") authorization: String): WechatCacheStatusSummaryDto
+    suspend fun getWechatCacheStatus(
+        @Header("Authorization") authorization: String,
+        @Query("clientInstanceId") clientInstanceId: String,
+    ): WechatCacheStatusSummaryDto
 
     @GET("admin/wechat-sync/records/search")
     suspend fun searchWechatWorkOrders(

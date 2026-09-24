@@ -94,9 +94,24 @@ data class WechatSyncIssuesResponseDto(
 data class WechatCacheStatusSummaryDto(
     val clientCount: Int = 0,
     val completedCount: Int = 0,
+    val completedPdfCount: Int = 0,
     val pendingCount: Int = 0,
     val failedCount: Int = 0,
+    val sourceUnavailableCount: Int = 0,
     val totalBytes: Long = 0,
+    val clients: List<WechatCacheClientStatusDto> = emptyList(),
+)
+data class WechatCacheClientStatusDto(
+    val userId: Long,
+    val clientInstanceId: String,
+    val completedCount: Int = 0,
+    val completedPdfCount: Int = 0,
+    val pendingCount: Int = 0,
+    val failedCount: Int = 0,
+    val sourceUnavailableCount: Int = 0,
+    val totalBytes: Long = 0,
+    val updatedAt: String,
+    val current: Boolean = false,
 )
 data class WechatSyncIntegrityDto(
     val unconfirmedBatchCount: Int = 0,

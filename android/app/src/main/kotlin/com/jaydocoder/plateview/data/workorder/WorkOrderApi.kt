@@ -169,6 +169,7 @@ data class WorkOrderAttachmentManifestItemDto(
     val originalAvailable: Boolean = false,
     val previewAvailable: Boolean = false,
     val thumbnailAvailable: Boolean = false,
+    val downloadUrl: String = "",
 )
 data class AttachmentCacheStatusRequestDto(
     val clientInstanceId: String,
