@@ -164,4 +164,5 @@ interface WorkOrderRepository {
     suspend fun clearWorkOrders(userId: Long) = Unit
     suspend fun clearMessages(userId: Long) = Unit
     suspend fun clearAttachmentCache(userId: Long) = Unit
+    suspend fun clearDeviceAttachmentFiles() = Unit
 }

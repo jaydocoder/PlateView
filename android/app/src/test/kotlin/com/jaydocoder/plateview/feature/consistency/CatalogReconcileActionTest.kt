@@ -53,4 +53,27 @@ class CatalogReconcileActionTest {
 
         assertEquals(CatalogFreshness(CatalogKind.ATTACHMENT), reset)
     }
+
+    @Test
+    fun `无微信权限时服务器误返回正修订也必须在客户端撤权`() {
+        val targets = catalogTargetsForAccount(
+            hasWechatAccess = false,
+            vehicleRevision = 44,
+            workOrderRevision = 12,
+            messageRevision = 13,
+            attachmentRevision = 14,
+        )
+
+        assertEquals(44L, targets[CatalogKind.VEHICLE])
+        assertEquals(-1L, targets[CatalogKind.WORK_ORDER])
+        assertEquals(-1L, targets[CatalogKind.WECHAT_MESSAGE])
+        assertEquals(-1L, targets[CatalogKind.ATTACHMENT])
+    }
+
+    @Test
+    fun `无权限目录状态不会被网络失败覆盖为离线陈旧`() {
+        val revoked = CatalogFreshness(CatalogKind.WORK_ORDER).revoked(-1)
+        assertEquals(CatalogSyncStatus.PERMISSION_REVOKED, revoked.status)
+        assertEquals(CatalogSyncStatus.PERMISSION_REVOKED, revoked.unavailableAfterNetworkFailure(100_000, "IOException").status)
+    }
 }

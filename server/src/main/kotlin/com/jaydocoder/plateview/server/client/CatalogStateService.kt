@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 internal val CatalogStateServiceKey = AttributeKey<CatalogStateService>("catalogStateService")
+private const val INACCESSIBLE_REVISION = -1L
 
 internal fun Application.catalogStateService(dataSource: DataSource): CatalogStateService =
     attributes.getOrNull(CatalogStateServiceKey) ?: synchronized(attributes) {
@@ -45,7 +46,8 @@ internal class CatalogStateService(
             val visibility = connection.prepareStatement(
                 """
                 SELECT u.username, u.role, u.other_long_term_access_enabled, u.resident_remarks_access_enabled,
-                       p.revision, p.vehicle_result_limit, p.work_order_result_limit, p.wechat_message_result_limit
+                       u.wechat_work_order_access_enabled, p.revision, p.vehicle_result_limit,
+                       p.work_order_result_limit, p.wechat_message_result_limit
                 FROM users u CROSS JOIN client_runtime_policy p
                 WHERE u.id = ? AND p.id = 1
                 """.trimIndent(),
@@ -58,26 +60,15 @@ internal class CatalogStateService(
                         vehicleBits = if (primaryAdministrator) 3L else {
                             (if (result.getBoolean(3)) 2L else 0L) + (if (result.getBoolean(4)) 1L else 0L)
                         },
-                        policyRevision = result.getLong(5),
-                        vehicleAllowed = effectiveLimit(result.getInt(6), primaryAdministrator) > 0,
-                        workOrderAllowed = effectiveLimit(result.getInt(7), primaryAdministrator) > 0,
-                        messageAllowed = effectiveLimit(result.getInt(8), primaryAdministrator) > 0,
+                        policyRevision = result.getLong(6),
+                        vehicleAllowed = effectiveLimit(result.getInt(7), primaryAdministrator) > 0,
+                        wechatAccessEnabled = primaryAdministrator || result.getBoolean(5),
+                        workOrderAllowedByPolicy = effectiveLimit(result.getInt(8), primaryAdministrator) > 0,
+                        messageAllowedByPolicy = effectiveLimit(result.getInt(9), primaryAdministrator) > 0,
                     )
                 }
             }
-            CatalogStateResponse(
-                vehicleRevision = if (visibility.vehicleAllowed) revisions.vehicleRevision * 4L + visibility.vehicleBits else INACCESSIBLE_REVISION,
-                workOrderRevision = if (visibility.workOrderAllowed) revisions.workOrderRevision else INACCESSIBLE_REVISION,
-                wechatMessageRevision = if (visibility.messageAllowed) revisions.wechatMessageRevision else INACCESSIBLE_REVISION,
-                attachmentManifestRevision = when {
-                    !visibility.workOrderAllowed && !visibility.messageAllowed -> INACCESSIBLE_REVISION
-                    else -> revisions.attachmentManifestRevision * 4L +
-                        (if (visibility.workOrderAllowed) 2L else 0L) +
-                        (if (visibility.messageAllowed) 1L else 0L)
-                },
-                policyRevision = visibility.policyRevision,
-                serverTime = Instant.now().toString(),
-            )
+            revisions.visibleTo(visibility)
         }
     }
 
@@ -113,9 +104,6 @@ internal class CatalogStateService(
         }
     }
 
-    private companion object {
-        const val INACCESSIBLE_REVISION = -1L
-    }
 }
 
 internal suspend fun cleanupExpiredChangeLogs(dataSource: DataSource) = withContext(Dispatchers.IO) {
@@ -153,18 +141,40 @@ data class CatalogStateResponse(
     val serverTime: String,
 )
 
-private data class CatalogVisibility(
+internal data class CatalogVisibility(
     val vehicleBits: Long,
     val policyRevision: Long,
     val vehicleAllowed: Boolean,
-    val workOrderAllowed: Boolean,
-    val messageAllowed: Boolean,
+    val wechatAccessEnabled: Boolean,
+    val workOrderAllowedByPolicy: Boolean,
+    val messageAllowedByPolicy: Boolean,
 )
 
-private data class CatalogRevisionSnapshot(
+internal data class CatalogRevisionSnapshot(
     val vehicleRevision: Long,
     val workOrderRevision: Long,
     val wechatMessageRevision: Long,
     val attachmentManifestRevision: Long,
     val loadedAtMillis: Long,
 )
+
+internal fun CatalogRevisionSnapshot.visibleTo(
+    visibility: CatalogVisibility,
+    serverTime: Instant = Instant.now(),
+): CatalogStateResponse {
+    val workOrderAllowed = visibility.wechatAccessEnabled && visibility.workOrderAllowedByPolicy
+    val messageAllowed = visibility.wechatAccessEnabled && visibility.messageAllowedByPolicy
+    return CatalogStateResponse(
+        vehicleRevision = if (visibility.vehicleAllowed) vehicleRevision * 4L + visibility.vehicleBits else INACCESSIBLE_REVISION,
+        workOrderRevision = if (workOrderAllowed) workOrderRevision else INACCESSIBLE_REVISION,
+        wechatMessageRevision = if (messageAllowed) wechatMessageRevision else INACCESSIBLE_REVISION,
+        attachmentManifestRevision = when {
+            !workOrderAllowed && !messageAllowed -> INACCESSIBLE_REVISION
+            else -> attachmentManifestRevision * 4L +
+                (if (workOrderAllowed) 2L else 0L) +
+                (if (messageAllowed) 1L else 0L)
+        },
+        policyRevision = visibility.policyRevision,
+        serverTime = serverTime.toString(),
+    )
+}

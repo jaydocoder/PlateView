@@ -262,13 +262,25 @@ class SearchViewModel @Inject constructor(
     private fun observeCatalogFreshness() {
         viewModelScope.launch {
             var previousRevisions = emptyMap<CatalogKind, Long>()
-            consistencyStateProvider.freshness.collect { states ->
+            combine(
+                consistencyStateProvider.freshness,
+                sessionProvider.session,
+                runtimePolicyRepository.policy,
+            ) { states, session, policy -> Triple(states, session, policy) }
+                .collect { (states, session, policy) ->
                 val currentRevisions = states.mapValues { it.value.appliedRevision }
                 if (previousRevisions.isNotEmpty() && currentRevisions != previousRevisions && query.value.isNotBlank()) {
                     retryVersion.update(Int::inc)
                 }
                 previousRevisions = currentRevisions
-                val relevant = states.values.filter { it.kind != CatalogKind.ATTACHMENT }
+                val relevantKinds = buildSet {
+                    if (policy.vehicleResultLimit > 0) add(CatalogKind.VEHICLE)
+                    if (session?.wechatWorkOrderAccessEnabled == true) {
+                        if (policy.workOrderResultLimit > 0) add(CatalogKind.WORK_ORDER)
+                        if (policy.wechatMessageResultLimit > 0) add(CatalogKind.WECHAT_MESSAGE)
+                    }
+                }
+                val relevant = relevantKinds.mapNotNull(states::get)
                 val newestConfirmation = relevant.maxOfOrNull { it.lastConfirmedAtEpochMillis } ?: 0L
                 _uiState.update { state ->
                     state.copy(

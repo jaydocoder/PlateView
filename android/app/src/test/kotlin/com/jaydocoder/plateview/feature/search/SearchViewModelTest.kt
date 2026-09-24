@@ -20,6 +20,10 @@ import com.jaydocoder.plateview.domain.workorder.WechatMessage
 import com.jaydocoder.plateview.domain.workorder.WechatMessagePage
 import com.jaydocoder.plateview.feature.auth.AuthSession
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.feature.consistency.CatalogConsistencyStateProvider
+import com.jaydocoder.plateview.feature.consistency.CatalogFreshness
+import com.jaydocoder.plateview.feature.consistency.CatalogKind
+import com.jaydocoder.plateview.feature.consistency.CatalogSyncStatus
 import com.jaydocoder.plateview.data.network.AppErrorKind
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicy
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
@@ -296,6 +300,34 @@ class SearchViewModelTest {
         assertEquals(0, workOrderRepository.homeSearchCalls)
     }
 
+    @Test
+    fun `无微信权限时微信目录失败不污染已确认车辆状态`() = runTest {
+        val now = System.currentTimeMillis()
+        val consistency = FakeCatalogConsistencyStateProvider(
+            mapOf(
+                CatalogKind.VEHICLE to CatalogFreshness(
+                    kind = CatalogKind.VEHICLE,
+                    appliedRevision = 44,
+                    observedServerRevision = 44,
+                    lastConfirmedAtEpochMillis = now,
+                    status = CatalogSyncStatus.CONFIRMED,
+                ),
+                CatalogKind.WORK_ORDER to CatalogFreshness(CatalogKind.WORK_ORDER, status = CatalogSyncStatus.FAILED),
+                CatalogKind.WECHAT_MESSAGE to CatalogFreshness(CatalogKind.WECHAT_MESSAGE, status = CatalogSyncStatus.FAILED),
+                CatalogKind.ATTACHMENT to CatalogFreshness(CatalogKind.ATTACHMENT, status = CatalogSyncStatus.FAILED),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionProvider = FakeAuthSessionProvider(wechatAccessEnabled = false),
+            consistencyStateProvider = consistency,
+        )
+
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.dataConfirmed)
+        assertTrue(viewModel.uiState.value.freshnessLabel.startsWith("数据已确认"))
+    }
+
     private fun createViewModel(
         vehicleRepository: FakeVehicleRepository = FakeVehicleRepository(),
         vehicleCacheRepository: VehicleCacheRepository = FakeVehicleCacheRepository(),
@@ -303,6 +335,7 @@ class SearchViewModelTest {
         workOrderRepository: WorkOrderRepository = FakeWorkOrderRepository(),
         sessionProvider: AuthSessionProvider = FakeAuthSessionProvider(),
         runtimePolicyProvider: ClientRuntimePolicyProvider = FakeRuntimePolicyProvider(),
+        consistencyStateProvider: CatalogConsistencyStateProvider = FakeCatalogConsistencyStateProvider(),
     ): SearchViewModel = SearchViewModel(
         vehicleRepository = vehicleRepository,
         vehicleCacheRepository = vehicleCacheRepository,
@@ -310,7 +343,14 @@ class SearchViewModelTest {
         sessionProvider = sessionProvider,
         workOrderRepository = workOrderRepository,
         runtimePolicyRepository = runtimePolicyProvider,
+        consistencyStateProvider = consistencyStateProvider,
     )
+}
+
+private class FakeCatalogConsistencyStateProvider(
+    initial: Map<CatalogKind, CatalogFreshness> = CatalogKind.entries.associateWith(::CatalogFreshness),
+) : CatalogConsistencyStateProvider {
+    override val freshness = MutableStateFlow(initial)
 }
 
 private class FakeRuntimePolicyProvider(initial: ClientRuntimePolicy = ClientRuntimePolicy()) : ClientRuntimePolicyProvider {

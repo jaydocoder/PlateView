@@ -145,9 +145,7 @@ class AuthRepository @Inject constructor(
         userId?.let { catalogConsistencyCoordinator.deactivate(it) }
         userId?.let(catalogStates::remove)
         completeLogout(
-            userId = userId,
             clearSession = { context.authDataStore.edit { it.clear() } },
-            clearUserCache = workOrderRepository::clear,
         )
     }
 
@@ -232,12 +230,9 @@ internal data class CachedCatalogState(
 )
 
 internal suspend fun completeLogout(
-    userId: Long?,
     clearSession: suspend () -> Unit,
-    clearUserCache: suspend (Long) -> Unit,
 ) {
     clearSession()
-    userId?.let { runCatching { clearUserCache(it) } }
 }
 
 @Module

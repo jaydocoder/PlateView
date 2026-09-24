@@ -574,6 +574,12 @@ class RoomWorkOrderRepository @Inject constructor(
         }
     }
 
+    override suspend fun clearDeviceAttachmentFiles() = attachmentManifestMutex.withLock {
+        attachmentDownloadMutex.withLock {
+            attachmentCacheRepository.clearSharedFiles()
+        }
+    }
+
     private fun fromEntity(entity: WorkOrderCacheEntity): WorkOrder = gson.fromJson(entity.detailJson, WorkOrder::class.java)
 
     private companion object {

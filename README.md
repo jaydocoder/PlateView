@@ -2,7 +2,7 @@
 
 PlateView 是面向景区入口、巡查与车辆信息核验场景的 Android 应用及自建服务端。已登录用户可通过手动输入车牌片段，快速查询车辆归属、类别与通行信息；管理员可维护车辆档案、账号、Excel 导入批次与审计记录。
 
-当前正式版本为 `0.3.30`（`versionCode 34`）。Android 客户端最低支持 Android 12（API 31），采用 Kotlin 与 Jetpack Compose 开发；服务端采用 Kotlin、Ktor 与 PostgreSQL。
+当前正式版本为 `0.3.31`（`versionCode 35`）。Android 客户端最低支持 Android 12（API 31），采用 Kotlin 与 Jetpack Compose 开发；服务端采用 Kotlin、Ktor 与 PostgreSQL。
 
 ## 核心能力
 
@@ -103,7 +103,7 @@ docker compose --env-file .env -f compose.production.yaml up -d
 
 推送形如 `v0.3.15` 的版本标签会额外执行正式签名构建，并在 GitHub 发行版中上传 `arm64-v8a`、`armeabi-v7a` 和 `universal` 三个 APK。服务器由 `root` 一次性安装 `plateview-update-mirror.timer` 后，每五分钟主动检查 GitHub Release，分别断点续传三个架构 APK，校验 SHA-256 后原子更新服务器镜像与 `latest.json`。客户端按设备架构选择 APK，GitHub 不可用或中途下载失败时，会复用同架构未完成文件并从服务器镜像继续断点下载。
 
-当前版本：`0.3.30`（`versionCode 34`）。最新正式 APK 可在 [GitHub Releases](https://github.com/jaydocoder/PlateView/releases) 下载。
+当前版本：`0.3.31`（`versionCode 35`）。最新正式 APK 可在 [GitHub Releases](https://github.com/jaydocoder/PlateView/releases) 下载。
 
 ## 文档索引
 

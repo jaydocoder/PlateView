@@ -70,6 +70,7 @@ class ClientRuntimeCoordinator @Inject constructor(
     private suspend fun clearCaches(session: AuthSession) {
         vehicleCacheRepository.clearSnapshot(session.userId)
         workOrderRepository.clear(session.userId)
+        workOrderRepository.clearDeviceAttachmentFiles()
         searchHistoryRepository.clear(session.username)
         File(context.filesDir, "avatars").listFiles()
             ?.filter { it.name.startsWith("avatar-${session.userId}.") }

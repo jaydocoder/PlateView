@@ -55,6 +55,31 @@ internal fun catalogReconcileAction(appliedRevision: Long, remoteRevision: Long)
     else -> CatalogReconcileAction.SYNCHRONIZE
 }
 
+internal fun catalogTargetsForAccount(
+    hasWechatAccess: Boolean,
+    vehicleRevision: Long,
+    workOrderRevision: Long,
+    messageRevision: Long,
+    attachmentRevision: Long,
+): Map<CatalogKind, Long> = mapOf(
+    CatalogKind.VEHICLE to vehicleRevision,
+    CatalogKind.WORK_ORDER to if (hasWechatAccess) workOrderRevision else -1L,
+    CatalogKind.WECHAT_MESSAGE to if (hasWechatAccess) messageRevision else -1L,
+    CatalogKind.ATTACHMENT to if (hasWechatAccess) attachmentRevision else -1L,
+)
+
+internal fun CatalogFreshness.unavailableAfterNetworkFailure(
+    now: Long,
+    errorCode: String,
+): CatalogFreshness = if (status == CatalogSyncStatus.PERMISSION_REVOKED) {
+    this
+} else {
+    copy(
+        status = if (now - lastConfirmedAtEpochMillis > FRESHNESS_WINDOW_MILLIS) CatalogSyncStatus.OFFLINE_STALE else status,
+        lastErrorCode = errorCode,
+    )
+}
+
 internal fun CatalogFreshness.revoked(remoteRevision: Long): CatalogFreshness = copy(
     appliedRevision = 0,
     observedServerRevision = remoteRevision,
@@ -78,10 +103,9 @@ data class CatalogFreshness(
     fun isConfirmed(now: Long = System.currentTimeMillis()): Boolean =
         status == CatalogSyncStatus.CONFIRMED && now - lastConfirmedAtEpochMillis <= FRESHNESS_WINDOW_MILLIS
 
-    private companion object {
-        const val FRESHNESS_WINDOW_MILLIS = 30_000L
-    }
 }
+
+private const val FRESHNESS_WINDOW_MILLIS = 30_000L
 
 interface CatalogConsistencyStateProvider {
     val freshness: StateFlow<Map<CatalogKind, CatalogFreshness>>
@@ -137,11 +161,12 @@ class CatalogConsistencyCoordinator @Inject constructor(
             persistPolicyRevision(session.userId, remote.policyRevision)
             local = load(session.userId)
         }
-        val targets = mapOf(
-            CatalogKind.VEHICLE to remote.vehicleRevision,
-            CatalogKind.WORK_ORDER to remote.workOrderRevision,
-            CatalogKind.WECHAT_MESSAGE to remote.wechatMessageRevision,
-            CatalogKind.ATTACHMENT to remote.attachmentManifestRevision,
+        val targets = catalogTargetsForAccount(
+            hasWechatAccess = session.wechatWorkOrderAccessEnabled,
+            vehicleRevision = remote.vehicleRevision,
+            workOrderRevision = remote.workOrderRevision,
+            messageRevision = remote.wechatMessageRevision,
+            attachmentRevision = remote.attachmentManifestRevision,
         )
         if (isActiveAccount(session.userId)) _freshness.value = targets.mapValues { (kind, revision) ->
             local[kind].orEmpty(kind).copy(observedServerRevision = revision, status = CatalogSyncStatus.CHECKING)
@@ -164,14 +189,7 @@ class CatalogConsistencyCoordinator @Inject constructor(
     suspend fun markUnavailable(errorCode: String) {
         val now = System.currentTimeMillis()
         _freshness.value = _freshness.value.mapValues { (_, current) ->
-            current.copy(
-                status = if (now - current.lastConfirmedAtEpochMillis > FRESHNESS_WINDOW_MILLIS) {
-                    CatalogSyncStatus.OFFLINE_STALE
-                } else {
-                    current.status
-                },
-                lastErrorCode = errorCode,
-            )
+            current.unavailableAfterNetworkFailure(now, errorCode)
         }
     }
 
