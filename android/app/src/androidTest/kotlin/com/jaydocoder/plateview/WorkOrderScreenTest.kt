@@ -116,7 +116,7 @@ class WorkOrderScreenTest {
             composeRule.runOnUiThread { currentState = state }
             val expected = if (state == "ONLINE_HEALTHY") "微信服务正常" else "微信同步异常"
             composeRule.onNodeWithText(expected).assertIsDisplayed()
-            composeRule.onNodeWithText("最后同步：", substring = true).assertIsDisplayed()
+            composeRule.onNodeWithText("最后同步：9月24日 22:20").assertIsDisplayed()
         }
         composeRule.onAllNodesWithText("电脑在线，微信记录同步正常").assertCountEquals(0)
         composeRule.onAllNodesWithText("电脑离线").assertCountEquals(0)

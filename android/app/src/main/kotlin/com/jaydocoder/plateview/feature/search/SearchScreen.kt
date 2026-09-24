@@ -407,13 +407,8 @@ private fun WechatSyncHealthBadge(health: WechatSyncHealth, modifier: Modifier =
 }
 
 private fun formatWechatSyncTime(value: String): String = runCatching {
-    val dateTime = Instant.parse(value).atZone(ZoneId.of("Asia/Shanghai"))
-    val today = Instant.now().atZone(ZoneId.of("Asia/Shanghai")).toLocalDate()
-    if (dateTime.toLocalDate() == today) {
-        "今天 ${dateTime.format(DateTimeFormatter.ofPattern("HH:mm"))}"
-    } else {
-        dateTime.format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
-    }
+    Instant.parse(value).atZone(ZoneId.of("Asia/Shanghai"))
+        .format(DateTimeFormatter.ofPattern("M月d日 HH:mm"))
 }.getOrDefault("时间未知")
 
 @Composable
