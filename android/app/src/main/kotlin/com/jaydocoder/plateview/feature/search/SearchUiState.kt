@@ -5,6 +5,7 @@ import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.data.network.AppError
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.WechatMessage
+import com.jaydocoder.plateview.feature.auth.WechatSyncHealth
 
 data class SearchUiState(
     val query: String = "",
@@ -18,6 +19,7 @@ data class SearchUiState(
     val history: List<SearchHistoryItem> = emptyList(),
     val freshnessLabel: String = "正在确认最新数据",
     val dataConfirmed: Boolean = false,
+    val wechatSyncHealth: WechatSyncHealth? = null,
 )
 
 sealed interface SearchSectionState {

@@ -99,10 +99,16 @@ data class WechatCacheStatusSummaryDto(
     val failedCount: Int = 0,
     val sourceUnavailableCount: Int = 0,
     val totalBytes: Long = 0,
+    val currentClient: WechatCacheClientStatusDto? = null,
     val clients: List<WechatCacheClientStatusDto> = emptyList(),
+    val page: Int = 1,
+    val pageSize: Int = 10,
+    val totalItems: Int = 0,
+    val totalPages: Int = 0,
 )
 data class WechatCacheClientStatusDto(
     val userId: Long,
+    val username: String,
     val clientInstanceId: String,
     val completedCount: Int = 0,
     val completedPdfCount: Int = 0,

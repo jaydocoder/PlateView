@@ -34,6 +34,7 @@ data class AdminUiState(
     val isVehiclePageLoading: Boolean = false,
     val isImportPageLoading: Boolean = false,
     val isAuditPageLoading: Boolean = false,
+    val isWechatCachePageLoading: Boolean = false,
     val failure: AppError? = null,
     val vehicles: List<ManagedVehicleSummary> = emptyList(),
     val vehicleSearchQuery: String = "",

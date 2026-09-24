@@ -158,6 +158,31 @@ class AdminWorkspaceViewModelTest {
     }
 
     @Test
+    fun `缓存设备翻页只请求缓存状态且保留每页数量`() = runTest {
+        val repository = FakeAdminRepository(
+            wechatCacheStatus = WechatCacheStatusSummary(page = 1, pageSize = 10, totalItems = 25, totalPages = 3),
+        )
+        val viewModel = createViewModel(repository = repository)
+        advanceUntilIdle()
+        viewModel.selectTab(AdminTab.WechatSync)
+        advanceUntilIdle()
+
+        val overviewRequests = repository.wechatOverviewRequestCount
+        viewModel.loadWechatCachePage(2)
+        advanceUntilIdle()
+
+        assertEquals(overviewRequests, repository.wechatOverviewRequestCount)
+        assertEquals(listOf(2 to 10), repository.wechatCachePageRequests)
+        assertEquals(2, viewModel.uiState.value.wechatCacheStatus.page)
+
+        viewModel.updateWechatCachePageSize(20)
+        advanceUntilIdle()
+
+        assertEquals(listOf(2 to 10, 1 to 20), repository.wechatCachePageRequests)
+        assertEquals(20, viewModel.uiState.value.wechatCacheStatus.pageSize)
+    }
+
+    @Test
     fun `新建用户时排班入口默认关闭`() = runTest {
         val viewModel = createViewModel()
         viewModel.selectTab(AdminTab.Users)
@@ -620,6 +645,8 @@ private class FakeAdminRepository(
     val auditOffsets = mutableListOf<Int>()
     val auditFilters = mutableListOf<AuditFilter>()
     val downloadedWechatAttachments = mutableListOf<Pair<Long, String>>()
+    var wechatOverviewRequestCount = 0
+    val wechatCachePageRequests = mutableListOf<Pair<Int, Int>>()
 
     private val vehicle = ManagedVehicleSummary(101, "新A12345", "RESIDENT", "村民车辆", "ACTIVE", 0, null)
     private val user = ManagedUser(11, "operator", "USER", "ACTIVE", 0, null, null)
@@ -684,14 +711,23 @@ private class FakeAdminRepository(
         return listOf(user)
     }
     override suspend fun getWechatSyncStatus(accessToken: String): List<WechatSyncSource> = emptyList()
-    override suspend fun getWechatSyncOverview(accessToken: String) = WechatSyncOverview(
-        issues = wechatIssues,
-        totalAttachmentCount = 2,
-        completedAttachmentCount = 1,
-        pendingAttachmentCount = 1,
-        integrity = wechatIntegrity,
-        cacheStatus = wechatCacheStatus,
-    )
+    override suspend fun getWechatSyncOverview(accessToken: String, cachePage: Int, cachePageSize: Int): WechatSyncOverview {
+        wechatOverviewRequestCount += 1
+        return WechatSyncOverview(
+            issues = wechatIssues,
+            totalAttachmentCount = 2,
+            completedAttachmentCount = 1,
+            pendingAttachmentCount = 1,
+            integrity = wechatIntegrity,
+            cacheStatus = wechatCacheStatus.copy(page = cachePage, pageSize = cachePageSize),
+        )
+    }
+    override suspend fun getWechatCacheStatus(accessToken: String, page: Int, pageSize: Int): WechatCacheStatusSummary {
+        wechatCachePageRequests += page to pageSize
+        val totalPages = if (wechatCacheStatus.totalItems == 0) 0 else (wechatCacheStatus.totalItems + pageSize - 1) / pageSize
+        val correctedPage = if (totalPages == 0) 1 else page.coerceIn(1, totalPages)
+        return wechatCacheStatus.copy(page = correctedPage, pageSize = pageSize, totalPages = totalPages)
+    }
     override suspend fun getWechatPassageSenders(accessToken: String) = emptyList<com.jaydocoder.plateview.domain.admin.WechatPassageSender>()
     override suspend fun saveWechatPassageSender(accessToken: String, sender: com.jaydocoder.plateview.domain.admin.WechatPassageSender) = Unit
     override suspend fun correctWechatWorkOrder(accessToken: String, recordId: Long, command: WorkOrderCorrectionCommand) = Unit

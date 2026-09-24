@@ -263,8 +263,17 @@ internal fun Application.configureWorkOrderFeature() {
                     call.respond(WechatSyncStatusResponse(service.syncStatus().map(WechatSourceStatus::toResponse)))
                 }
                 get("/cache-status") {
-                    call.requirePrimaryAdministrator(dataSource)
-                    call.respond(service.attachmentCacheStatusSummary(call.request.queryParameters["clientInstanceId"]).toResponse())
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
+                    val pageSize = call.request.queryParameters["pageSize"]?.toIntOrNull() ?: 10
+                    call.respond(
+                        service.attachmentCacheStatusSummary(
+                            currentUserId = actorId,
+                            currentClientInstanceId = call.request.queryParameters["clientInstanceId"],
+                            requestedPage = page,
+                            pageSize = pageSize,
+                        ).toResponse(),
+                    )
                 }
                 get("/issues") {
                     call.requirePrimaryAdministrator(dataSource)
@@ -670,10 +679,16 @@ private fun WechatPassageSender.toResponse() = WechatPassageSenderResponse(sende
     val failedCount: Int,
     val sourceUnavailableCount: Int,
     val totalBytes: Long,
+    val currentClient: AttachmentCacheClientStatusResponse?,
     val clients: List<AttachmentCacheClientStatusResponse>,
+    val page: Int,
+    val pageSize: Int,
+    val totalItems: Int,
+    val totalPages: Int,
 )
 @Serializable private data class AttachmentCacheClientStatusResponse(
     val userId: Long,
+    val username: String,
     val clientInstanceId: String,
     val completedCount: Int,
     val completedPdfCount: Int,
@@ -688,7 +703,11 @@ private fun WechatPassageSender.toResponse() = WechatPassageSenderResponse(sende
 private fun WechatSourceStatus.toResponse() = WechatSourceStatusResponse(sourceKey, displayName, status, latestMessageAt?.toString(), lastHeartbeatAt?.toString(), lastUploadedAt?.toString(), backlogCount, errorCode)
 private fun AttachmentCacheStatusSummary.toResponse() = AttachmentCacheStatusSummaryResponse(
     clientCount, completedCount, completedPdfCount, pendingCount, failedCount, sourceUnavailableCount, totalBytes,
-    clients.map { AttachmentCacheClientStatusResponse(it.userId, it.clientInstanceId, it.completedCount, it.completedPdfCount, it.pendingCount, it.failedCount, it.sourceUnavailableCount, it.totalBytes, it.updatedAt.toString(), it.current) },
+    currentClient?.toResponse(), clients.map(AttachmentCacheClientStatus::toResponse), page, pageSize, totalItems, totalPages,
+)
+private fun AttachmentCacheClientStatus.toResponse() = AttachmentCacheClientStatusResponse(
+    userId, username, clientInstanceId, completedCount, completedPdfCount, pendingCount, failedCount,
+    sourceUnavailableCount, totalBytes, updatedAt.toString(), current,
 )
 @Serializable private data class WechatSyncIssuesResponse(
     val items: List<WechatSyncIssueResponse>,

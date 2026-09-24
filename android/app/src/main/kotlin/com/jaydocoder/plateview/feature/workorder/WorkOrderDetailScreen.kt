@@ -116,16 +116,6 @@ fun WorkOrderDetailScreen(
                 }
                 uiState.record != null -> WorkOrderContent(uiState, onOpenImage)
             }
-            if (uiState.record != null) {
-                Surface(
-                    modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
-                    color = if (uiState.dataConfirmed) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
-                    contentColor = if (uiState.dataConfirmed) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer,
-                    shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-                ) {
-                    Text(uiState.freshnessLabel, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
-                }
-            }
         }
     }
     uiState.selectedImage?.let { selected ->

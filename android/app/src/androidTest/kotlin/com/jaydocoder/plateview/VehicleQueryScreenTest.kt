@@ -14,6 +14,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -178,6 +180,8 @@ class VehicleQueryScreenTest {
         }
 
         candidates.forEach { candidate ->
+            val index = candidates.indexOf(candidate) + 2
+            composeRule.onNodeWithTag("search_result_list").performScrollToIndex(index)
             composeRule.onNodeWithText(candidate.categoryLabel).assertIsDisplayed()
         }
         composeRule.onNodeWithText("单位名称：内部维护单位").assertIsDisplayed()
@@ -238,6 +242,8 @@ class VehicleQueryScreenTest {
         }
 
         composeRule.onNodeWithText("村民核验信息").assertIsDisplayed()
+        composeRule.onAllNodesWithText("数据已确认", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("核验就绪").assertCountEquals(0)
         composeRule.onNodeWithTag("vehicle_detail_identity_banner").assertIsDisplayed()
         composeRule.onNodeWithTag("vehicle_detail_identity_glass_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("vehicle_detail_section_村民核验信息").assertIsDisplayed()

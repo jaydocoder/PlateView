@@ -90,18 +90,6 @@ class VehicleDetailViewModel @Inject constructor(
         viewModelScope.launch {
             consistencyStateProvider.freshness.collect { states ->
                 val freshness = states[CatalogKind.VEHICLE] ?: return@collect
-                _uiState.update {
-                    it.copy(
-                        dataConfirmed = freshness.isConfirmed(),
-                        freshnessLabel = when (freshness.status) {
-                            CatalogSyncStatus.CONFIRMED -> if (freshness.isConfirmed()) "数据已确认" else "数据未确认，请谨慎核验"
-                            CatalogSyncStatus.CHECKING -> "正在确认最新数据"
-                            CatalogSyncStatus.OUTDATED, CatalogSyncStatus.SYNCING -> "发现更新，正在同步"
-                            CatalogSyncStatus.PERMISSION_REVOKED -> "当前账号无权访问"
-                            CatalogSyncStatus.OFFLINE_STALE, CatalogSyncStatus.FAILED -> "数据未确认，请谨慎核验"
-                        },
-                    )
-                }
                 if (freshness.status == CatalogSyncStatus.CONFIRMED && freshness.isConfirmed()) {
                     val session = sessionProvider.session.first() ?: return@collect
                     vehicleCacheRepository.getDetail(session.userId, vehicleId)?.let { cached ->

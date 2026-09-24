@@ -34,6 +34,8 @@ import com.jaydocoder.plateview.domain.admin.ManagedVehicleSummary
 import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
 import com.jaydocoder.plateview.domain.admin.WechatSyncIssue
 import com.jaydocoder.plateview.domain.admin.WechatSyncSource
+import com.jaydocoder.plateview.domain.admin.WechatCacheClientStatus
+import com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary
 import com.jaydocoder.plateview.feature.admin.AdminTab
 import com.jaydocoder.plateview.feature.admin.AdminUiState
 import com.jaydocoder.plateview.feature.admin.PendingVehicleStatusChange
@@ -744,6 +746,65 @@ class AdminWorkspaceScreenTest {
     }
 
     @Test
+    fun 微信同步页显示本机摘要并支持客户端分页操作() {
+        var requestedPage: Int? = null
+        var requestedPageSize: Int? = null
+        val currentClient = WechatCacheClientStatus(
+            userId = 1,
+            username = "admin",
+            clientInstanceId = "device-12345678",
+            completedCount = 20,
+            completedPdfCount = 4,
+            pendingCount = 2,
+            failedCount = 1,
+            sourceUnavailableCount = 3,
+            totalBytes = 8L * 1024 * 1024,
+            updatedAt = "2026-09-24T14:20:00Z",
+            current = true,
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                AdminWorkspaceScreen(
+                    uiState = AdminUiState(
+                        tab = AdminTab.WechatSync,
+                        isLoading = false,
+                        isPrimaryAdministrator = true,
+                        wechatCacheStatus = WechatCacheStatusSummary(
+                            clientCount = 25,
+                            currentClient = currentClient,
+                            clients = listOf(currentClient),
+                            page = 1,
+                            pageSize = 10,
+                            totalItems = 25,
+                            totalPages = 3,
+                        ),
+                    ),
+                    onNavigateUp = {}, onTabSelected = {}, onRefresh = {},
+                    onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
+                    onDismissVehicleEditor = {}, onSaveVehicle = {}, onCreateUser = {}, onEditUser = {},
+                    onUserEditorChanged = {}, onDismissUserEditor = {}, onSaveUser = {},
+                    onChooseImport = {}, onOpenImportBatch = {}, onDismissImportBatch = {},
+                    onImportResolution = { _, _ -> }, onPublishImport = {}, onRollbackImport = {},
+                    onWechatCachePageChanged = { requestedPage = it },
+                    onWechatCachePageSizeChanged = { requestedPageSize = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("本机缓存状态").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("admin").assertIsDisplayed()
+        composeRule.onNodeWithText("当前设备").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_wechat_sync_page").performScrollToIndex(6)
+        composeRule.onNodeWithTag("wechat_cache_pagination").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("wechat_cache_next_page").performClick()
+        composeRule.runOnIdle { assertEquals(2, requestedPage) }
+
+        composeRule.onNodeWithTag("wechat_cache_page_size").performClick()
+        composeRule.onNodeWithTag("wechat_cache_page_size_20").performClick()
+        composeRule.runOnIdle { assertEquals(20, requestedPageSize) }
+    }
+
+    @Test
     fun 微信同步页显示需要处理的异常() {
         composeRule.setContent {
             PlateViewTheme {
@@ -776,13 +837,15 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("图片存在多个关联候选").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_wechat_sync_page").performScrollToIndex(9)
         composeRule.onNodeWithText("关联文件总数").assertIsDisplayed()
         composeRule.onNodeWithText("18").assertIsDisplayed()
         composeRule.onNodeWithText("已完成").assertIsDisplayed()
         composeRule.onNodeWithText("11").assertIsDisplayed()
         composeRule.onNodeWithText("待处理").assertIsDisplayed()
         composeRule.onNodeWithText("7").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_wechat_sync_page").performScrollToIndex(10)
+        composeRule.onNodeWithText("图片存在多个关联候选").assertIsDisplayed()
         composeRule.onNodeWithText("图片存在两个可能的车单").assertIsDisplayed()
         composeRule.onNodeWithText("附件记录：42").assertIsDisplayed()
     }
@@ -824,7 +887,8 @@ class AdminWorkspaceScreenTest {
             }
         }
 
-        composeRule.onNodeWithTag("wechat_attachment_preview_42").performScrollTo().performClick()
+        composeRule.onNodeWithTag("admin_wechat_sync_page").performScrollToIndex(10)
+        composeRule.onNodeWithTag("wechat_attachment_preview_42").performClick()
         composeRule.onNodeWithTag("zoomable_attachment_viewer").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("放大").assertDoesNotExist()
         composeRule.onNodeWithContentDescription("缩小").assertDoesNotExist()

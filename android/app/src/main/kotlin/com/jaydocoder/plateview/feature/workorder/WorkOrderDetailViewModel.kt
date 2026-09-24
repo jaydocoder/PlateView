@@ -15,7 +15,6 @@ import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.feature.consistency.CatalogConsistencyStateProvider
 import com.jaydocoder.plateview.feature.consistency.CatalogKind
-import com.jaydocoder.plateview.feature.consistency.CatalogSyncStatus
 import com.jaydocoder.plateview.feature.consistency.DefaultCatalogConsistencyStateProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -42,7 +41,6 @@ class WorkOrderDetailViewModel @Inject constructor(
     private val imageStateJobs = mutableMapOf<Long, Job>()
 
     init {
-        observeFreshness()
         refresh()
     }
 
@@ -142,26 +140,6 @@ class WorkOrderDetailViewModel @Inject constructor(
 
     private fun rank(variant: String) = when (variant) { "original" -> 3; "preview" -> 2; else -> 1 }
 
-    private fun observeFreshness() {
-        viewModelScope.launch {
-            consistencyStateProvider.freshness.collect { states ->
-                val freshness = states[CatalogKind.WORK_ORDER] ?: return@collect
-                _uiState.update {
-                    it.copy(
-                        dataConfirmed = freshness.isConfirmed(),
-                        freshnessLabel = when (freshness.status) {
-                            CatalogSyncStatus.CONFIRMED -> if (freshness.isConfirmed()) "数据已确认" else "数据未确认，请谨慎核验"
-                            CatalogSyncStatus.CHECKING -> "正在确认最新数据"
-                            CatalogSyncStatus.OUTDATED, CatalogSyncStatus.SYNCING -> "发现更新，正在同步"
-                            CatalogSyncStatus.PERMISSION_REVOKED -> "当前账号无权访问"
-                            CatalogSyncStatus.OFFLINE_STALE, CatalogSyncStatus.FAILED -> "数据未确认，请谨慎核验"
-                        },
-                    )
-                }
-            }
-        }
-    }
-
 }
 
 private fun WorkOrderImage.preferredVariant(): String =
@@ -179,6 +157,4 @@ data class WorkOrderDetailUiState(
     val imageDownloads: Map<Long, AttachmentDownloadState> = emptyMap(),
     val selectedImage: WorkOrderImage? = null,
     val error: AppError? = null,
-    val freshnessLabel: String = "正在确认最新数据",
-    val dataConfirmed: Boolean = false,
 )

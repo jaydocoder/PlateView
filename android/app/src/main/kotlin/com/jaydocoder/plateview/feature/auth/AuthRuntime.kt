@@ -49,9 +49,9 @@ data class AuthSession(
     val wechatWorkOrderAccessEnabled: Boolean = false,
 )
 data class LoginRequest(val username: String, val password: String)
-data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto, val runtimePolicy: ClientRuntimePolicy, val catalogState: ClientCatalogState? = null)
+data class LoginResponse(val accessToken: String, val refreshToken: String, val user: UserDto, val runtimePolicy: ClientRuntimePolicy, val catalogState: ClientCatalogState? = null, val wechatSyncHealth: WechatSyncHealthDto? = null)
 data class UserDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false)
-data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false, val runtimePolicy: ClientRuntimePolicy? = null, val catalogState: ClientCatalogState? = null)
+data class ProfileDto(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean = false, val updatePolicy: String = "OPTIONAL", val wechatWorkOrderAccessEnabled: Boolean = false, val runtimePolicy: ClientRuntimePolicy? = null, val catalogState: ClientCatalogState? = null, val wechatSyncHealth: WechatSyncHealthDto? = null)
 data class ProfileUpdateRequest(
     val username: String? = null,
     val password: String? = null,
@@ -99,6 +99,7 @@ class AuthRepository @Inject constructor(
     private val runtimeCoordinator: ClientRuntimeCoordinator,
     private val catalogConsistencyCoordinator: CatalogConsistencyCoordinator,
     private val clientPolicyApi: ClientPolicyApi,
+    private val wechatSyncHealthRepository: WechatSyncHealthRepository,
 ) : AuthSessionProvider {
     private val catalogCheckMutex = Mutex()
     private val catalogStates = AccountCatalogStateCache()
@@ -138,12 +139,14 @@ class AuthRepository @Inject constructor(
         runtimeCoordinator.apply(session, response.runtimePolicy)
         response.catalogState?.let { catalogConsistencyCoordinator.accept(session, it) }
         response.catalogState?.let { rememberCatalogState(session.userId, it) }
+        wechatSyncHealthRepository.apply(response.wechatSyncHealth)
     }
 
     override suspend fun logout() {
         val userId = session.first()?.userId
         userId?.let { catalogConsistencyCoordinator.deactivate(it) }
         userId?.let(catalogStates::remove)
+        wechatSyncHealthRepository.clear()
         completeLogout(
             clearSession = { context.authDataStore.edit { it.clear() } },
         )
@@ -181,6 +184,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun reportValidationFailure(errorCode: String) {
         catalogConsistencyCoordinator.markUnavailable(errorCode)
+        wechatSyncHealthRepository.markUnknown()
     }
 
     private fun rememberCatalogState(userId: Long, state: ClientCatalogState) {
@@ -192,6 +196,7 @@ class AuthRepository @Inject constructor(
         profile.runtimePolicy?.let { runtimeCoordinator.apply(session, it) }
         profile.catalogState?.let { catalogConsistencyCoordinator.accept(session, it) }
         profile.catalogState?.let { rememberCatalogState(session.userId, it) }
+        wechatSyncHealthRepository.apply(profile.wechatSyncHealth)
     }
 
     private companion object {

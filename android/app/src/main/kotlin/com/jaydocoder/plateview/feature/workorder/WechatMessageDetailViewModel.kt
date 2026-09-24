@@ -16,7 +16,6 @@ import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
 import com.jaydocoder.plateview.feature.consistency.CatalogConsistencyStateProvider
 import com.jaydocoder.plateview.feature.consistency.CatalogKind
 import com.jaydocoder.plateview.feature.consistency.DefaultCatalogConsistencyStateProvider
-import com.jaydocoder.plateview.feature.consistency.CatalogSyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,7 +40,6 @@ class WechatMessageDetailViewModel @Inject constructor(
     private val attachmentStateJobs = mutableMapOf<Long, Job>()
 
     init {
-        observeFreshness()
         refresh()
     }
 
@@ -156,16 +154,6 @@ class WechatMessageDetailViewModel @Inject constructor(
 
     private fun rank(variant: String) = when (variant) { "original" -> 3; "preview" -> 2; else -> 1 }
 
-    private fun observeFreshness() {
-        viewModelScope.launch {
-            consistencyStateProvider.freshness.collect { states ->
-                val freshness = states[CatalogKind.WECHAT_MESSAGE] ?: return@collect
-                _uiState.update {
-                    it.copy(dataConfirmed = freshness.isConfirmed(), freshnessLabel = freshness.detailLabel())
-                }
-            }
-        }
-    }
 }
 
 private fun WorkOrderAttachment.preferredVariant(): String =
@@ -182,14 +170,4 @@ data class WechatMessageDetailUiState(
     val attachmentDownloads: Map<Long, AttachmentDownloadState> = emptyMap(),
     val selectedAttachment: WorkOrderAttachment? = null,
     val error: AppError? = null,
-    val freshnessLabel: String = "正在确认最新数据",
-    val dataConfirmed: Boolean = false,
 )
-
-private fun com.jaydocoder.plateview.feature.consistency.CatalogFreshness.detailLabel(): String = when (status) {
-    CatalogSyncStatus.CONFIRMED -> if (isConfirmed()) "数据已确认" else "数据未确认，请谨慎核验"
-    CatalogSyncStatus.CHECKING -> "正在确认最新数据"
-    CatalogSyncStatus.OUTDATED, CatalogSyncStatus.SYNCING -> "发现更新，正在同步"
-    CatalogSyncStatus.PERMISSION_REVOKED -> "当前账号无权访问"
-    CatalogSyncStatus.OFFLINE_STALE, CatalogSyncStatus.FAILED -> "数据未确认，请谨慎核验"
-}

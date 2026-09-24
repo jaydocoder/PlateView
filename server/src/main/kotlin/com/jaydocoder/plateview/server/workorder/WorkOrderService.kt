@@ -83,13 +83,26 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         transaction { connection ->
             val sourceId = connection.upsertSource(heartbeat.sourceKey, heartbeat.sourceName)
             connection.prepareStatement(
-                "UPDATE wechat_sources SET collector_status = ?, latest_message_at = COALESCE(?, latest_message_at), last_heartbeat_at = CURRENT_TIMESTAMP, backlog_count = ?, error_code = ? WHERE id = ?",
+                """
+                UPDATE wechat_sources
+                SET collector_status = ?,
+                    latest_message_at = COALESCE(?, latest_message_at),
+                    last_heartbeat_at = CURRENT_TIMESTAMP,
+                    last_successful_sync_at = CASE
+                        WHEN ? THEN CURRENT_TIMESTAMP
+                        ELSE last_successful_sync_at
+                    END,
+                    backlog_count = ?,
+                    error_code = ?
+                WHERE id = ?
+                """.trimIndent(),
             ).use { statement ->
                 statement.setString(1, heartbeat.status)
                 statement.setTimestamp(2, heartbeat.latestMessageAt?.let(Timestamp::from))
-                statement.setInt(3, heartbeat.backlogCount.coerceAtLeast(0))
-                statement.setString(4, heartbeat.errorCode)
-                statement.setLong(5, sourceId)
+                statement.setBoolean(3, isSuccessfulWechatSyncHeartbeat(heartbeat.status, heartbeat.backlogCount, heartbeat.errorCode))
+                statement.setInt(4, heartbeat.backlogCount.coerceAtLeast(0))
+                statement.setString(5, heartbeat.errorCode)
+                statement.setLong(6, sourceId)
                 statement.executeUpdate()
             }
         }
@@ -586,54 +599,121 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                 statement.executeUpdate()
             }
         }
-    }
-
-    fun attachmentCacheStatusSummary(currentClientInstanceId: String?): AttachmentCacheStatusSummary = dataSource.connection.use { connection ->
         connection.prepareStatement(
             """
-            SELECT s.user_id, s.client_instance_id,
-                   COUNT(*) FILTER (WHERE s.status = 'COMPLETED') AS completed_count,
-                   COUNT(*) FILTER (WHERE s.status = 'COMPLETED' AND i.attachment_kind = 'PDF') AS completed_pdf_count,
-                   COUNT(*) FILTER (WHERE s.status IN ('DISCOVERED','WAITING_NETWORK','DOWNLOADING','PAUSED','RETRY_WAIT')) AS pending_count,
-                   COUNT(*) FILTER (WHERE s.status = 'FAILED') AS failed_count,
-                   COUNT(*) FILTER (WHERE s.status = 'SOURCE_UNAVAILABLE') AS source_unavailable_count,
-                   COALESCE(SUM(s.downloaded_bytes), 0) AS total_bytes,
-                   MAX(s.updated_at) AS updated_at
+            INSERT INTO client_attachment_cache_summary(
+                user_id, client_instance_id, manifest_revision, completed_count, completed_pdf_count,
+                pending_count, failed_count, source_unavailable_count, total_bytes, updated_at
+            )
+            SELECT ?, ?, GREATEST(?, COALESCE(MAX(s.manifest_revision), 0)),
+                   COUNT(*) FILTER (WHERE s.status = 'COMPLETED'),
+                   COUNT(*) FILTER (WHERE s.status = 'COMPLETED' AND i.attachment_kind = 'PDF'),
+                   COUNT(*) FILTER (WHERE s.status IN ('DISCOVERED','WAITING_NETWORK','DOWNLOADING','PAUSED','RETRY_WAIT')),
+                   COUNT(*) FILTER (WHERE s.status = 'FAILED'),
+                   COUNT(*) FILTER (WHERE s.status = 'SOURCE_UNAVAILABLE'),
+                   COALESCE(SUM(s.downloaded_bytes), 0), CURRENT_TIMESTAMP
             FROM client_attachment_cache_status s
-            JOIN work_order_images i ON i.id = s.attachment_id
-            GROUP BY s.user_id, s.client_instance_id
-            ORDER BY MAX(s.updated_at) DESC
+            LEFT JOIN work_order_images i ON i.id = s.attachment_id
+            WHERE s.user_id = ? AND s.client_instance_id = ?
+            ON CONFLICT(user_id, client_instance_id) DO UPDATE SET
+                manifest_revision = EXCLUDED.manifest_revision,
+                completed_count = EXCLUDED.completed_count,
+                completed_pdf_count = EXCLUDED.completed_pdf_count,
+                pending_count = EXCLUDED.pending_count,
+                failed_count = EXCLUDED.failed_count,
+                source_unavailable_count = EXCLUDED.source_unavailable_count,
+                total_bytes = EXCLUDED.total_bytes,
+                updated_at = CURRENT_TIMESTAMP
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, userId)
+            statement.setString(2, request.clientInstanceId)
+            statement.setLong(3, request.manifestRevision)
+            statement.setLong(4, userId)
+            statement.setString(5, request.clientInstanceId)
+            statement.executeUpdate()
+        }
+    }
+
+    fun attachmentCacheStatusSummary(
+        currentUserId: Long,
+        currentClientInstanceId: String?,
+        requestedPage: Int,
+        pageSize: Int,
+    ): AttachmentCacheStatusSummary = dataSource.connection.use { connection ->
+        require(pageSize in setOf(10, 20, 50)) { "每页设备数量无效" }
+        val totals = connection.prepareStatement(
+            """
+            SELECT COUNT(*) AS client_count,
+                   COALESCE(SUM(completed_count), 0) AS completed_count,
+                   COALESCE(SUM(completed_pdf_count), 0) AS completed_pdf_count,
+                   COALESCE(SUM(pending_count), 0) AS pending_count,
+                   COALESCE(SUM(failed_count), 0) AS failed_count,
+                   COALESCE(SUM(source_unavailable_count), 0) AS source_unavailable_count,
+                   COALESCE(SUM(total_bytes), 0) AS total_bytes
+            FROM client_attachment_cache_summary
             """.trimIndent(),
         ).use { statement -> statement.executeQuery().use { result ->
-            val clients = buildList {
-                while (result.next()) {
-                    add(
-                        AttachmentCacheClientStatus(
-                            userId = result.getLong("user_id"),
-                            clientInstanceId = result.getString("client_instance_id"),
-                            completedCount = result.getInt("completed_count"),
-                            completedPdfCount = result.getInt("completed_pdf_count"),
-                            pendingCount = result.getInt("pending_count"),
-                            failedCount = result.getInt("failed_count"),
-                            sourceUnavailableCount = result.getInt("source_unavailable_count"),
-                            totalBytes = result.getLong("total_bytes"),
-                            updatedAt = result.getTimestamp("updated_at").toInstant(),
-                            current = result.getString("client_instance_id") == currentClientInstanceId,
-                        ),
-                    )
-                }
-            }
-            AttachmentCacheStatusSummary(
-                clientCount = clients.size,
-                completedCount = clients.sumOf(AttachmentCacheClientStatus::completedCount),
-                completedPdfCount = clients.sumOf(AttachmentCacheClientStatus::completedPdfCount),
-                pendingCount = clients.sumOf(AttachmentCacheClientStatus::pendingCount),
-                failedCount = clients.sumOf(AttachmentCacheClientStatus::failedCount),
-                sourceUnavailableCount = clients.sumOf(AttachmentCacheClientStatus::sourceUnavailableCount),
-                totalBytes = clients.sumOf(AttachmentCacheClientStatus::totalBytes),
-                clients = clients,
+            check(result.next()) { "无法读取客户端缓存汇总" }
+            CacheStatusTotals(
+                result.getInt("client_count"), result.getInt("completed_count"), result.getInt("completed_pdf_count"),
+                result.getInt("pending_count"), result.getInt("failed_count"), result.getInt("source_unavailable_count"),
+                result.getLong("total_bytes"),
             )
         } }
+        val pagination = resolveAttachmentCachePage(totals.clientCount, requestedPage, pageSize)
+        val totalPages = pagination.totalPages
+        val page = pagination.page
+
+        fun readClient(result: ResultSet) = AttachmentCacheClientStatus(
+            userId = result.getLong("user_id"),
+            username = result.getString("username"),
+            clientInstanceId = result.getString("client_instance_id"),
+            completedCount = result.getInt("completed_count"),
+            completedPdfCount = result.getInt("completed_pdf_count"),
+            pendingCount = result.getInt("pending_count"),
+            failedCount = result.getInt("failed_count"),
+            sourceUnavailableCount = result.getInt("source_unavailable_count"),
+            totalBytes = result.getLong("total_bytes"),
+            updatedAt = result.getTimestamp("updated_at").toInstant(),
+            current = result.getLong("user_id") == currentUserId && result.getString("client_instance_id") == currentClientInstanceId,
+        )
+
+        val baseSelect = """
+            SELECT s.user_id, u.username, s.client_instance_id, s.completed_count, s.completed_pdf_count,
+                   s.pending_count, s.failed_count, s.source_unavailable_count, s.total_bytes, s.updated_at
+            FROM client_attachment_cache_summary s
+            JOIN users u ON u.id = s.user_id
+        """.trimIndent()
+        val currentClient = currentClientInstanceId?.let { instanceId ->
+            connection.prepareStatement("$baseSelect WHERE s.user_id = ? AND s.client_instance_id = ?").use { statement ->
+                statement.setLong(1, currentUserId)
+                statement.setString(2, instanceId)
+                statement.executeQuery().use { result -> if (result.next()) readClient(result) else null }
+            }
+        }
+        val clients = connection.prepareStatement(
+            "$baseSelect ORDER BY s.updated_at DESC, s.user_id, s.client_instance_id LIMIT ? OFFSET ?",
+        ).use { statement ->
+            statement.setInt(1, pageSize)
+            statement.setInt(2, (page - 1) * pageSize)
+            statement.executeQuery().use { result -> buildList { while (result.next()) add(readClient(result)) } }
+        }
+        AttachmentCacheStatusSummary(
+            clientCount = totals.clientCount,
+            completedCount = totals.completedCount,
+            completedPdfCount = totals.completedPdfCount,
+            pendingCount = totals.pendingCount,
+            failedCount = totals.failedCount,
+            sourceUnavailableCount = totals.sourceUnavailableCount,
+            totalBytes = totals.totalBytes,
+            currentClient = currentClient,
+            clients = clients,
+            page = page,
+            pageSize = pageSize,
+            totalItems = totals.clientCount,
+            totalPages = totalPages,
+        )
     }
 
     fun correctRecord(recordId: Long, correction: WorkOrderCorrection): WorkOrderRecord = transaction { connection ->
@@ -2022,10 +2102,16 @@ internal data class AttachmentCacheStatusSummary(
     val failedCount: Int,
     val sourceUnavailableCount: Int,
     val totalBytes: Long,
+    val currentClient: AttachmentCacheClientStatus?,
     val clients: List<AttachmentCacheClientStatus>,
+    val page: Int,
+    val pageSize: Int,
+    val totalItems: Int,
+    val totalPages: Int,
 )
 internal data class AttachmentCacheClientStatus(
     val userId: Long,
+    val username: String,
     val clientInstanceId: String,
     val completedCount: Int,
     val completedPdfCount: Int,
@@ -2036,6 +2122,30 @@ internal data class AttachmentCacheClientStatus(
     val updatedAt: Instant,
     val current: Boolean,
 )
+private data class CacheStatusTotals(
+    val clientCount: Int,
+    val completedCount: Int,
+    val completedPdfCount: Int,
+    val pendingCount: Int,
+    val failedCount: Int,
+    val sourceUnavailableCount: Int,
+    val totalBytes: Long,
+)
+
+internal data class AttachmentCachePage(val page: Int, val totalPages: Int)
+
+internal fun resolveAttachmentCachePage(totalItems: Int, requestedPage: Int, pageSize: Int): AttachmentCachePage {
+    require(totalItems >= 0) { "客户端数量不能为负数" }
+    require(pageSize in setOf(10, 20, 50)) { "每页设备数量无效" }
+    val totalPages = if (totalItems == 0) 0 else (totalItems + pageSize - 1) / pageSize
+    return AttachmentCachePage(
+        page = if (totalPages == 0) 1 else requestedPage.coerceIn(1, totalPages),
+        totalPages = totalPages,
+    )
+}
+
+internal fun isSuccessfulWechatSyncHeartbeat(status: String, backlogCount: Int, errorCode: String?): Boolean =
+    status == "HEALTHY" && backlogCount == 0 && errorCode == null
 
 internal data class WechatSyncIssue(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: Instant, val summary: String,

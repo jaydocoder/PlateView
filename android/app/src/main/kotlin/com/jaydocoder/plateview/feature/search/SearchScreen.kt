@@ -6,6 +6,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -85,8 +87,12 @@ import com.jaydocoder.plateview.domain.workorder.resolveWechatMessagePassageStat
 import com.jaydocoder.plateview.domain.workorder.resolvedSenderName
 import com.jaydocoder.plateview.domain.workorder.selectWorkOrderCandidatePlate
 import com.jaydocoder.plateview.feature.auth.AvatarViewModel
+import com.jaydocoder.plateview.feature.auth.WechatSyncHealth
 import com.jaydocoder.plateview.feature.profile.AvatarImage
 import java.text.DateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
 
 @Composable
@@ -143,7 +149,7 @@ fun SearchRoute(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
     uiState: SearchUiState,
@@ -210,7 +216,7 @@ fun SearchScreen(
             )
 
             LazyColumn(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("search_result_list"),
                 contentPadding = PaddingValues(
                     start = PlateViewDimensions.pageHorizontal,
                     end = PlateViewDimensions.pageHorizontal,
@@ -218,20 +224,6 @@ fun SearchScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(PlateViewDimensions.itemSpacing),
             ) {
-            item(key = "catalog_freshness") {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = if (uiState.dataConfirmed) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer,
-                    contentColor = if (uiState.dataConfirmed) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer,
-                    shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-                ) {
-                    Text(
-                        text = uiState.freshnessLabel,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
             item(key = "search_feedback") {
                 SearchFeedback(
                     resultState = uiState.resultState,
@@ -240,17 +232,13 @@ fun SearchScreen(
             }
 
             if (uiState.candidates.isNotEmpty() || uiState.vehicleSectionState is SearchSectionState.Loading || uiState.vehicleSectionState is SearchSectionState.Error) {
-                item(key = "candidate_heading") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SectionTitle(
-                            text = stringResource(R.string.search_candidates_title),
-                            modifier = Modifier.weight(1f),
-                        )
-                        SearchSectionStatus(uiState.vehicleSectionState, uiState.candidates.size)
-                    }
+                stickyHeader(key = "candidate_heading") {
+                    SearchStickyHeader(
+                        title = stringResource(R.string.search_candidates_title),
+                        state = uiState.vehicleSectionState,
+                        count = uiState.candidates.size,
+                        testTag = "search_section_header_vehicle",
+                    )
                 }
                 items(
                     items = uiState.candidates,
@@ -266,11 +254,14 @@ fun SearchScreen(
             }
 
             if (uiState.workOrderCandidates.isNotEmpty() || uiState.workOrderSectionState is SearchSectionState.Loading || uiState.workOrderSectionState is SearchSectionState.Error) {
-                item(key = "work_order_heading") {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        SectionTitle(text = "微信车单", modifier = Modifier.weight(1f))
-                        SearchSectionStatus(uiState.workOrderSectionState, uiState.workOrderCandidates.size)
-                    }
+                stickyHeader(key = "work_order_heading") {
+                    SearchStickyHeader(
+                        title = "微信车单",
+                        state = uiState.workOrderSectionState,
+                        count = uiState.workOrderCandidates.size,
+                        testTag = "search_section_header_work_order",
+                        health = uiState.wechatSyncHealth,
+                    )
                 }
                 items(
                     items = uiState.workOrderCandidates,
@@ -282,11 +273,14 @@ fun SearchScreen(
             }
 
             if (uiState.wechatMessages.isNotEmpty() || uiState.wechatMessageSectionState is SearchSectionState.Loading || uiState.wechatMessageSectionState is SearchSectionState.Error) {
-                item(key = "wechat_message_heading") {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        SectionTitle(text = "微信聊天记录", modifier = Modifier.weight(1f))
-                        SearchSectionStatus(uiState.wechatMessageSectionState, uiState.wechatMessages.size)
-                    }
+                stickyHeader(key = "wechat_message_heading") {
+                    SearchStickyHeader(
+                        title = "微信聊天记录",
+                        state = uiState.wechatMessageSectionState,
+                        count = uiState.wechatMessages.size,
+                        testTag = "search_section_header_wechat_message",
+                        health = uiState.wechatSyncHealth,
+                    )
                 }
                 items(
                     items = uiState.wechatMessages,
@@ -298,10 +292,11 @@ fun SearchScreen(
             }
 
             if (uiState.history.isNotEmpty()) {
-                item(key = "history_heading") {
+                stickyHeader(key = "history_heading") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.background)
                             .padding(top = PlateViewDimensions.sectionSpacing),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -333,6 +328,89 @@ fun SearchScreen(
         }
     }
 }
+
+@Composable
+private fun SearchStickyHeader(
+    title: String,
+    state: SearchSectionState,
+    count: Int,
+    testTag: String,
+    health: WechatSyncHealth? = null,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag(testTag),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionTitle(text = title, modifier = Modifier.weight(1f))
+                SearchSectionStatus(state, count)
+            }
+            health?.let {
+                WechatSyncHealthBadge(
+                    health = it,
+                    modifier = Modifier.fillMaxWidth(0.62f).widthIn(min = 132.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WechatSyncHealthBadge(health: WechatSyncHealth, modifier: Modifier = Modifier) {
+    val healthy = health.state == "ONLINE_HEALTHY"
+    val informational = health.state == "ONLINE_SYNCING" || health.state == "UNKNOWN"
+    val containerColor = when {
+        healthy -> MaterialTheme.colorScheme.secondaryContainer
+        informational -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when {
+        healthy -> MaterialTheme.colorScheme.onSecondaryContainer
+        informational -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onErrorContainer
+    }
+    val title = when (health.state) {
+        "ONLINE_HEALTHY" -> "电脑在线，微信记录同步正常"
+        "ONLINE_SYNCING" -> "电脑在线，微信记录同步中"
+        "ONLINE_ERROR" -> "电脑在线，微信同步异常"
+        "OFFLINE" -> "电脑离线"
+        else -> "微信同步状态暂不可用"
+    }
+    val time = health.lastSuccessfulSyncAt?.let(::formatWechatSyncTime) ?: "尚无成功同步记录"
+    Surface(
+        modifier = modifier,
+        color = containerColor,
+        contentColor = contentColor,
+        shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+            Text(title, style = MaterialTheme.typography.labelSmall, maxLines = 2)
+            Text(
+                text = if (health.state == "OFFLINE") "当前微信同步最新时间：$time" else "最近同步：$time",
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+private fun formatWechatSyncTime(value: String): String = runCatching {
+    val dateTime = Instant.parse(value).atZone(ZoneId.of("Asia/Shanghai"))
+    val today = Instant.now().atZone(ZoneId.of("Asia/Shanghai")).toLocalDate()
+    if (dateTime.toLocalDate() == today) {
+        "今天 ${dateTime.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+    } else {
+        dateTime.format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+    }
+}.getOrDefault("时间未知")
 
 @Composable
 private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (WechatMessage) -> Unit) {

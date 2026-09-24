@@ -98,7 +98,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -210,6 +212,9 @@ fun AdminWorkspaceRoute(
         onCloseWechatAttachment = viewModel::closeWechatAttachment,
         onSearchWechatWorkOrders = viewModel::searchWechatWorkOrders,
         onSaveWechatPassageSender = viewModel::saveWechatPassageSender,
+        onWechatCachePageChanged = viewModel::loadWechatCachePage,
+        onWechatCachePageSizeChanged = viewModel::updateWechatCachePageSize,
+        onWechatCachePageJump = viewModel::jumpToWechatCachePage,
         onOpenUpdate = onOpenUpdate,
         onOpenSchedulePlanner = onOpenSchedulePlanner,
     )
@@ -277,6 +282,9 @@ fun AdminWorkspaceScreen(
     onCloseWechatAttachment: () -> Unit = {},
     onSearchWechatWorkOrders: (Long, String) -> Unit = { _, _ -> },
     onSaveWechatPassageSender: (com.jaydocoder.plateview.domain.admin.WechatPassageSender) -> Unit = {},
+    onWechatCachePageChanged: (Int) -> Unit = {},
+    onWechatCachePageSizeChanged: (Int) -> Unit = {},
+    onWechatCachePageJump: (Int) -> Unit = {},
     onOpenUpdate: (() -> Unit)? = null,
     onOpenSchedulePlanner: () -> Unit = {},
 ) {
@@ -434,6 +442,7 @@ fun AdminWorkspaceScreen(
                                 workOrderCandidates = uiState.wechatWorkOrderCandidates,
                                 senders = uiState.wechatPassageSenders,
                                 isSaving = uiState.isSaving,
+                                isCachePageLoading = uiState.isWechatCachePageLoading,
                                 onCorrectWorkOrder = onCorrectWechatWorkOrder,
                                 onAssociateImage = onAssociateWechatImage,
                                 onRemoveImageAssociation = onRemoveWechatImageAssociation,
@@ -441,6 +450,9 @@ fun AdminWorkspaceScreen(
                                 onOpenAttachment = onOpenWechatAttachment,
                                 onSearchWorkOrders = onSearchWechatWorkOrders,
                                 onSavePassageSender = onSaveWechatPassageSender,
+                                onCachePageChanged = onWechatCachePageChanged,
+                                onCachePageSizeChanged = onWechatCachePageSizeChanged,
+                                onCachePageJump = onWechatCachePageJump,
                             )
                         }
 
@@ -2759,6 +2771,7 @@ private fun WechatSyncPane(
     workOrderCandidates: Map<Long, List<com.jaydocoder.plateview.domain.admin.WechatWorkOrderSearchItem>>,
     senders: List<com.jaydocoder.plateview.domain.admin.WechatPassageSender>,
     isSaving: Boolean,
+    isCachePageLoading: Boolean,
     onCorrectWorkOrder: (Long, String, String) -> Unit,
     onAssociateImage: (Long, Long) -> Unit,
     onRemoveImageAssociation: (Long) -> Unit,
@@ -2766,6 +2779,9 @@ private fun WechatSyncPane(
     onOpenAttachment: (WechatSyncIssue) -> Unit,
     onSearchWorkOrders: (Long, String) -> Unit,
     onSavePassageSender: (com.jaydocoder.plateview.domain.admin.WechatPassageSender) -> Unit,
+    onCachePageChanged: (Int) -> Unit,
+    onCachePageSizeChanged: (Int) -> Unit,
+    onCachePageJump: (Int) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("admin_wechat_sync_page"),
@@ -2785,16 +2801,40 @@ private fun WechatSyncPane(
                     Text("仅元数据附件：${integrity.metadataOnlyAttachmentCount} · 失败任务：${integrity.failedTaskCount}", style = MaterialTheme.typography.bodyMedium)
                     Text("客户端：${cacheStatus.clientCount} · 已缓存：${cacheStatus.completedCount} · 待下载：${cacheStatus.pendingCount} · 失败：${cacheStatus.failedCount}", style = MaterialTheme.typography.bodyMedium)
                     Text("已完成 PDF：${cacheStatus.completedPdfCount} · 等待原文件：${cacheStatus.sourceUnavailableCount}", style = MaterialTheme.typography.bodyMedium)
-                    Text("已缓存大小：${cacheStatus.totalBytes / 1024 / 1024} MB", style = MaterialTheme.typography.bodyMedium)
-                    cacheStatus.clients.take(8).forEach { client ->
-                        Text(
-                            "${if (client.current) "当前设备" else "设备 ${client.clientInstanceId.take(8)}"}：完成 ${client.completedCount} · PDF ${client.completedPdfCount} · 待下载 ${client.pendingCount} · 失败 ${client.failedCount}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text("已缓存大小：${formatCacheBytes(cacheStatus.totalBytes)}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
+        }
+        item {
+            Text("本机缓存状态", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        item {
+            val currentClient = cacheStatus.currentClient
+            if (currentClient == null) {
+                Text("本机尚未上报附件缓存状态", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                WechatCacheClientRow(currentClient, showCurrentMark = true)
+            }
+        }
+        item {
+            Text("全部客户端缓存状态", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "共 ${cacheStatus.totalItems} 台设备",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        items(cacheStatus.clients, key = { "${it.userId}:${it.clientInstanceId}" }) { client ->
+            WechatCacheClientRow(client, showCurrentMark = client.current)
+        }
+        item {
+            WechatCachePagination(
+                cacheStatus = cacheStatus,
+                isLoading = isCachePageLoading,
+                onPageChanged = onCachePageChanged,
+                onPageSizeChanged = onCachePageSizeChanged,
+                onPageJump = onCachePageJump,
+            )
         }
         items(items, key = { it.sourceKey }) { source ->
             GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
@@ -2950,6 +2990,127 @@ private fun WechatSyncPane(
             }
         }
     }
+}
+
+@Composable
+private fun WechatCacheClientRow(
+    client: com.jaydocoder.plateview.domain.admin.WechatCacheClientStatus,
+    showCurrentMark: Boolean,
+) {
+    GlassSurface(
+        modifier = Modifier.fillMaxWidth().testTag("wechat_cache_client_${client.userId}_${client.clientInstanceId}"),
+        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
+        elevated = true,
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(client.username, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                if (showCurrentMark) {
+                    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primaryContainer) {
+                        Text(
+                            "当前设备",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+            }
+            Text("设备 ${client.clientInstanceId.take(8)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "完成 ${client.completedCount} · PDF ${client.completedPdfCount} · 待下载 ${client.pendingCount}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "失败 ${client.failedCount} · 等待原文件 ${client.sourceUnavailableCount} · ${formatCacheBytes(client.totalBytes)}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text("最后上报：${formatAuditTime(client.updatedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun WechatCachePagination(
+    cacheStatus: com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary,
+    isLoading: Boolean,
+    onPageChanged: (Int) -> Unit,
+    onPageSizeChanged: (Int) -> Unit,
+    onPageJump: (Int) -> Unit,
+) {
+    var pageSizeMenuExpanded by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var pageInput by rememberSaveable(cacheStatus.page, cacheStatus.totalPages) {
+        androidx.compose.runtime.mutableStateOf(cacheStatus.page.toString())
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("wechat_cache_pagination"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box {
+                OutlinedButton(
+                    onClick = { pageSizeMenuExpanded = true },
+                    enabled = !isLoading,
+                    modifier = Modifier.testTag("wechat_cache_page_size"),
+                ) { Text("每页 ${cacheStatus.pageSize} 条") }
+                DropdownMenu(expanded = pageSizeMenuExpanded, onDismissRequest = { pageSizeMenuExpanded = false }) {
+                    listOf(10, 20, 50).forEach { pageSize ->
+                        DropdownMenuItem(
+                            text = { Text("每页 $pageSize 条") },
+                            onClick = {
+                                pageSizeMenuExpanded = false
+                                onPageSizeChanged(pageSize)
+                            },
+                            modifier = Modifier.testTag("wechat_cache_page_size_$pageSize"),
+                        )
+                    }
+                }
+            }
+            Text(
+                if (cacheStatus.totalPages == 0) "暂无分页数据" else "第 ${cacheStatus.page} / ${cacheStatus.totalPages} 页",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(
+                onClick = { onPageChanged(cacheStatus.page - 1) },
+                enabled = !isLoading && cacheStatus.page > 1,
+                modifier = Modifier.testTag("wechat_cache_previous_page"),
+            ) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "上一页")
+            }
+            IconButton(
+                onClick = { onPageChanged(cacheStatus.page + 1) },
+                enabled = !isLoading && cacheStatus.page < cacheStatus.totalPages,
+                modifier = Modifier.testTag("wechat_cache_next_page"),
+            ) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = "下一页")
+            }
+            OutlinedTextField(
+                value = pageInput,
+                onValueChange = { pageInput = it.filter(Char::isDigit).take(6) },
+                modifier = Modifier.weight(1f).testTag("wechat_cache_page_input"),
+                label = { Text("页码") },
+                singleLine = true,
+                enabled = !isLoading && cacheStatus.totalPages > 0,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            Button(
+                onClick = { pageInput.toIntOrNull()?.let(onPageJump) },
+                enabled = !isLoading && pageInput.toIntOrNull() != null && cacheStatus.totalPages > 0,
+                modifier = Modifier.testTag("wechat_cache_page_jump"),
+            ) { Text("跳转") }
+        }
+    }
+}
+
+private fun formatCacheBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L * 1024L -> "%.1f GB".format(bytes.toDouble() / (1024L * 1024L * 1024L))
+    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes.toDouble() / (1024L * 1024L))
+    bytes >= 1024L -> "%.1f KB".format(bytes.toDouble() / 1024L)
+    else -> "$bytes B"
 }
 
 @Composable

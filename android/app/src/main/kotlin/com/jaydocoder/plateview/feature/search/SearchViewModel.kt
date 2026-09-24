@@ -16,6 +16,7 @@ import com.jaydocoder.plateview.domain.vehicle.VehicleCacheRepository
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.VehicleRepository
 import com.jaydocoder.plateview.feature.auth.AuthSessionProvider
+import com.jaydocoder.plateview.feature.auth.WechatSyncHealthRepository
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.WorkOrderRepository
 import com.jaydocoder.plateview.domain.workorder.WechatMessage
@@ -55,6 +56,7 @@ class SearchViewModel @Inject constructor(
     private val workOrderRepository: WorkOrderRepository,
     private val runtimePolicyRepository: ClientRuntimePolicyProvider = DefaultClientRuntimePolicyProvider,
     private val consistencyStateProvider: CatalogConsistencyStateProvider = com.jaydocoder.plateview.feature.consistency.DefaultCatalogConsistencyStateProvider,
+    private val wechatSyncHealthRepository: WechatSyncHealthRepository = WechatSyncHealthRepository(),
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val retryVersion = MutableStateFlow(0)
@@ -68,6 +70,15 @@ class SearchViewModel @Inject constructor(
         observeQuery()
         observeHistory()
         observeCatalogFreshness()
+        observeWechatSyncHealth()
+    }
+
+    private fun observeWechatSyncHealth() {
+        viewModelScope.launch {
+            wechatSyncHealthRepository.health.collect { health ->
+                _uiState.update { it.copy(wechatSyncHealth = health) }
+            }
+        }
     }
 
     fun updateQuery(value: String) {

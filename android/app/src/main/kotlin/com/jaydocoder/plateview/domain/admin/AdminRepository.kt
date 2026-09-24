@@ -55,7 +55,8 @@ interface AdminRepository {
     ): ManagedAuditPage
 
     suspend fun getWechatSyncStatus(accessToken: String): List<WechatSyncSource>
-    suspend fun getWechatSyncOverview(accessToken: String): WechatSyncOverview
+    suspend fun getWechatSyncOverview(accessToken: String, cachePage: Int = 1, cachePageSize: Int = 10): WechatSyncOverview
+    suspend fun getWechatCacheStatus(accessToken: String, page: Int = 1, pageSize: Int = 10): WechatCacheStatusSummary
     suspend fun getWechatPassageSenders(accessToken: String): List<WechatPassageSender>
     suspend fun saveWechatPassageSender(accessToken: String, sender: WechatPassageSender)
     suspend fun correctWechatWorkOrder(accessToken: String, recordId: Long, command: WorkOrderCorrectionCommand)

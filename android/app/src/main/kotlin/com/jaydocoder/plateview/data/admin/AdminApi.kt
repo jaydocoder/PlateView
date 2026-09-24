@@ -210,6 +210,8 @@ interface AdminApi {
     suspend fun getWechatCacheStatus(
         @Header("Authorization") authorization: String,
         @Query("clientInstanceId") clientInstanceId: String,
+        @Query("page") page: Int,
+        @Query("pageSize") pageSize: Int,
     ): WechatCacheStatusSummaryDto
 
     @GET("admin/wechat-sync/records/search")

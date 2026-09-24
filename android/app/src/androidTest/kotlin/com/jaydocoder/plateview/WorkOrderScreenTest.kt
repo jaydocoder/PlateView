@@ -14,6 +14,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.CachedWorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachment
@@ -23,6 +26,7 @@ import com.jaydocoder.plateview.domain.workorder.WorkOrderVehicle
 import com.jaydocoder.plateview.domain.workorder.WechatMessage
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
+import com.jaydocoder.plateview.feature.auth.WechatSyncHealth
 import com.jaydocoder.plateview.feature.search.SearchScreen
 import com.jaydocoder.plateview.feature.search.SearchUiState
 import com.jaydocoder.plateview.feature.workorder.WorkOrderDetailScreen
@@ -65,6 +69,59 @@ class WorkOrderScreenTest {
 
         composeRule.onNodeWithText("匹配车辆").assertIsDisplayed()
         composeRule.onAllNodesWithText("实时匹配").assertCountEquals(0)
+    }
+
+    @Test
+    fun 首页删除全局确认框但保留车辆候选核验标签() {
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(
+                        query = "新H",
+                        candidates = listOf(VehicleCandidate(1, "新H12345", "RESIDENT", "村民车辆")),
+                        dataConfirmed = true,
+                    ),
+                    onQueryChanged = {}, onCandidateSelected = {}, onHistorySelected = {},
+                    onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("核验就绪").assertCountEquals(1)
+        composeRule.onAllNodesWithText("数据已确认", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun 微信分类标题正确显示五种电脑同步状态() {
+        val expectedLabels = linkedMapOf(
+            "ONLINE_HEALTHY" to "电脑在线，微信记录同步正常",
+            "ONLINE_SYNCING" to "电脑在线，微信记录同步中",
+            "ONLINE_ERROR" to "电脑在线，微信同步异常",
+            "OFFLINE" to "电脑离线",
+            "UNKNOWN" to "微信同步状态暂不可用",
+        )
+
+        var currentState by mutableStateOf(expectedLabels.keys.first())
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(
+                        query = "0916",
+                        workOrderCandidates = listOf(sampleWorkOrder()),
+                        wechatSyncHealth = WechatSyncHealth(currentState, "2026-09-24T14:20:00Z", "2026-09-24T14:20:05Z"),
+                    ),
+                    onQueryChanged = {}, onCandidateSelected = {}, onWorkOrderSelected = {},
+                    onHistorySelected = {}, onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        expectedLabels.forEach { (state, expected) ->
+            composeRule.runOnUiThread { currentState = state }
+            composeRule.onNodeWithText(expected).assertIsDisplayed()
+        }
     }
 
     @Test
@@ -145,6 +202,8 @@ class WorkOrderScreenTest {
         }
 
         composeRule.onNodeWithTag("work_order_header").assertIsDisplayed()
+        composeRule.onAllNodesWithText("数据已确认", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("核验就绪").assertCountEquals(0)
         composeRule.onNodeWithTag("work_order_identity_glass_panel").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("景区道路背景").assertIsDisplayed()
         composeRule.onNodeWithTag("work_order_header_plate_row").assertIsDisplayed()
@@ -426,6 +485,7 @@ class WorkOrderScreenTest {
         }
 
         composeRule.onAllNodesWithText("[图片] local_id=1188").assertCountEquals(0)
+        composeRule.onAllNodesWithText("数据已确认", substring = true).assertCountEquals(0)
         composeRule.onAllNodesWithContentDescription("微信图片缩略图").assertCountEquals(2)
         composeRule.onNodeWithText("发送者：三叔").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("相关附件").performScrollTo().assertIsDisplayed()

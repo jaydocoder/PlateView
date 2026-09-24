@@ -193,7 +193,12 @@ class AdminWorkspaceViewModel @Inject constructor(
                 AdminTab.WechatSync -> {
                     val session = sessionProvider.session.first()
                     if (session?.username != "admin" || session.role != "ADMIN") throw IllegalStateException("仅admin账号可以查看微信同步")
-                    val overview = repository.getWechatSyncOverview(accessToken)
+                    val cacheStatus = _uiState.value.wechatCacheStatus
+                    val overview = repository.getWechatSyncOverview(
+                        accessToken,
+                        cachePage = cacheStatus.page,
+                        cachePageSize = cacheStatus.pageSize,
+                    )
                     val issues = overview.issues
                     _uiState.update {
                         it.copy(
@@ -354,8 +359,34 @@ class AdminWorkspaceViewModel @Inject constructor(
         refreshVehicles(delayMillis = VEHICLE_SEARCH_DEBOUNCE_MILLIS)
     }
 
+    fun loadWechatCachePage(page: Int) {
+        val current = _uiState.value.wechatCacheStatus
+        if (_uiState.value.isWechatCachePageLoading || page < 1 || page == current.page) return
+        refreshWechatCacheStatus(page, current.pageSize)
+    }
+
+    fun updateWechatCachePageSize(pageSize: Int) {
+        val current = _uiState.value.wechatCacheStatus
+        if (pageSize !in setOf(10, 20, 50) || _uiState.value.isWechatCachePageLoading || pageSize == current.pageSize) return
+        refreshWechatCacheStatus(page = 1, pageSize = pageSize)
+    }
+
+    fun jumpToWechatCachePage(page: Int) {
+        val current = _uiState.value.wechatCacheStatus
+        val target = if (current.totalPages == 0) 1 else page.coerceIn(1, current.totalPages)
+        loadWechatCachePage(target)
+    }
+
+    private fun refreshWechatCacheStatus(page: Int, pageSize: Int) = launchAdminAction("加载客户端缓存状态") { accessToken ->
+        requirePrimaryAdministrator()
+        _uiState.update { it.copy(isWechatCachePageLoading = true, failure = null) }
+        val status = repository.getWechatCacheStatus(accessToken, page, pageSize)
+        _uiState.update { it.copy(wechatCacheStatus = status, isWechatCachePageLoading = false) }
+    }
+
     private suspend fun refreshWechatSyncOverview(accessToken: String, isSaving: Boolean) {
-        val overview = repository.getWechatSyncOverview(accessToken)
+        val cacheStatus = _uiState.value.wechatCacheStatus
+        val overview = repository.getWechatSyncOverview(accessToken, cacheStatus.page, cacheStatus.pageSize)
         _uiState.update {
             it.copy(
                 wechatSyncIssues = overview.issues,
@@ -983,6 +1014,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                             it.copy(
                                 isLoading = false,
                                 isSaving = false,
+                                isWechatCachePageLoading = false,
                                 policySavingAction = null,
                                 policySaveFeedback = policyAction?.let { PolicySaveFeedback(operation, "登录已失效，请重新登录。", success = false) },
                                 failure = adminError(operation, AppErrorKind.SessionExpired, "登录已失效，请重新登录"),
@@ -994,6 +1026,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                             it.copy(
                                 isLoading = false,
                                 isSaving = false,
+                                isWechatCachePageLoading = false,
                                 policySavingAction = null,
                                 policySaveFeedback = policyAction?.let { PolicySaveFeedback(operation, "当前账号没有执行此操作的权限。", success = false) },
                                 failure = adminError(operation, AppErrorKind.PermissionDenied, "当前账号没有执行此操作的权限"),
@@ -1018,6 +1051,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                         isImportPageLoading = false,
                         isImportDetailLoading = false,
                         isAuditPageLoading = false,
+                        isWechatCachePageLoading = false,
                         failure = mappedError,
                     )
                 }

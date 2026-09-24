@@ -10,6 +10,8 @@ import com.jaydocoder.plateview.server.client.ClientRuntimePolicyResponse
 import com.jaydocoder.plateview.server.client.CatalogStateResponse
 import com.jaydocoder.plateview.server.client.CatalogStateService
 import com.jaydocoder.plateview.server.client.catalogStateService
+import com.jaydocoder.plateview.server.client.WechatSyncHealthResponse
+import com.jaydocoder.plateview.server.client.WechatSyncHealthService
 import com.jaydocoder.plateview.server.infrastructure.web.ApiErrorResponse
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.HttpHeaders
@@ -50,7 +52,7 @@ internal fun Application.configureAuthenticationFeature() {
     val settings = authenticationSettings()
     val policyService = ClientPolicyService(dataSource)
     val catalogStateService = catalogStateService(dataSource)
-    val service = AuthService(dataSource, settings, policyService, catalogStateService)
+    val service = AuthService(dataSource, settings, policyService, catalogStateService, WechatSyncHealthService(dataSource))
     service.ensureInitialAdministrator()
 
     install(io.ktor.server.auth.Authentication) {
@@ -111,7 +113,7 @@ internal fun Application.configureAuthenticationFeature() {
                 route("/profile") {
                     get {
                         val user = service.currentUser(call.principal<JWTPrincipal>()!!)
-                        call.respond(user.toProfileResponse(policyService.runtimePolicy(user.id), catalogStateService.state(user.id)))
+                        call.respond(service.profile(user))
                     }
                     post {
                         val actor = service.currentUser(call.principal<JWTPrincipal>()!!)
@@ -187,6 +189,7 @@ private class AuthService(
     private val settings: AuthenticationSettings,
     private val policyService: ClientPolicyService,
     private val catalogStateService: CatalogStateService,
+    private val wechatSyncHealthService: WechatSyncHealthService,
 ) {
     fun ensureInitialAdministrator() {
         dataSource.connection.use { connection ->
@@ -228,6 +231,15 @@ private class AuthService(
     fun currentUser(principal: JWTPrincipal): UserAccount = findActiveUserById(principal.payload.getClaim("userId").asLong())
         ?: error("当前账号不可用")
 
+    fun profile(user: UserAccount): ProfileResponse {
+        val policy = policyService.runtimePolicy(user.id)
+        return user.toProfileResponse(
+            runtimePolicy = policy,
+            catalogState = catalogStateService.state(user.id),
+            wechatSyncHealth = wechatSyncHealthService.health(user.canReadWechat(policy)),
+        )
+    }
+
     private fun issueTokens(user: UserAccount, requestId: String?): TokenResponse {
         val refreshToken = randomToken()
         val expiresAt = Instant.now().plus(settings.refreshLifetime)
@@ -249,13 +261,15 @@ private class AuthService(
             .withClaim("authVersion", user.authVersion)
             .withExpiresAt(Date.from(accessExpiresAt))
             .sign(settings.algorithm)
+        val policy = policyService.runtimePolicy(user.id)
         return TokenResponse(
             accessToken,
             refreshToken,
             accessExpiresAt.toString(),
             user.toResponse(),
-            policyService.runtimePolicy(user.id),
+            policy,
             catalogStateService.state(user.id),
+            wechatSyncHealthService.health(user.canReadWechat(policy)),
         )
     }
 
@@ -380,9 +394,10 @@ private class AuthService(
     val user: UserResponse,
     val runtimePolicy: ClientRuntimePolicyResponse,
     val catalogState: CatalogStateResponse,
+    val wechatSyncHealth: WechatSyncHealthResponse?,
 )
 @Serializable private data class UserResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean)
-@Serializable private data class ProfileResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean, val runtimePolicy: ClientRuntimePolicyResponse? = null, val catalogState: CatalogStateResponse? = null)
+@Serializable private data class ProfileResponse(val id: Long, val username: String, val role: String, val avatarVersion: Long, val hasAvatar: Boolean, val scheduleEnabled: Boolean, val updatePolicy: String, val wechatWorkOrderAccessEnabled: Boolean, val runtimePolicy: ClientRuntimePolicyResponse? = null, val catalogState: CatalogStateResponse? = null, val wechatSyncHealth: WechatSyncHealthResponse? = null)
 private data class UserAccount(
     val id: Long,
     val username: String,
@@ -400,7 +415,10 @@ internal data class AvatarUpload(val content: ByteArray, val contentType: String
 internal class ProfileConflictException(message: String) : RuntimeException(message)
 
 private fun UserAccount.toResponse() = UserResponse(id, username, role, avatarVersion, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled)
-private fun UserAccount.toProfileResponse(runtimePolicy: ClientRuntimePolicyResponse? = null, catalogState: CatalogStateResponse? = null) = ProfileResponse(id, username, role, avatarVersion, avatar != null, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled, runtimePolicy, catalogState)
+private fun UserAccount.toProfileResponse(runtimePolicy: ClientRuntimePolicyResponse? = null, catalogState: CatalogStateResponse? = null, wechatSyncHealth: WechatSyncHealthResponse? = null) = ProfileResponse(id, username, role, avatarVersion, avatar != null, scheduleEnabled, updatePolicy, wechatWorkOrderAccessEnabled, runtimePolicy, catalogState, wechatSyncHealth)
+
+private fun UserAccount.canReadWechat(policy: ClientRuntimePolicyResponse): Boolean =
+    wechatWorkOrderAccessEnabled && (policy.workOrderResultLimit > 0 || policy.wechatMessageResultLimit > 0)
 
 internal suspend fun ApplicationCall.receiveAvatarUpload(): AvatarUpload {
     val declaredSize = request.headers[HttpHeaders.ContentLength]?.toLongOrNull()

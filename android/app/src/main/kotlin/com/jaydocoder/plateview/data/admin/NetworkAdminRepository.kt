@@ -244,9 +244,9 @@ class NetworkAdminRepository @Inject constructor(
         .sources
         .map { WechatSyncSource(it.sourceKey, it.displayName, it.status, it.latestMessageAt, it.lastHeartbeatAt, it.lastUploadedAt, it.backlogCount, it.errorCode) }
 
-    override suspend fun getWechatSyncOverview(accessToken: String): WechatSyncOverview {
+    override suspend fun getWechatSyncOverview(accessToken: String, cachePage: Int, cachePageSize: Int): WechatSyncOverview {
         val response = api.getWechatSyncIssues(bearer(accessToken))
-        val cacheStatus = api.getWechatCacheStatus(bearer(accessToken), runtimePolicyProvider.clientInstanceId())
+        val cacheStatus = getWechatCacheStatus(accessToken, cachePage, cachePageSize)
         val issues = response.items.map {
             WechatSyncIssue(
                 it.type, it.recordId, it.imageId, it.sourceName, it.sentAt, it.summary, it.attachmentKind, it.fileName,
@@ -269,24 +269,18 @@ class NetworkAdminRepository @Inject constructor(
                 response.integrity.failedTaskCount,
                 response.integrity.status,
             ),
-            cacheStatus = com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary(
-                cacheStatus.clientCount,
-                cacheStatus.completedCount,
-                cacheStatus.completedPdfCount,
-                cacheStatus.pendingCount,
-                cacheStatus.failedCount,
-                cacheStatus.sourceUnavailableCount,
-                cacheStatus.totalBytes,
-                cacheStatus.clients.map { client ->
-                    com.jaydocoder.plateview.domain.admin.WechatCacheClientStatus(
-                        client.userId, client.clientInstanceId, client.completedCount, client.completedPdfCount,
-                        client.pendingCount, client.failedCount, client.sourceUnavailableCount, client.totalBytes,
-                        client.updatedAt, client.current,
-                    )
-                },
-            ),
+            cacheStatus = cacheStatus,
         )
     }
+
+    override suspend fun getWechatCacheStatus(accessToken: String, page: Int, pageSize: Int) = api
+        .getWechatCacheStatus(
+            authorization = bearer(accessToken),
+            clientInstanceId = runtimePolicyProvider.clientInstanceId(),
+            page = page,
+            pageSize = pageSize,
+        )
+        .toDomain()
 
     override suspend fun getWechatPassageSenders(accessToken: String) = api.getWechatPassageSenders(bearer(accessToken)).items.map {
         com.jaydocoder.plateview.domain.admin.WechatPassageSender(it.senderUsername, it.originalDisplayName, it.displayAlias, it.enabled)
@@ -490,4 +484,34 @@ private fun AdminImportRowDto.toDomain(): ManagedImportRow = ManagedImportRow(
 
 private fun AdminAuditEntryDto.toDomain(): ManagedAuditEntry = ManagedAuditEntry(
     id, actorUsername, actionType, targetType, targetId, resultStatus, createdAt,
+)
+
+private fun WechatCacheStatusSummaryDto.toDomain() = com.jaydocoder.plateview.domain.admin.WechatCacheStatusSummary(
+    clientCount = clientCount,
+    completedCount = completedCount,
+    completedPdfCount = completedPdfCount,
+    pendingCount = pendingCount,
+    failedCount = failedCount,
+    sourceUnavailableCount = sourceUnavailableCount,
+    totalBytes = totalBytes,
+    currentClient = currentClient?.toDomain(),
+    clients = clients.map(WechatCacheClientStatusDto::toDomain),
+    page = page,
+    pageSize = pageSize,
+    totalItems = totalItems,
+    totalPages = totalPages,
+)
+
+private fun WechatCacheClientStatusDto.toDomain() = com.jaydocoder.plateview.domain.admin.WechatCacheClientStatus(
+    userId = userId,
+    username = username,
+    clientInstanceId = clientInstanceId,
+    completedCount = completedCount,
+    completedPdfCount = completedPdfCount,
+    pendingCount = pendingCount,
+    failedCount = failedCount,
+    sourceUnavailableCount = sourceUnavailableCount,
+    totalBytes = totalBytes,
+    updatedAt = updatedAt,
+    current = current,
 )
