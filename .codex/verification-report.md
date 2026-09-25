@@ -97,6 +97,29 @@
 - 综合评分：94/100
 - 结论：通过。
 
+## 本地部署与真机安装记录
+
+时间：2026-09-26
+
+- `docker compose --env-file .env build api`：通过。
+- `docker compose --env-file .env up -d api`：通过，PostgreSQL 健康，API 容器运行中。
+- `curl http://127.0.0.1:8080/health`：返回 `200 {"status":"ok"}`。
+- 真机 `RMX3461`（设备号 `83bdbca2`）已建立 `adb reverse tcp:8080 tcp:8080`。
+- `:app:assembleDebug`：通过。
+- 使用 `app-universal-debug.apk` 覆盖安装：成功。
+- 应用包 `com.jaydocoder.plateview.debug` 已启动，版本 `0.3.31`，versionCode `35`。
+
+## 0.3.32 发布前验证
+
+时间：2026-09-26
+
+- 服务端 `./gradlew --no-daemon test`：通过。
+- Android `:app:testDebugUnitTest`：通过。
+- Android `:app:lintDebug`：通过。
+- Android `:app:assembleDebug`：通过。
+- 版本号：`0.3.32`，versionCode `36`。
+- 正式 APK 使用 GitHub Actions 的仓库签名密钥构建；本地未发现发布签名文件，因此未在本地执行正式签名构建。
+
 ## 2026-09-24 本地缓存与服务器30秒有界一致性验证
 
 ### 需求与交付物

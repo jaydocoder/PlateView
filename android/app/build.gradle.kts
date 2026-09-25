@@ -40,8 +40,8 @@ android {
         applicationId = "com.jaydocoder.plateview"
         minSdk = 31
         targetSdk = 37
-        versionCode = 35
-        versionName = "0.3.31"
+        versionCode = 36
+        versionName = "0.3.32"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiBaseUrl = providers.gradleProperty("plateviewApiBaseUrl")
             .orElse(
