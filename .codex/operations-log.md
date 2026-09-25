@@ -1110,3 +1110,12 @@
 - Android`:app:testDebugUnitTest`、`:app:assembleDebugAndroidTest`和`:app:assembleDebug`通过。
 - OPPO RMX3461真机`:app:connectedDebugAndroidTest`定向26项通过，0失败；初次自动安装因同时传入多个ABI APK导致split重复，改用universal APK手动安装后通过。
 - `git diff --check`通过；未发现编译错误、测试失败或格式问题。
+
+## 计划复核与补充 - 微信车单三项需求
+
+时间：2026-09-26
+
+- 逐项核对了聊天匹配车牌、同来源同北京时间年份动态归并、附件双归属、目录增量、Room 6到7迁移和历史查询实现。
+- 发现一个到达顺序缺口：附件先于微信消息上传时，原逻辑只在附件上传时反向找消息，消息后来入库不会再找待关联附件。
+- 已在`WorkOrderService.ingest`增加事务内反向关联：消息入库后按来源、发送者和前后120秒查找唯一待关联附件，同时设置车单记录归属和聊天消息归属；详细车单成为主记录后继续由既有归并逻辑切换到详细车单并保留简短消息附件引用。
+- 附件不复制文件，仍复用`linked_record_id`和`linked_message_id`；多个候选时保持未关联，避免错误跨单号绑定。

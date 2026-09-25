@@ -51,10 +51,25 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     statement.executeUpdate()
                 }
                 if (businessType == "STRUCTURED_WORK_ORDER" || businessType == "ATTACHMENT_WORK_ORDER") {
-                    connection.insertWorkOrder(messageId, parsed, orderYear, revision)
+                    val recordId = connection.insertWorkOrder(messageId, parsed, orderYear, revision)
+                    connection.autoAssociatePendingImages(
+                        messageId = messageId,
+                        recordId = recordId,
+                        sourceId = sourceId,
+                        senderUsername = message.senderUsername,
+                        sentAt = message.sentAt,
+                    )
                     if (parsed.orderNumber != null && orderYear != null) {
                         connection.recomputeCanonicalGroup(sourceId, orderYear, parsed.orderNumber, revision)
                     }
+                } else {
+                    connection.autoAssociatePendingImages(
+                        messageId = messageId,
+                        recordId = null,
+                        sourceId = sourceId,
+                        senderUsername = message.senderUsername,
+                        sentAt = message.sentAt,
+                    )
                 }
             }
         }
@@ -1189,6 +1204,45 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
+    private fun Connection.autoAssociatePendingImages(
+        messageId: Long,
+        recordId: Long?,
+        sourceId: Long,
+        senderUsername: String?,
+        sentAt: Instant,
+    ) {
+        if (senderUsername.isNullOrBlank()) return
+        prepareStatement(
+            """
+            SELECT id
+            FROM work_order_images
+            WHERE source_id = ? AND sender_username = ?
+              AND sent_at BETWEEN ? AND ?
+              AND linked_record_id IS NULL AND linked_message_id IS NULL
+            ORDER BY ABS(EXTRACT(EPOCH FROM (sent_at - ?))), id DESC
+            LIMIT 2
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setString(2, senderUsername)
+            statement.setTimestamp(3, Timestamp.from(sentAt.minusSeconds(120)))
+            statement.setTimestamp(4, Timestamp.from(sentAt.plusSeconds(120)))
+            statement.setTimestamp(5, Timestamp.from(sentAt))
+            val imageIds = statement.executeQuery().use { result ->
+                buildList { while (result.next()) add(result.getLong("id")) }
+            }
+            if (imageIds.size != 1) return
+            prepareStatement(
+                "UPDATE work_order_images SET linked_record_id = ?, linked_message_id = ?, association_method = 'AUTO' WHERE id = ? AND linked_record_id IS NULL AND linked_message_id IS NULL",
+            ).use { update ->
+                update.setObject(1, recordId)
+                update.setLong(2, messageId)
+                update.setLong(3, imageIds.single())
+                update.executeUpdate()
+            }
+        }
+    }
+
     private fun Connection.alignAttachmentWithCanonical(attachmentId: Long) {
         val group = prepareStatement(
             """
@@ -1284,7 +1338,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
-    private fun Connection.insertWorkOrder(messageId: Long, parsed: ParsedWorkOrder, orderYear: Int?, revision: Long) {
+    private fun Connection.insertWorkOrder(messageId: Long, parsed: ParsedWorkOrder, orderYear: Int?, revision: Long): Long {
         val recordId = prepareStatement(
             """
             INSERT INTO work_order_records(message_id, order_number, raw_plate, normalized_plate, vehicle_type, declared_people,
@@ -1340,6 +1394,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                 statement.executeUpdate()
             }
         }
+        return recordId
     }
 
     private fun Connection.recomputeCanonicalGroup(sourceId: Long, orderYear: Int, orderNumber: String, revision: Long) {
