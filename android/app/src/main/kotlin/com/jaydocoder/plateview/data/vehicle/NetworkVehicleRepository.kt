@@ -95,6 +95,7 @@ private fun VehicleCandidateDto.toDomain(): VehicleCandidate = VehicleCandidate(
     organizationName = organizationName,
     plateColor = plateColor,
     status = status,
+    detailAccessible = detailAccessible ?: true,
 )
 
 private fun VehicleDetailDto.toDomain(): VehicleDetail = VehicleDetail(
@@ -129,6 +130,7 @@ private fun VehicleDetailDto.toDomain(): VehicleDetail = VehicleDetail(
             remarks = it.remarks,
         )
     },
+    detailAccessible = detailAccessible ?: true,
 )
 
 private fun String.toVehicleAttributeLabel(): String = when (this) {

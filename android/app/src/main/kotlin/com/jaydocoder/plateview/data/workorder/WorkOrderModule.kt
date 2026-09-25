@@ -33,6 +33,7 @@ object WorkOrderDataModule {
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_3_4)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_4_5)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_5_6)
+            .addMigrations(WORK_ORDER_CACHE_MIGRATION_6_7)
             .build()
 
     @Provides
@@ -52,6 +53,15 @@ internal val WORK_ORDER_CACHE_MIGRATION_4_5 = object : Migration(4, 5) {
 internal val WORK_ORDER_CACHE_MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `wechat_attachment_download_tasks` ADD COLUMN `sentAt` TEXT")
+    }
+}
+
+internal val WORK_ORDER_CACHE_MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `work_order_cache` ADD COLUMN `orderYear` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `work_order_cache` ADD COLUMN `sourceKey` TEXT NOT NULL DEFAULT ''")
+        db.execSQL("UPDATE `work_order_cache` SET `orderYear` = COALESCE(CAST(strftime('%Y', `sentAt`, '+8 hours') AS INTEGER), 0)")
+        db.execSQL("UPDATE `work_order_cache` SET `sourceKey` = `sourceName` WHERE `sourceKey` = ''")
     }
 }
 

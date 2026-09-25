@@ -122,6 +122,21 @@ class WorkOrderDisplayFormatterTest {
     }
 
     @Test
+    fun `聊天候选按当前查询选择实际匹配车牌`() {
+        val plates = listOf("新HB8702", "新H26927", "新H00022")
+
+        assertEquals("新H26927", selectWechatMessageCandidatePlate(plates, "26927"))
+        assertEquals("新HB8702", selectWechatMessageCandidatePlate(plates, "B8702"))
+        assertEquals("新H00022", selectWechatMessageCandidatePlate(plates, "h 00·022"))
+    }
+
+    @Test
+    fun `聊天查询未命中车牌时回退第一辆车`() {
+        assertEquals("新HB8702", selectWechatMessageCandidatePlate(listOf("新HB8702", "新H26927"), "喀纳斯"))
+        assertEquals(null, selectWechatMessageCandidatePlate(emptyList(), "26927"))
+    }
+
+    @Test
     fun `按单号进入详情时顶部显示全部车牌`() {
         assertEquals(
             listOf("新H68320", "新C35862"),

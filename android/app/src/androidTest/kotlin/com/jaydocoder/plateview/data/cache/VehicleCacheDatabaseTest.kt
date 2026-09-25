@@ -1,19 +1,28 @@
 package com.jaydocoder.plateview.data.cache
 
 import androidx.room.Room
+import androidx.room.testing.MigrationTestHelper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import net.sqlcipher.database.SQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class VehicleCacheDatabaseTest {
+    @get:Rule
+    val migrationHelper = MigrationTestHelper(
+        InstrumentationRegistry.getInstrumentation(),
+        VehicleCacheDatabase::class.java,
+    )
+
     private lateinit var database: VehicleCacheDatabase
     private val userId = 101L
 
@@ -115,6 +124,38 @@ class VehicleCacheDatabaseTest {
     }
 
     @Test
+    fun 本地快照会持久化详情访问权限标记() = runBlocking {
+        val dao = database.vehicleCacheDao()
+        dao.insertSnapshots(listOf(snapshot(11, 1, "新H12345", detailAccessible = false)))
+        dao.promoteGeneration(userId, 11, 7, 100, 100)
+
+        assertEquals(false, dao.searchCandidates(userId, "H123", 20).single().detailAccessible)
+        assertEquals(false, dao.getDetail(userId, 1)?.detailAccessible)
+    }
+
+    @Test
+    fun 车辆缓存从版本八迁移后旧记录默认允许访问详情() {
+        migrationHelper.createDatabase("vehicle-cache-migration-8-9", 8).apply {
+            execSQL(
+                "INSERT INTO vehicle_snapshot_cache(userId, generation, vehicleId, plateNumber, normalizedPlate, category, categoryLabel, organizationName, plateColor, status, searchableText, detailJson) VALUES (101, 11, 1, '新H12345', '新H12345', 'RESIDENT', '村民车辆', NULL, NULL, 'ACTIVE', '新H12345', '{}')",
+            )
+            close()
+        }
+
+        migrationHelper.runMigrationsAndValidate(
+            "vehicle-cache-migration-8-9",
+            9,
+            true,
+            VehicleCacheDatabase.MIGRATION_8_9,
+        ).use { migrated ->
+            migrated.query("SELECT detailAccessible FROM vehicle_snapshot_cache WHERE vehicleId = 1").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals(1, cursor.getInt(0))
+            }
+        }
+    }
+
+    @Test
     fun V7迁移清空旧快照以重新同步号牌颜色() = runBlocking {
         val dao = database.vehicleCacheDao()
         dao.insertSnapshots(listOf(snapshot(11, 1, "新H13032")))
@@ -173,6 +214,7 @@ class VehicleCacheDatabaseTest {
         status: String = "ACTIVE",
         plateColor: String? = null,
         ownerUserId: Long = userId,
+        detailAccessible: Boolean = true,
     ): VehicleSnapshotCacheEntity =
         VehicleSnapshotCacheEntity(
             userId = ownerUserId,
@@ -187,5 +229,6 @@ class VehicleCacheDatabaseTest {
             status = status,
             searchableText = searchableText,
             detailJson = "{}",
+            detailAccessible = detailAccessible,
         )
 }

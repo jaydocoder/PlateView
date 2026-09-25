@@ -160,6 +160,7 @@ private fun VehicleSearchCandidate.toResponse(): VehicleSearchCandidateResponse 
     organizationName = organizationName,
     plateColor = plateColor,
     status = status,
+    detailAccessible = detailAccessible,
 )
 
 private fun VehicleDetail.toResponse(catalogVersion: Long): VehicleDetailResponse = VehicleDetailResponse(
@@ -188,6 +189,7 @@ private fun VehicleDetail.toResponse(catalogVersion: Long): VehicleDetailRespons
             remarks = it.remarks,
         )
     },
+    detailAccessible = detailAccessible,
 )
 
 @Serializable
@@ -252,6 +254,7 @@ private data class VehicleSearchCandidateResponse(
     val organizationName: String?,
     val plateColor: String?,
     val status: String,
+    val detailAccessible: Boolean,
 )
 
 @Serializable
@@ -267,6 +270,7 @@ private data class VehicleDetailResponse(
     val attributes: JsonObject,
     val residentProfile: ResidentVehicleProfileResponse?,
     val longTermProfile: LongTermVehicleProfileResponse?,
+    val detailAccessible: Boolean,
 )
 
 @Serializable

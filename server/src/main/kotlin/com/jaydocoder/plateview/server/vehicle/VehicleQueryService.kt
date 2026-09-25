@@ -49,7 +49,7 @@ internal class VehicleQueryService(
                 statement.setInt(7, limit)
                 statement.executeQuery().use { result ->
                     buildList {
-                        while (result.next()) add(result.toSearchCandidate())
+                        while (result.next()) add(result.toSearchCandidate(accessScope))
                     }
                 }
             }
@@ -65,7 +65,7 @@ internal class VehicleQueryService(
         statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
         statement.setString(3, VehicleCategory.RESIDENT.name)
         statement.setInt(4, limit)
-        statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
+        statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate(accessScope)) } }
     }
 
     fun findDetail(vehicleId: Long, accessScope: VehicleAccessScope): VehicleDetail? {
@@ -106,9 +106,9 @@ internal class VehicleQueryService(
                 statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
                 statement.setInt(2, limit)
                 statement.setInt(3, offset.coerceAtLeast(0))
-                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate()) } }
+                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate(accessScope)) } }
             }
-            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED' AND (? OR category <> 'OTHER_LONG_TERM')").use { statement ->
+            val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED' AND (? OR category <> 'OTHER_LONG_TERM' OR status IN ('BLACKLISTED', 'STRICT_CHECK'))").use { statement ->
                 statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
                 statement.executeQuery().use { result -> result.next(); result.getInt(1) }
             }
@@ -133,10 +133,15 @@ internal class VehicleQueryService(
                 statement.setLong(3, targetRawRevision)
                 statement.setInt(4, limit)
                 statement.setInt(5, safeOffset)
-                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toVehicleDetail().filteredFor(accessScope)) } }
+                statement.executeQuery().use { result ->
+                    buildList {
+                        while (result.next()) add(result.toVehicleDetail().visibleInCatalogFor(accessScope))
+                    }
+                }
             }
             val total = connection.prepareStatement(
-                "SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED' AND (? OR category <> 'OTHER_LONG_TERM') " +
+                "SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED' " +
+                    "AND (? OR category <> 'OTHER_LONG_TERM' OR status IN ('BLACKLISTED', 'STRICT_CHECK')) " +
                     "AND created_catalog_revision <= ? AND catalog_revision <= ?",
             ).use { statement ->
                 statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
@@ -197,7 +202,7 @@ internal class VehicleQueryService(
             throw VehicleCatalogVersionConflictException()
         }
         val items = page.map { (revision, entityId, operation) ->
-            val record = if (operation == "UPSERT") connection.findDetail(entityId, accessScope) else null
+            val record = if (operation == "UPSERT") connection.findCatalogDetail(entityId, accessScope) else null
             VehicleCatalogChangeItem(
                 revision = revision * 4L + expectedBits,
                 entityId = entityId,
@@ -259,17 +264,28 @@ internal class VehicleQueryService(
         return normalizedKeyword
     }
 
-    private fun ResultSet.toSearchCandidate(): VehicleSearchCandidate {
+    private fun ResultSet.toSearchCandidate(accessScope: VehicleAccessScope): VehicleSearchCandidate {
         val category = VehicleCategory.valueOf(getString("category"))
+        val detailAccessible = canViewVehicleDetail(category, accessScope)
         return VehicleSearchCandidate(
             id = getLong("id"),
             plateNumber = getString("plate_number"),
             category = category,
-            organizationName = getString("organization_name"),
-            plateColor = getString("plate_color"),
+            organizationName = getString("organization_name").takeIf { detailAccessible },
+            plateColor = getString("plate_color").takeIf { detailAccessible },
             status = getString("status"),
+            detailAccessible = detailAccessible,
         )
     }
+
+    private fun Connection.findCatalogDetail(vehicleId: Long, accessScope: VehicleAccessScope): VehicleDetail? =
+        prepareStatement(SELECT_CATALOG_VEHICLE_DETAIL).use { statement ->
+            statement.setLong(1, vehicleId)
+            statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
+            statement.executeQuery().use { result ->
+                if (result.next()) result.toVehicleDetail().visibleInCatalogFor(accessScope) else null
+            }
+        }
 
     private fun ResultSet.toVehicleDetail(): VehicleDetail {
         val category = VehicleCategory.valueOf(getString("category"))
@@ -312,7 +328,7 @@ internal class VehicleQueryService(
                 FROM vehicles
                 WHERE (normalized_plate = ? OR searchable_text LIKE ?)
                   AND status <> 'DELETED'
-                  AND (? OR category <> 'OTHER_LONG_TERM')
+                  AND (? OR category <> 'OTHER_LONG_TERM' OR status IN ('BLACKLISTED', 'STRICT_CHECK'))
                 ORDER BY
                     status_rank, category_rank, match_rank, plate_length, normalized_plate, id
                 LIMIT ?
@@ -331,7 +347,7 @@ internal class VehicleQueryService(
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
             WHERE v.normalized_plate = ?
               AND v.status <> 'DELETED'
-              AND (? OR v.category <> 'OTHER_LONG_TERM')
+              AND (? OR v.category <> 'OTHER_LONG_TERM' OR v.status IN ('BLACKLISTED', 'STRICT_CHECK'))
             ORDER BY
                 CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END,
                 CASE WHEN v.category = ? THEN 0 ELSE 1 END,
@@ -343,7 +359,8 @@ internal class VehicleQueryService(
             SELECT v.id, v.plate_number, v.category, v.status, v.attributes ->> 'plateColor' AS plate_color, lp.organization_name
             FROM vehicles v
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
+            WHERE v.status <> 'DELETED'
+              AND (? OR v.category <> 'OTHER_LONG_TERM' OR v.status IN ('BLACKLISTED', 'STRICT_CHECK'))
             ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id LIMIT ? OFFSET ?
         """
         const val SELECT_VEHICLE_DETAIL = """
@@ -358,6 +375,19 @@ internal class VehicleQueryService(
             WHERE v.id = ? AND v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
         """
 
+        const val SELECT_CATALOG_VEHICLE_DETAIL = """
+            SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.attributes::text,
+                   rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
+                   rp.remarks AS resident_remarks,
+                   lp.id AS long_term_profile_id, lp.organization_name, lp.pass_holder, lp.passage_details,
+                   lp.remarks AS long_term_remarks
+            FROM vehicles v
+            LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
+            LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
+            WHERE v.id = ? AND v.status <> 'DELETED'
+              AND (? OR v.category <> 'OTHER_LONG_TERM' OR v.status IN ('BLACKLISTED', 'STRICT_CHECK'))
+        """
+
         const val SELECT_FULL_CATALOG_PAGE = """
             SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.attributes::text,
                    rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
@@ -367,7 +397,8 @@ internal class VehicleQueryService(
             FROM vehicles v
             LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
             LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-            WHERE v.status <> 'DELETED' AND (? OR v.category <> 'OTHER_LONG_TERM')
+            WHERE v.status <> 'DELETED'
+              AND (? OR v.category <> 'OTHER_LONG_TERM' OR v.status IN ('BLACKLISTED', 'STRICT_CHECK'))
               AND v.created_catalog_revision <= ? AND v.catalog_revision <= ?
             ORDER BY CASE WHEN v.status = 'ACTIVE' THEN 0 ELSE 1 END, v.normalized_plate, v.id
             LIMIT ? OFFSET ?
@@ -383,6 +414,7 @@ internal data class VehicleSearchCandidate(
     val organizationName: String?,
     val plateColor: String?,
     val status: String,
+    val detailAccessible: Boolean,
 )
 
 @Serializable
@@ -396,6 +428,7 @@ internal data class VehicleDetail(
     val attributes: JsonObject,
     val residentProfile: ResidentVehicleProfile?,
     val longTermProfile: LongTermVehicleProfile?,
+    val detailAccessible: Boolean = true,
 )
 
 @Serializable
@@ -449,6 +482,25 @@ internal data class VehicleAccessScope(
 
 internal fun VehicleDetail.filteredFor(accessScope: VehicleAccessScope): VehicleDetail =
     if (accessScope.residentRemarksAccessEnabled) this else copy(residentProfile = residentProfile?.copy(remarks = null))
+
+internal fun canViewVehicleCandidate(category: VehicleCategory, status: String, accessScope: VehicleAccessScope): Boolean =
+    canViewVehicleDetail(category, accessScope) || status == "BLACKLISTED" || status == "STRICT_CHECK"
+
+internal fun canViewVehicleDetail(category: VehicleCategory, accessScope: VehicleAccessScope): Boolean =
+    category != VehicleCategory.OTHER_LONG_TERM || accessScope.otherLongTermAccessEnabled
+
+internal fun VehicleDetail.visibleInCatalogFor(accessScope: VehicleAccessScope): VehicleDetail =
+    if (canViewVehicleDetail(category, accessScope)) {
+        filteredFor(accessScope)
+    } else {
+        copy(
+            vehicleType = null,
+            attributes = JsonObject(emptyMap()),
+            residentProfile = null,
+            longTermProfile = null,
+            detailAccessible = false,
+        )
+    }
 
 internal class VehicleSearchKeywordException : RuntimeException("请输入至少一个车牌、姓名或单位字符")
 

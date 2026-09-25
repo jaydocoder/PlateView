@@ -38,6 +38,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -138,6 +139,29 @@ class SearchViewModelTest {
         assertEquals("guard-a", historyRepository.savedUsername)
         assertEquals(candidate, historyRepository.savedCandidate)
         assertEquals(SearchEvent.OpenVehicle(candidate.id), event.await())
+    }
+
+    @Test
+    fun `无详情权限的风险车辆点击后不保存历史也不导航`() = runTest {
+        val historyRepository = FakeSearchHistoryRepository()
+        val viewModel = createViewModel(historyRepository = historyRepository)
+        val candidate = VehicleCandidate(
+            id = 102,
+            plateNumber = "新H12345",
+            category = "OTHER_LONG_TERM",
+            categoryLabel = "其他长期通行车辆",
+            status = "BLACKLISTED",
+            detailAccessible = false,
+        )
+        val event = async { viewModel.events.first() }
+        runCurrent()
+
+        viewModel.selectCandidate(candidate)
+        advanceUntilIdle()
+
+        assertEquals(null, historyRepository.savedCandidate)
+        assertFalse(event.isCompleted)
+        event.cancel()
     }
 
     @Test

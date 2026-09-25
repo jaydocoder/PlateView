@@ -46,6 +46,7 @@ data class VehicleCandidateDto(
     val organizationName: String?,
     val plateColor: String?,
     val status: String,
+    val detailAccessible: Boolean? = null,
 )
 
 data class VehicleDetailDto(
@@ -59,6 +60,7 @@ data class VehicleDetailDto(
     val attributes: JsonObject,
     val residentProfile: ResidentProfileDto?,
     val longTermProfile: LongTermProfileDto?,
+    val detailAccessible: Boolean? = null,
 )
 
 data class ResidentProfileDto(

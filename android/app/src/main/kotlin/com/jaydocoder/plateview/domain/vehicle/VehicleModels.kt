@@ -11,6 +11,7 @@ data class VehicleCandidate(
     val organizationName: String? = null,
     val plateColor: String? = null,
     val status: String = "ACTIVE",
+    val detailAccessible: Boolean = true,
 )
 
 data class VehicleDetail(
@@ -24,6 +25,7 @@ data class VehicleDetail(
     val attributes: List<VehicleAttribute>,
     val residentProfile: ResidentProfile?,
     val longTermProfile: LongTermProfile?,
+    val detailAccessible: Boolean = true,
 )
 
 @Immutable

@@ -95,6 +95,7 @@ class SearchViewModel @Inject constructor(
     }
 
     fun selectCandidate(candidate: VehicleCandidate) {
+        if (!candidate.detailAccessible) return
         viewModelScope.launch {
             sessionProvider.session.first()?.let { session ->
                 runCatching { historyRepository.save(session.username, candidate) }
@@ -114,6 +115,10 @@ class SearchViewModel @Inject constructor(
 
     fun selectHistory(item: SearchHistoryItem) {
         viewModelScope.launch {
+            if (item.category == "OTHER_LONG_TERM") {
+                val userId = sessionProvider.session.first()?.userId ?: return@launch
+                if (vehicleCacheRepository.getDetail(userId, item.vehicleId) == null) return@launch
+            }
             _events.emit(SearchEvent.OpenVehicle(item.vehicleId))
         }
     }

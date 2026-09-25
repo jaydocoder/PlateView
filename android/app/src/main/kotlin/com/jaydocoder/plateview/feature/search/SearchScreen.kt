@@ -86,6 +86,7 @@ import com.jaydocoder.plateview.domain.workorder.resolveWorkOrderPassageState
 import com.jaydocoder.plateview.domain.workorder.resolveWechatMessagePassageState
 import com.jaydocoder.plateview.domain.workorder.resolvedSenderName
 import com.jaydocoder.plateview.domain.workorder.selectWorkOrderCandidatePlate
+import com.jaydocoder.plateview.domain.workorder.selectWechatMessageCandidatePlate
 import com.jaydocoder.plateview.feature.auth.AvatarViewModel
 import com.jaydocoder.plateview.feature.auth.WechatSyncHealth
 import com.jaydocoder.plateview.feature.profile.AvatarImage
@@ -287,7 +288,7 @@ fun SearchScreen(
                     key = WechatMessage::id,
                     contentType = { "wechat_message_candidate" },
                 ) { message ->
-                    WechatMessageCandidateRow(message, onWechatMessageSelected)
+                    WechatMessageCandidateRow(message, uiState.query, onWechatMessageSelected)
                 }
             }
 
@@ -411,7 +412,7 @@ private fun formatWechatSyncTime(value: String): String = runCatching {
 }.getOrDefault("时间未知")
 
 @Composable
-private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (WechatMessage) -> Unit) {
+private fun WechatMessageCandidateRow(message: WechatMessage, query: String, onSelected: (WechatMessage) -> Unit) {
     val importantSender = message.importantSender()
     val accent = importantSender?.color(isSystemInDarkTheme())
     GlassSurface(
@@ -428,7 +429,7 @@ private fun WechatMessageCandidateRow(message: WechatMessage, onSelected: (Wecha
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                message.plateNumbers.firstOrNull()?.let { plate ->
+                selectWechatMessageCandidatePlate(message.plateNumbers, query)?.let { plate ->
                     VehiclePlateBadge(plateNumber = plate, compact = true)
                     Spacer(Modifier.width(8.dp))
                 }
@@ -554,7 +555,9 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
                 }
                 Column(Modifier.weight(1f)) {
                     CandidatePrimaryText(
-                        text = candidate.orderNumber ?: "未识别",
+                        text = candidate.orderNumber?.let { orderNumber ->
+                            if (candidate.orderYear > 0) "$orderNumber · ${candidate.orderYear}年" else orderNumber
+                        } ?: "未识别",
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     if (importantSender != null) {
@@ -852,6 +855,7 @@ private fun VehicleCandidateRow(
 ) {
     ElevatedCard(
         onClick = { onSelected(candidate) },
+        enabled = candidate.detailAccessible,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = PlateViewDimensions.candidateMinimumHeight)
@@ -900,11 +904,13 @@ private fun VehicleCandidateRow(
                 )
             }
             
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.outline
-            )
+            if (candidate.detailAccessible) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = "查看车辆详情",
+                    tint = MaterialTheme.colorScheme.outline,
+                )
+            }
         }
     }
 }

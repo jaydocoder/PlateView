@@ -21,6 +21,7 @@ data class VehicleSnapshotCacheEntity(
     val status: String,
     val searchableText: String,
     val detailJson: String,
+    val detailAccessible: Boolean,
 )
 
 @Entity(tableName = "vehicle_catalog_state", primaryKeys = ["userId"])

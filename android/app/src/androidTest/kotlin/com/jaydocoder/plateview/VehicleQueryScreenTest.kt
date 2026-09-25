@@ -7,8 +7,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -209,6 +211,40 @@ class VehicleQueryScreenTest {
 
         composeRule.onNodeWithTag("candidate_107").assertIsDisplayed()
         composeRule.onNodeWithText("严查").assertIsDisplayed()
+    }
+
+    @Test
+    fun 无权限的其他长期风险车辆显示候选但不可点击详情() {
+        var selectedCount = 0
+        val candidate = VehicleCandidate(
+            id = 108,
+            plateNumber = "新H12345",
+            category = "OTHER_LONG_TERM",
+            categoryLabel = "其他长期通行车辆",
+            status = "BLACKLISTED",
+            detailAccessible = false,
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(candidates = listOf(candidate)),
+                    onQueryChanged = {},
+                    onCandidateSelected = { selectedCount++ },
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("candidate_108").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithText("已拉黑").assertIsDisplayed()
+        composeRule.onAllNodesWithContentDescription("查看车辆详情").assertCountEquals(0)
+        composeRule.runOnIdle { assertEquals(0, selectedCount) }
     }
 
     @Test

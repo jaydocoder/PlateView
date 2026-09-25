@@ -28,6 +28,8 @@ data class WorkOrderCacheEntity(
     val cachedAt: Long,
     val lastValidatedAt: Long,
     val detailJson: String,
+    val orderYear: Int = 0,
+    val sourceKey: String = "",
 )
 
 @Entity(tableName = "work_order_catalog_state")
@@ -138,11 +140,16 @@ interface WorkOrderCacheDao {
           AND (
             c.orderNumber IS NULL OR NOT EXISTS (
                 SELECT 1 FROM work_order_cache AS n
-                WHERE n.userId = c.userId AND n.orderNumber = c.orderNumber
+                WHERE n.userId = c.userId
+                  AND n.sourceKey = c.sourceKey
+                  AND n.orderYear = c.orderYear
+                  AND n.orderNumber = c.orderNumber
                   AND (n.sentAt > c.sentAt OR (n.sentAt = c.sentAt AND n.recordId > c.recordId))
             )
           )
         ORDER BY
+          CASE WHEN c.orderYear = CAST(strftime('%Y', 'now', '+8 hours') AS INTEGER) THEN 0 ELSE 1 END,
+          c.orderYear DESC,
           CASE WHEN LENGTH(c.orderNumber) = 7
                      AND c.orderNumber NOT GLOB '*[^0-9]*'
                      AND CAST(SUBSTR(c.orderNumber, 1, 2) AS INTEGER) BETWEEN 1 AND 12
@@ -248,7 +255,7 @@ interface WorkOrderCacheDao {
     suspend fun clearAll() { clearAllRecords(); clearAllStates(); clearAllMessages(); clearAllAttachmentTasks() }
 }
 
-@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 6, exportSchema = true)
+@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 7, exportSchema = true)
 abstract class WorkOrderCacheDatabase : RoomDatabase() {
     abstract fun dao(): WorkOrderCacheDao
 }

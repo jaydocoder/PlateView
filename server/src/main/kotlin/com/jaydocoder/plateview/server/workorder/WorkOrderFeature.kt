@@ -565,13 +565,13 @@ private fun WorkOrderFullCatalogPage.toResponse() = WorkOrderFullCatalogResponse
 @Serializable private data class WorkOrderResponse(
     val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?, val declaredPeople: Int?,
     val rawValidTime: String?, val location: String?, val verificationMethod: String?, val reason: String?, val remarks: String?, val status: String,
-    val parseQuality: String, val catalogRevision: Long, val rawContent: String, val sentAt: String, val sourceKey: String, val sourceName: String,
+    val parseQuality: String, val orderYear: Int, val catalogRevision: Long, val rawContent: String, val sentAt: String, val sourceKey: String, val sourceName: String,
     val senderUsername: String?, val senderDisplay: String?, val senderGroupNickname: String?, val people: List<WorkOrderPersonResponse>, val images: List<WorkOrderImageResponse>,
     val vehicles: List<WorkOrderVehicleResponse>, val displayName: String?,
 )
 private fun WorkOrderRecord.toResponse() = WorkOrderResponse(
     id, orderNumber, rawPlate, normalizedPlate, vehicleType, declaredPeople, rawValidTime, location, verificationMethod,
-    reason, remarks, status, parseQuality, catalogRevision, rawContent, sentAt.toString(), sourceKey, sourceName,
+    reason, remarks, status, parseQuality, orderYear, catalogRevision, rawContent, sentAt.toString(), sourceKey, sourceName,
     senderUsername, senderDisplay, senderGroupNickname,
     people.map { WorkOrderPersonResponse(it.rawLine, it.name, it.identityNumber) },
     images.map { WorkOrderImageResponse(it.id, it.sha256, it.contentType, it.originalSize, it.previewAvailable, it.thumbnailAvailable, it.availability, it.kind, it.fileName, it.pageCount, it.sourceQuality) },

@@ -7,6 +7,7 @@ import java.sql.Timestamp
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 import javax.sql.DataSource
 
@@ -34,9 +35,10 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         batch.messages.forEach { message ->
             message.validate()
             val parsed = WorkOrderParser.parse(message.rawContent)
+            val orderYear = parsed.orderNumber?.let { beijingOrderYear(message.sentAt) }
             val passageSenderEnabled = connection.isPassageSenderEnabled(message.senderUsername)
             val businessType = WorkOrderParser.classify(parsed, message.rawContent, passageSenderEnabled)
-            val messageId = connection.insertMessage(sourceId, message, businessType, parsed.searchableText)
+            val messageId = connection.insertMessage(sourceId, message, businessType, parsed.searchableText, parsed.orderNumber, orderYear)
             if (messageId == null) {
                 connection.enrichMessageSender(sourceId, message)
                 duplicate += 1
@@ -49,7 +51,10 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     statement.executeUpdate()
                 }
                 if (businessType == "STRUCTURED_WORK_ORDER" || businessType == "ATTACHMENT_WORK_ORDER") {
-                    connection.insertWorkOrder(messageId, parsed, revision)
+                    connection.insertWorkOrder(messageId, parsed, orderYear, revision)
+                    if (parsed.orderNumber != null && orderYear != null) {
+                        connection.recomputeCanonicalGroup(sourceId, orderYear, parsed.orderNumber, revision)
+                    }
                 }
             }
         }
@@ -179,7 +184,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
     }
 
     fun messageDetail(messageId: Long): WechatMessageRecord = dataSource.connection.use { connection ->
-        connection.prepareStatement("$MESSAGE_BASE_SELECT WHERE m.id = ? AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')").use { statement ->
+        connection.prepareStatement("$MESSAGE_BASE_SELECT WHERE m.id = ? AND $MESSAGE_VISIBLE_PREDICATE").use { statement ->
             statement.setLong(1, messageId)
             statement.executeQuery().use { result ->
                 if (!result.next()) throw WorkOrderNotFoundException()
@@ -243,8 +248,13 @@ internal class WorkOrderService(private val dataSource: DataSource) {
     fun history(recordId: Long): List<WorkOrderRecord> = dataSource.connection.use { connection ->
         val current = detail(recordId)
         val orderNumber = current.orderNumber ?: return@use listOf(current)
-        connection.prepareStatement("$BASE_SELECT WHERE r.order_number = ? ORDER BY m.sent_at DESC, m.local_message_id DESC, r.id DESC").use { statement ->
+        connection.prepareStatement(
+            "$BASE_SELECT WHERE r.order_number = ? AND r.order_year = ? AND s.source_key = ? " +
+                "ORDER BY m.sent_at DESC, m.local_message_id DESC, r.id DESC",
+        ).use { statement ->
             statement.setString(1, orderNumber)
+            statement.setInt(2, current.orderYear)
+            statement.setString(3, current.sourceKey)
             statement.executeQuery().use { result -> buildList { while (result.next()) add(connection.readRecord(result)) } }
         }
     }
@@ -351,7 +361,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             }
             val safeLimit = limit.coerceIn(1, 200)
             val records = connection.prepareStatement(
-                "$BASE_SELECT WHERE r.id > ? AND r.status <> 'VOID' " +
+                "$BASE_SELECT WHERE r.id > ? AND r.status <> 'VOID' AND r.is_canonical " +
                     "AND r.created_catalog_revision <= ? AND r.catalog_revision <= ? ORDER BY r.id LIMIT ?",
             ).use { statement ->
                 statement.setLong(1, afterId.coerceAtLeast(0))
@@ -372,7 +382,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             }
             val safeLimit = limit.coerceIn(1, 200)
             val records = connection.prepareStatement(
-                "$MESSAGE_BASE_SELECT WHERE m.id > ? AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE') " +
+                "$MESSAGE_BASE_SELECT WHERE m.id > ? AND $MESSAGE_VISIBLE_PREDICATE " +
                     "AND m.created_catalog_revision <= ? AND m.catalog_revision <= ? ORDER BY m.id LIMIT ?",
             ).use { statement ->
                 statement.setLong(1, afterId.coerceAtLeast(0))
@@ -418,7 +428,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
 
     private fun Connection.recordsByIds(ids: List<Long>): Map<Long, WorkOrderRecord> {
         if (ids.isEmpty()) return emptyMap()
-        return prepareStatement("$BASE_SELECT WHERE r.id = ANY (?)").use { statement ->
+        return prepareStatement("$BASE_SELECT WHERE r.id = ANY (?) AND r.is_canonical").use { statement ->
             statement.setArray(1, createArrayOf("BIGINT", ids.toTypedArray()))
             statement.executeQuery().use { result -> buildList { while (result.next()) add(readRecord(result)) } }
         }.associateBy(WorkOrderRecord::id)
@@ -426,7 +436,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
 
     private fun Connection.messagesByIds(ids: List<Long>): Map<Long, WechatMessageRecord> {
         if (ids.isEmpty()) return emptyMap()
-        return prepareStatement("$MESSAGE_BASE_SELECT WHERE m.id = ANY (?) AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')").use { statement ->
+        return prepareStatement("$MESSAGE_BASE_SELECT WHERE m.id = ANY (?) AND $MESSAGE_VISIBLE_PREDICATE").use { statement ->
             statement.setArray(1, createArrayOf("BIGINT", ids.toTypedArray()))
             statement.executeQuery().use { result ->
                 buildList { while (result.next()) add(readMessage(result, "", includeAttachments = false)) }
@@ -721,27 +731,47 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             "单号和车牌至少填写一项"
         }
         require(correction.status in setOf("ACTIVE", "VOID")) { "车单状态无效" }
-        val rawContent = connection.prepareStatement(
-            "SELECT m.raw_content FROM work_order_records r JOIN wechat_messages m ON m.id = r.message_id WHERE r.id = ? FOR UPDATE",
+        val existing = connection.prepareStatement(
+            """
+            SELECT m.raw_content, m.source_id, m.id AS message_id, r.order_year, r.order_number,
+                   EXTRACT(YEAR FROM m.sent_at AT TIME ZONE 'Asia/Shanghai')::INTEGER AS sent_year
+            FROM work_order_records r
+            JOIN wechat_messages m ON m.id = r.message_id
+            WHERE r.id = ?
+            FOR UPDATE OF r, m
+            """.trimIndent(),
         ).use { statement ->
             statement.setLong(1, recordId)
-            statement.executeQuery().use { result -> if (result.next()) result.getString(1) else throw WorkOrderNotFoundException() }
+            statement.executeQuery().use { result ->
+                if (!result.next()) throw WorkOrderNotFoundException()
+                CorrectedRecordGroup(
+                    rawContent = result.getString("raw_content"),
+                    sourceId = result.getLong("source_id"),
+                    messageId = result.getLong("message_id"),
+                    orderYear = result.getInt("order_year").takeUnless { result.wasNull() },
+                    orderNumber = result.getString("order_number"),
+                    sentYear = result.getInt("sent_year"),
+                )
+            }
         }
         val revision = connection.nextCatalogRevision()
         val searchable = WorkOrderParser.normalizeSearchText(
-            listOfNotNull(rawContent, correction.orderNumber, correction.rawPlate, correction.vehicleType, correction.location, correction.reason, correction.remarks)
+            listOfNotNull(existing.rawContent, correction.orderNumber, correction.rawPlate, correction.vehicleType, correction.location, correction.reason, correction.remarks)
                 .joinToString(" "),
         )
+        val correctedOrderNumber = correction.orderNumber?.trim()
+        val correctedOrderYear = correctedOrderNumber?.let { existing.sentYear }
         connection.prepareStatement(
             """
             UPDATE work_order_records
             SET order_number = ?, raw_plate = ?, normalized_plate = ?, vehicle_type = ?, declared_people = ?,
                 raw_valid_time = ?, location = ?, verification_method = ?, reason = ?, remarks = ?, status = ?,
-                parse_quality = 'PARTIAL', searchable_text = ?, catalog_revision = ?, parsed_at = CURRENT_TIMESTAMP
+                parse_quality = 'PARTIAL', searchable_text = ?, order_year = ?, is_canonical = FALSE,
+                catalog_revision = ?, parsed_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """.trimIndent(),
         ).use { statement ->
-            statement.setString(1, correction.orderNumber?.trim())
+            statement.setString(1, correctedOrderNumber)
             statement.setString(2, correction.rawPlate?.trim())
             statement.setString(3, correction.rawPlate?.let(WorkOrderParser::normalizeSearchText))
             statement.setString(4, correction.vehicleType?.trim())
@@ -753,9 +783,27 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             statement.setString(10, correction.remarks?.trim())
             statement.setString(11, correction.status)
             statement.setString(12, searchable)
-            statement.setLong(13, revision)
-            statement.setLong(14, recordId)
+            statement.setObject(13, correctedOrderYear)
+            statement.setLong(14, revision)
+            statement.setLong(15, recordId)
             if (statement.executeUpdate() == 0) throw WorkOrderNotFoundException()
+        }
+        connection.prepareStatement(
+            "UPDATE wechat_messages SET referenced_order_number = ?, referenced_order_year = ?, catalog_revision = ? WHERE id = ?",
+        ).use { statement ->
+            statement.setString(1, correctedOrderNumber)
+            statement.setObject(2, correctedOrderYear)
+            statement.setLong(3, revision)
+            statement.setLong(4, existing.messageId)
+            statement.executeUpdate()
+        }
+        if (existing.orderYear != null && existing.orderNumber != null) {
+            connection.recomputeCanonicalGroup(existing.sourceId, existing.orderYear, existing.orderNumber, revision)
+        }
+        if (correctedOrderYear != null &&
+            (correctedOrderYear != existing.orderYear || correctedOrderNumber != existing.orderNumber)
+        ) {
+            connection.recomputeCanonicalGroup(existing.sourceId, correctedOrderYear, checkNotNull(correctedOrderNumber), revision)
         }
         connection.prepareStatement(DETAIL).use { statement ->
             statement.setLong(1, recordId)
@@ -884,6 +932,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
         connection.autoAssociateImage(imageId, sourceId, upload.localMessageId, upload.senderUsername, upload.sentAt)
         connection.autoAssociateMessageAttachment(imageId, sourceId, upload.senderUsername, upload.sentAt)
+        connection.alignAttachmentWithCanonical(imageId)
         connection.touchAttachmentOwners(imageId)
         imageId
     }
@@ -1140,6 +1189,70 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
+    private fun Connection.alignAttachmentWithCanonical(attachmentId: Long) {
+        val group = prepareStatement(
+            """
+            SELECT current_message.source_id, current_record.order_year, current_record.order_number
+            FROM work_order_images image
+            JOIN work_order_records current_record ON current_record.id = image.linked_record_id
+            JOIN wechat_messages current_message ON current_message.id = current_record.message_id
+            WHERE image.id = ? AND current_record.order_number IS NOT NULL AND current_record.order_year IS NOT NULL
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, attachmentId)
+            statement.executeQuery().use { result ->
+                if (result.next()) Triple(result.getLong(1), result.getInt(2), result.getString(3)) else null
+            }
+        } ?: return
+        val (sourceId, orderYear, orderNumber) = group
+        val canonicalRecordId = prepareStatement(
+            """
+            SELECT r.id
+            FROM work_order_records r
+            JOIN wechat_messages m ON m.id = r.message_id
+            WHERE m.source_id = ? AND r.order_year = ? AND r.order_number = ? AND r.is_canonical
+            LIMIT 1
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setInt(2, orderYear)
+            statement.setString(3, orderNumber)
+            statement.executeQuery().use { result -> if (result.next()) result.getLong(1) else null }
+        } ?: return
+        prepareStatement("UPDATE work_order_images SET linked_record_id = ? WHERE id = ?").use { statement ->
+            statement.setLong(1, canonicalRecordId)
+            statement.setLong(2, attachmentId)
+            statement.executeUpdate()
+        }
+        val supportingMessageIds = prepareStatement(
+            """
+            SELECT message.id
+            FROM work_order_images image
+            JOIN wechat_messages message ON message.source_id = ?
+            JOIN work_order_records record ON record.message_id = message.id
+            WHERE image.id = ? AND record.order_year = ? AND record.order_number = ?
+              AND NOT record.is_canonical AND message.business_type = 'ATTACHMENT_WORK_ORDER'
+            ORDER BY (message.sender_username IS DISTINCT FROM image.sender_username),
+                     ABS(EXTRACT(EPOCH FROM (message.sent_at - image.sent_at))), message.id DESC
+            LIMIT 2
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setLong(2, attachmentId)
+            statement.setInt(3, orderYear)
+            statement.setString(4, orderNumber)
+            statement.executeQuery().use { result -> buildList { while (result.next()) add(result.getLong(1)) } }
+        }
+        if (supportingMessageIds.size == 1) {
+            prepareStatement("UPDATE work_order_images SET linked_message_id = ? WHERE id = ? AND linked_message_id IS DISTINCT FROM ?").use { statement ->
+                statement.setLong(1, supportingMessageIds.single())
+                statement.setLong(2, attachmentId)
+                statement.setLong(3, supportingMessageIds.single())
+                statement.executeUpdate()
+            }
+        }
+    }
+
     private fun Connection.touchAttachmentOwners(imageId: Long, additionalRecordIds: List<Long> = emptyList()) {
         val owners = prepareStatement(
             "SELECT linked_record_id, linked_message_id FROM work_order_images WHERE id = ?",
@@ -1171,11 +1284,13 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         }
     }
 
-    private fun Connection.insertWorkOrder(messageId: Long, parsed: ParsedWorkOrder, revision: Long) {
+    private fun Connection.insertWorkOrder(messageId: Long, parsed: ParsedWorkOrder, orderYear: Int?, revision: Long) {
         val recordId = prepareStatement(
             """
-            INSERT INTO work_order_records(message_id, order_number, raw_plate, normalized_plate, vehicle_type, declared_people, raw_valid_time, location, verification_method, reason, remarks, status, parse_quality, searchable_text, catalog_revision)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO work_order_records(message_id, order_number, raw_plate, normalized_plate, vehicle_type, declared_people,
+                raw_valid_time, location, verification_method, reason, remarks, status, parse_quality, searchable_text,
+                order_year, is_canonical, catalog_revision)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?)
             RETURNING id
             """.trimIndent(),
         ).use { statement ->
@@ -1193,7 +1308,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             statement.setString(12, parsed.status)
             statement.setString(13, parsed.parseQuality)
             statement.setString(14, parsed.searchableText)
-            statement.setLong(15, revision)
+            statement.setObject(15, orderYear)
+            statement.setLong(16, revision)
             statement.executeQuery().use { result -> result.next(); result.getLong(1) }
         }
         parsed.people.forEachIndexed { index, person ->
@@ -1221,6 +1337,84 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                 statement.setString(4, vehicle.rawPlate)
                 statement.setString(5, vehicle.normalizedPlate)
                 statement.setString(6, vehicle.vehicleType)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun Connection.recomputeCanonicalGroup(sourceId: Long, orderYear: Int, orderNumber: String, revision: Long) {
+        prepareStatement("SELECT pg_advisory_xact_lock(?, ?)").use { statement ->
+            statement.setInt(1, sourceId.hashCode())
+            statement.setInt(2, 31 * orderYear + orderNumber.hashCode())
+            statement.executeQuery().close()
+        }
+        val records = prepareStatement(
+            """
+            SELECT r.id, r.message_id, r.is_canonical, m.business_type,
+                   CASE r.parse_quality WHEN 'COMPLETE' THEN 0 WHEN 'PARTIAL' THEN 1 ELSE 2 END AS quality_rank,
+                   ((r.raw_plate IS NOT NULL)::INTEGER + (r.raw_valid_time IS NOT NULL)::INTEGER +
+                    (r.location IS NOT NULL)::INTEGER + (r.reason IS NOT NULL)::INTEGER +
+                    (r.remarks IS NOT NULL)::INTEGER) AS completeness,
+                   m.sent_at
+            FROM work_order_records r
+            JOIN wechat_messages m ON m.id = r.message_id
+            WHERE m.source_id = ? AND r.order_year = ? AND r.order_number = ?
+            ORDER BY CASE WHEN r.status = 'VOID' THEN 0 ELSE 1 END,
+                     CASE WHEN m.business_type = 'STRUCTURED_WORK_ORDER' THEN 0 ELSE 1 END,
+                     quality_rank, completeness DESC, m.sent_at DESC, r.id DESC
+            FOR UPDATE OF r, m
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setLong(1, sourceId)
+            statement.setInt(2, orderYear)
+            statement.setString(3, orderNumber)
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) add(
+                        CanonicalCandidate(
+                            recordId = result.getLong("id"),
+                            messageId = result.getLong("message_id"),
+                            businessType = result.getString("business_type"),
+                        ),
+                    )
+                }
+            }
+        }
+        if (records.isEmpty()) return
+        val canonical = records.first()
+        prepareStatement("UPDATE work_order_records SET is_canonical = (id = ?), catalog_revision = ? WHERE id = ANY (?)").use { statement ->
+            statement.setLong(1, canonical.recordId)
+            statement.setLong(2, revision)
+            statement.setArray(3, createArrayOf("BIGINT", records.map(CanonicalCandidate::recordId).toTypedArray()))
+            statement.executeUpdate()
+        }
+        prepareStatement("UPDATE wechat_messages SET catalog_revision = ? WHERE id = ANY (?)").use { statement ->
+            statement.setLong(1, revision)
+            statement.setArray(2, createArrayOf("BIGINT", records.map(CanonicalCandidate::messageId).toTypedArray()))
+            statement.executeUpdate()
+        }
+        prepareStatement(
+            "UPDATE work_order_images SET linked_record_id = ? WHERE linked_record_id = ANY (?) AND linked_record_id <> ?",
+        ).use { statement ->
+            statement.setLong(1, canonical.recordId)
+            statement.setArray(2, createArrayOf("BIGINT", records.map(CanonicalCandidate::recordId).toTypedArray()))
+            statement.setLong(3, canonical.recordId)
+            statement.executeUpdate()
+        }
+        val supportingMessageIds = records
+            .filter { it.recordId != canonical.recordId && it.businessType == "ATTACHMENT_WORK_ORDER" }
+            .map(CanonicalCandidate::messageId)
+        if (supportingMessageIds.size == 1) {
+            prepareStatement(
+                """
+                UPDATE work_order_images image
+                SET linked_message_id = ?
+                WHERE image.linked_record_id = ? AND image.linked_message_id IS DISTINCT FROM ?
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setLong(1, supportingMessageIds.single())
+                statement.setLong(2, canonical.recordId)
+                statement.setLong(3, supportingMessageIds.single())
                 statement.executeUpdate()
             }
         }
@@ -1390,6 +1584,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             remarks = result.getString("remarks"),
             status = result.getString("status"),
             parseQuality = result.getString("parse_quality"),
+            orderYear = result.getInt("order_year").takeUnless { result.wasNull() }
+                ?: result.getTimestamp("sent_at").toInstant().atZone(BEIJING_ZONE_ID).year,
             catalogRevision = result.getLong("catalog_revision"),
             rawContent = result.getString("raw_content"),
             sentAt = result.getTimestamp("sent_at").toInstant(),
@@ -1582,11 +1778,14 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         message: WorkOrderIncomingMessage,
         businessType: String,
         normalizedContent: String,
+        referencedOrderNumber: String?,
+        referencedOrderYear: Int?,
     ): Long? = prepareStatement(
         """
         INSERT INTO wechat_messages(source_id, local_message_id, sender_username, sender_display, sender_group_nickname,
-            message_type, raw_content, sent_at, content_fingerprint, normalized_content, business_type, catalog_revision)
-        VALUES (?, ?, ?, ?, ?, 'TEXT', ?, ?, ?, ?, ?, 0)
+            message_type, raw_content, sent_at, content_fingerprint, normalized_content, business_type,
+            referenced_order_number, referenced_order_year, catalog_revision)
+        VALUES (?, ?, ?, ?, ?, 'TEXT', ?, ?, ?, ?, ?, ?, ?, 0)
         ON CONFLICT(source_id, local_message_id) DO NOTHING
         RETURNING id
         """.trimIndent(),
@@ -1601,6 +1800,8 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         statement.setString(8, message.contentFingerprint)
         statement.setString(9, normalizedContent)
         statement.setString(10, businessType)
+        statement.setString(11, referencedOrderNumber)
+        statement.setObject(12, referencedOrderYear)
         statement.executeQuery().use { result -> if (result.next()) result.getLong(1) else null }
     }
 
@@ -1681,6 +1882,26 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             statement.setArray(2, messageIds)
             statement.executeUpdate()
         }
+        val groups = prepareStatement(
+            """
+            SELECT DISTINCT m.source_id, r.order_year, r.order_number
+            FROM work_order_records r
+            JOIN wechat_messages m ON m.id = r.message_id
+            WHERE r.message_id = ANY (?) AND r.order_year IS NOT NULL AND r.order_number IS NOT NULL
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setArray(1, messageIds)
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) {
+                        add(Triple(result.getLong("source_id"), result.getInt("order_year"), result.getString("order_number")))
+                    }
+                }
+            }
+        }
+        groups.forEach { (sourceId, orderYear, orderNumber) ->
+            recomputeCanonicalGroup(sourceId, orderYear, orderNumber, revision)
+        }
     }
 
     private fun Connection.nextCatalogRevision(): Long = prepareStatement(
@@ -1749,6 +1970,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
 
     private companion object {
         const val DEFAULT_SEARCH_RESULT_LIMIT = 8
+        val BEIJING_ZONE_ID: ZoneId = ZoneId.of("Asia/Shanghai")
         val KNOWN_SOURCES = mapOf(
             "44367002464@chatroom" to "票务中心工作群",
             "31463879194@chatroom" to "贾登峪车道口",
@@ -1757,7 +1979,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         const val BASE_SELECT = """
             SELECT r.id AS record_id, r.order_number, r.raw_plate, r.normalized_plate, r.vehicle_type, r.declared_people,
                    r.raw_valid_time, r.location, r.verification_method, r.reason, r.remarks, r.status, r.parse_quality,
-                   r.catalog_revision, m.raw_content, m.sent_at, m.sender_username, m.sender_display,
+                   r.order_year, r.catalog_revision, m.raw_content, m.sent_at, m.sender_username, m.sender_display,
                    m.sender_group_nickname, s.source_key, s.display_name AS source_name, ps.display_alias
             FROM work_order_records r
             JOIN wechat_messages m ON m.id = r.message_id
@@ -1766,34 +1988,23 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         """
         const val DETAIL = "$BASE_SELECT WHERE r.id = ?"
         const val SEARCH_EXACT_ORDER = """
-            WITH latest AS (
-                SELECT r.id
-                FROM work_order_records r
-                JOIN wechat_messages m ON m.id = r.message_id
-                WHERE r.order_number = ?
-                ORDER BY m.sent_at DESC, m.local_message_id DESC, r.id DESC
-                LIMIT 1
-            )
             $BASE_SELECT
-            JOIN latest ON latest.id = r.id
+            WHERE r.order_number = ? AND r.is_canonical
+            ORDER BY CASE WHEN r.order_year = EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::INTEGER THEN 0 ELSE 1 END,
+                     r.order_year DESC, m.sent_at DESC, r.id DESC
             LIMIT ?
         """
         const val SEARCH_EXACT_PLATE = """
-            WITH latest AS (
-                SELECT DISTINCT ON (COALESCE(r.order_number, '#' || r.id::text)) r.id, m.sent_at
-                FROM work_order_records r
-                JOIN wechat_messages m ON m.id = r.message_id
-                JOIN work_order_vehicles v ON v.record_id = r.id
-                WHERE v.normalized_plate = ?
-                ORDER BY COALESCE(r.order_number, '#' || r.id::text), m.sent_at DESC, m.local_message_id DESC, r.id DESC
-            )
             $BASE_SELECT
-            JOIN latest ON latest.id = r.id
+            JOIN work_order_vehicles v ON v.record_id = r.id
+            WHERE v.normalized_plate = ? AND r.is_canonical
             ORDER BY
+                CASE WHEN r.order_year = EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::INTEGER THEN 0 ELSE 1 END,
+                r.order_year DESC,
                 CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$' THEN 0 ELSE 1 END,
                 CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$'
                      THEN r.order_number::INTEGER END DESC,
-                latest.sent_at DESC,
+                m.sent_at DESC,
                 r.id DESC
             LIMIT ?
         """
@@ -1807,15 +2018,17 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                 FROM work_order_vehicles
                 WHERE normalized_plate LIKE ?
             ), latest AS MATERIALIZED (
-                SELECT DISTINCT ON (COALESCE(r.order_number, '#' || r.id::text)) r.id
+                SELECT r.id
                 FROM work_order_records r
                 JOIN wechat_messages m ON m.id = r.message_id
                 JOIN candidates c ON c.record_id = r.id
-                ORDER BY COALESCE(r.order_number, '#' || r.id::text), m.sent_at DESC, m.local_message_id DESC, r.id DESC
+                WHERE r.is_canonical
             )
             $BASE_SELECT
             JOIN latest ON latest.id = r.id
             ORDER BY
+                CASE WHEN r.order_year = EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::INTEGER THEN 0 ELSE 1 END,
+                r.order_year DESC,
                 CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$' THEN 0 ELSE 1 END,
                 CASE WHEN r.order_number ~ '^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$'
                      THEN r.order_number::INTEGER END DESC,
@@ -1831,6 +2044,13 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             JOIN wechat_sources s ON s.id = m.source_id
             LEFT JOIN wechat_passage_senders ps ON ps.sender_username = m.sender_username AND ps.enabled = TRUE
         """
+        const val MESSAGE_VISIBLE_PREDICATE = """(
+            m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE') OR
+            (m.business_type = 'ATTACHMENT_WORK_ORDER' AND EXISTS (
+                SELECT 1 FROM work_order_records visible_record
+                WHERE visible_record.message_id = m.id AND NOT visible_record.is_canonical
+            ))
+        )"""
         const val MESSAGE_SHORT_SEARCH = """
             WITH input AS (
                 SELECT ?::TEXT AS exact, ?::TEXT AS contains, ?::TEXT AS prefix
@@ -1844,7 +2064,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
             $MESSAGE_BASE_SELECT
             LEFT JOIN attachment_matches am ON am.linked_message_id = m.id
             CROSS JOIN input
-            WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+            WHERE $MESSAGE_VISIBLE_PREDICATE
               AND (
                 m.normalized_content LIKE input.contains OR
                 UPPER(COALESCE(m.sender_display, '')) LIKE input.contains OR
@@ -1876,19 +2096,19 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                            CASE WHEN m.normalized_content = input.exact THEN 0
                                 WHEN m.normalized_content LIKE input.prefix THEN 2 ELSE 3 END AS match_rank
                     FROM wechat_messages m, input
-                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                    WHERE $MESSAGE_VISIBLE_PREDICATE
                       AND m.normalized_content LIKE input.contains
                     UNION ALL
                     SELECT m.id, CASE WHEN UPPER(COALESCE(m.sender_display, '')) = input.exact THEN 1
                                       WHEN UPPER(COALESCE(m.sender_display, '')) LIKE input.prefix THEN 2 ELSE 3 END
                     FROM wechat_messages m, input
-                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                    WHERE $MESSAGE_VISIBLE_PREDICATE
                       AND UPPER(COALESCE(m.sender_display, '')) LIKE input.contains
                     UNION ALL
                     SELECT m.id, CASE WHEN UPPER(COALESCE(m.sender_group_nickname, '')) = input.exact THEN 1
                                       WHEN UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.prefix THEN 2 ELSE 3 END
                     FROM wechat_messages m, input
-                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                    WHERE $MESSAGE_VISIBLE_PREDICATE
                       AND UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.contains
                     UNION ALL
                     SELECT m.id, CASE WHEN UPPER(ps.display_alias) = input.exact THEN 1
@@ -1896,7 +2116,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     FROM wechat_passage_senders ps
                     JOIN wechat_messages m ON m.sender_username = ps.sender_username
                     CROSS JOIN input
-                    WHERE ps.enabled AND m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                    WHERE ps.enabled AND $MESSAGE_VISIBLE_PREDICATE
                       AND UPPER(ps.display_alias) LIKE input.contains
                     UNION ALL
                     SELECT m.id, CASE WHEN UPPER(s.display_name) = input.exact THEN 1
@@ -1904,7 +2124,7 @@ internal class WorkOrderService(private val dataSource: DataSource) {
                     FROM wechat_sources s
                     JOIN wechat_messages m ON m.source_id = s.id
                     CROSS JOIN input
-                    WHERE m.business_type IN ('PASSAGE_MESSAGE', 'GENERAL_MESSAGE')
+                    WHERE $MESSAGE_VISIBLE_PREDICATE
                       AND UPPER(s.display_name) LIKE input.contains
                     UNION ALL
                     SELECT a.linked_message_id,
@@ -1996,6 +2216,15 @@ internal data class WorkOrderIngestResult(
 )
 internal data class CatalogTombstone(val entityId: Long, val operation: String)
 private data class CatalogChange(val revision: Long, val entityId: Long, val operation: String)
+private data class CanonicalCandidate(val recordId: Long, val messageId: Long, val businessType: String)
+private data class CorrectedRecordGroup(
+    val rawContent: String,
+    val sourceId: Long,
+    val messageId: Long,
+    val orderYear: Int?,
+    val orderNumber: String?,
+    val sentYear: Int,
+)
 private data class ExistingMessageSender(
     val id: Long,
     val senderUsername: String?,
@@ -2015,7 +2244,7 @@ internal data class WorkOrderFullCatalogPage(val catalogVersion: Long, val recor
 internal data class WorkOrderRecord(
     val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?,
     val declaredPeople: Int?, val rawValidTime: String?, val location: String?, val verificationMethod: String?, val reason: String?,
-    val remarks: String?, val status: String, val parseQuality: String, val catalogRevision: Long, val rawContent: String,
+    val remarks: String?, val status: String, val parseQuality: String, val orderYear: Int, val catalogRevision: Long, val rawContent: String,
     val sentAt: Instant, val sourceKey: String, val sourceName: String, val senderUsername: String?, val senderDisplay: String?,
     val senderGroupNickname: String?, val people: List<WorkOrderPerson>, val images: List<WorkOrderImage>,
     val vehicles: List<WorkOrderVehicle>,
@@ -2148,6 +2377,8 @@ internal fun resolveAttachmentCachePage(totalItems: Int, requestedPage: Int, pag
 
 internal fun isSuccessfulWechatSyncHeartbeat(status: String, backlogCount: Int, errorCode: String?): Boolean =
     status == "HEALTHY" && backlogCount == 0 && errorCode == null
+
+internal fun beijingOrderYear(sentAt: Instant): Int = sentAt.atZone(ZoneId.of("Asia/Shanghai")).year
 
 internal data class WechatSyncIssue(
     val type: String, val recordId: Long?, val imageId: Long?, val sourceName: String, val sentAt: Instant, val summary: String,

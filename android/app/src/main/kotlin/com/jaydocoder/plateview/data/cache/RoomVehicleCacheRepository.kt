@@ -111,9 +111,11 @@ class RoomVehicleCacheRepository @Inject constructor(
         CatalogSyncResult(refreshed = true, appliedRevision = remoteVersion)
     }
 
-    override suspend fun getDetail(userId: Long, vehicleId: Long): CachedVehicleDetail? = dao.getDetail(userId, vehicleId)?.let { entity ->
+    override suspend fun getDetail(userId: Long, vehicleId: Long): CachedVehicleDetail? = dao.getDetail(userId, vehicleId)
+        ?.takeIf(VehicleSnapshotCacheEntity::detailAccessible)
+        ?.let { entity ->
         CachedVehicleDetail(
-            vehicle = gson.fromJson(entity.detailJson, VehicleDetail::class.java),
+            vehicle = gson.fromJson(entity.detailJson, VehicleDetail::class.java).copy(detailAccessible = true),
             cachedAtEpochMillis = dao.getCatalogState(userId)?.updatedAtEpochMillis ?: 0L,
         )
     }
@@ -140,6 +142,7 @@ private fun VehicleSnapshotCacheEntity.toCandidate(): VehicleCandidate = Vehicle
     organizationName = organizationName,
     plateColor = plateColor,
     status = status,
+    detailAccessible = detailAccessible,
 )
 
 private fun VehicleDetail.toEntity(userId: Long, generation: Long, gson: Gson): VehicleSnapshotCacheEntity = VehicleSnapshotCacheEntity(
@@ -162,4 +165,5 @@ private fun VehicleDetail.toEntity(userId: Long, generation: Long, gson: Gson): 
         residentProfile?.remarks,
     ).joinToString(separator = " ", transform = PlateQueryNormalizer::normalize),
     detailJson = gson.toJson(this),
+    detailAccessible = detailAccessible,
 )

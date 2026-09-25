@@ -59,6 +59,21 @@ class WorkOrderCacheDatabaseTest {
     }
 
     @Test
+    fun 相同单号按来源和年份隔离且当前年份优先() = runBlocking {
+        database.dao().upsert(
+            listOf(
+                entity(1, "0924035", "2025-09-24T03:00:00Z", orderYear = 2025, sourceKey = "source-a"),
+                entity(2, "0924035", "2026-09-24T03:00:00Z", orderYear = 2026, sourceKey = "source-a"),
+                entity(3, "0924035", "2026-09-24T04:00:00Z", orderYear = 2026, sourceKey = "source-b"),
+            ),
+        )
+
+        val result = database.dao().search(7, "0924035", 20)
+
+        assertEquals(listOf(3L, 2L, 1L), result.map { it.recordId })
+    }
+
+    @Test
     fun 附件任务优先领取前台请求并隔离账号() = runBlocking {
         database.dao().upsertAttachmentTasks(
             listOf(
@@ -97,6 +112,30 @@ class WorkOrderCacheDatabaseTest {
                 assertEquals(0, cursor.getInt(3))
                 assertEquals(2000L, cursor.getLong(4))
                 assertEquals(512L, cursor.getLong(5))
+            }
+        }
+    }
+
+    @Test
+    fun 车单缓存从版本六迁移后按北京时间回填年份并保留来源() {
+        migrationHelper.createDatabase("work-order-migration-6-7", 6).apply {
+            execSQL(
+                "INSERT INTO work_order_cache(userId, recordId, orderNumber, rawPlate, status, sourceName, location, rawValidTime, sentAt, searchableText, catalogRevision, cachedAt, lastValidatedAt, detailJson) VALUES (7, 35, '1231035', '新H26927', 'ACTIVE', '测试群', '喀纳斯', '12月31日', '2025-12-31T16:30:00Z', '1231035', 8, 1, 1, '{}')",
+            )
+            close()
+        }
+
+        migrationHelper.runMigrationsAndValidate(
+            "work-order-migration-6-7",
+            7,
+            true,
+            WORK_ORDER_CACHE_MIGRATION_6_7,
+        ).use { migrated ->
+            migrated.query("SELECT orderYear, sourceKey, orderNumber FROM work_order_cache WHERE recordId = 35").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals(2026, cursor.getInt(0))
+                assertEquals("测试群", cursor.getString(1))
+                assertEquals("1231035", cursor.getString(2))
             }
         }
     }
@@ -192,7 +231,14 @@ class WorkOrderCacheDatabaseTest {
             updatedAt = 1_000,
         )
 
-    private fun entity(id: Long, orderNumber: String, sentAt: String, userId: Long = 7) = WorkOrderCacheEntity(
+    private fun entity(
+        id: Long,
+        orderNumber: String,
+        sentAt: String,
+        userId: Long = 7,
+        orderYear: Int = 2026,
+        sourceKey: String = "source-a",
+    ) = WorkOrderCacheEntity(
         userId = userId,
         recordId = id,
         orderNumber = orderNumber,
@@ -207,6 +253,8 @@ class WorkOrderCacheDatabaseTest {
         cachedAt = id,
         lastValidatedAt = id,
         detailJson = "{}",
+        orderYear = orderYear,
+        sourceKey = sourceKey,
     )
 
     private fun messageEntity(userId: Long, messageId: Long) = WechatMessageCacheEntity(

@@ -121,6 +121,15 @@ fun selectWorkOrderCandidatePlate(
     } ?: plateNumbers.first()
 }
 
+fun selectWechatMessageCandidatePlate(plateNumbers: List<String>, query: String): String? {
+    if (plateNumbers.isEmpty()) return null
+    val normalizedQuery = PlateQueryNormalizer.normalize(query)
+    if (normalizedQuery.isBlank()) return plateNumbers.first()
+    return plateNumbers.firstOrNull { plateNumber ->
+        PlateQueryNormalizer.normalize(plateNumber).contains(normalizedQuery)
+    } ?: plateNumbers.first()
+}
+
 fun selectWorkOrderDetailHeaderPlates(
     rawPlate: String?,
     rawContent: String?,

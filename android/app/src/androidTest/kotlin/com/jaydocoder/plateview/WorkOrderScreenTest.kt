@@ -144,7 +144,7 @@ class WorkOrderScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("0916024").assertIsDisplayed()
+        composeRule.onNodeWithText("0916024 · 2026年").assertIsDisplayed()
         composeRule.onNodeWithText("新H·B8V00").assertIsDisplayed()
         composeRule.onAllNodesWithText("新H·E6Q96").assertCountEquals(0)
         composeRule.onAllNodesWithText("新H·C5J11").assertCountEquals(0)
@@ -178,6 +178,27 @@ class WorkOrderScreenTest {
         composeRule.onNodeWithText("新H·E6Q96").assertIsDisplayed()
         composeRule.onAllNodesWithText("新H·B8V00").assertCountEquals(0)
         composeRule.onAllNodesWithText("新H·C5J11").assertCountEquals(0)
+    }
+
+    @Test
+    fun 多车牌聊天候选显示当前搜索实际命中的车牌() {
+        val message = sampleWechatMessage(920, "wxid-test", "值班员").copy(
+            plateNumbers = listOf("新HB8702", "新H26927", "新H00022"),
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "26927", wechatMessages = listOf(message)),
+                    onQueryChanged = {}, onCandidateSelected = {}, onWorkOrderSelected = {}, onWechatMessageSelected = {},
+                    onHistorySelected = {}, onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("新H·26927").assertIsDisplayed()
+        composeRule.onAllNodesWithText("新H·B8702").assertCountEquals(0)
+        composeRule.onAllNodesWithText("新H·00022").assertCountEquals(0)
     }
 
     @Test
@@ -633,6 +654,7 @@ class WorkOrderScreenTest {
         senderGroupNickname = "值班员",
         people = listOf(WorkOrderPerson("张卫华65432119760417201X", "张卫华", "65432119760417201X")),
         images = listOf(WorkOrderImage(91, null, "image/jpeg", 1024, true, true, "AVAILABLE")),
+        orderYear = 2026,
     )
 
     private fun sampleWechatMessage(id: Long, senderUsername: String, displayName: String) = WechatMessage(

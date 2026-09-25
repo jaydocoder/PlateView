@@ -1,5 +1,6 @@
 package com.jaydocoder.plateview.server.workorder
 
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -7,6 +8,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WorkOrderParserTest {
+    @Test
+    fun `车单年份按北京时间计算而不是按UTC年份计算`() {
+        assertEquals(2026, beijingOrderYear(Instant.parse("2025-12-31T16:30:00Z")))
+        assertEquals(2025, beijingOrderYear(Instant.parse("2025-12-31T15:59:59Z")))
+    }
+
     @Test
     fun `附件资源质量只能升级不能降级`() {
         assertTrue(shouldReplaceAttachmentQuality("UNKNOWN", "THUMBNAIL"))

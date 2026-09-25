@@ -29,6 +29,7 @@ data class WorkOrder(
     val people: List<WorkOrderPerson>,
     val images: List<WorkOrderImage>,
     val vehicles: List<WorkOrderVehicle> = emptyList(),
+    val orderYear: Int = 0,
     val displayName: String? = null,
 )
 

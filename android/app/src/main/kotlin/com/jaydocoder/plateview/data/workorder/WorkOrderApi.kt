@@ -127,7 +127,7 @@ data class WorkOrderFullCatalogDto(val catalogVersion: Long, val records: List<W
 data class WechatMessageFullCatalogDto(val catalogVersion: Long, val records: List<WechatMessageDto>, val nextAfterId: Long?, val hasMore: Boolean)
 data class WorkOrderHistoryDto(val records: List<WorkOrderDto>)
 data class WorkOrderDto(
-    val id: Long, val orderNumber: String?, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?,
+    val id: Long, val orderNumber: String?, val orderYear: Int, val rawPlate: String?, val normalizedPlate: String?, val vehicleType: String?,
     val declaredPeople: Int?, val rawValidTime: String?, val location: String?, val verificationMethod: String?, val reason: String?,
     val remarks: String?, val status: String, val parseQuality: String, val catalogRevision: Long, val rawContent: String,
     val sentAt: String, val sourceKey: String, val sourceName: String, val senderUsername: String?, val senderDisplay: String?,
