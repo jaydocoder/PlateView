@@ -141,3 +141,41 @@ data class WechatPassageSenderDto(val senderUsername: String, val originalDispla
 data class WechatPassageSenderRequestDto(val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
 data class WorkOrderCorrectionRequestDto(val orderNumber: String?, val rawPlate: String?, val status: String)
 data class WorkOrderImageAssociationRequestDto(val recordId: Long)
+
+data class WechatRebuildRunDto(
+    val runId: String,
+    val actorId: Long,
+    val status: String,
+    val createdAt: String,
+    val lockedAt: String? = null,
+    val expiresAt: String,
+    val completedAt: String? = null,
+    val backupPath: String? = null,
+    val backupSha256: String? = null,
+    val previewReport: Map<String, Long> = emptyMap(),
+    val deletedCounts: Map<String, Long> = emptyMap(),
+    val fileReport: WechatRebuildFileReportDto = WechatRebuildFileReportDto(),
+    val lastError: String? = null,
+)
+
+data class WechatRebuildFileReportDto(
+    val paths: List<String> = emptyList(),
+    val listed: Long = 0,
+    val deleted: Long = 0,
+    val missing: Long = 0,
+    val rejected: Long = 0,
+)
+
+data class WechatBackupDto(
+    val id: String,
+    val createdAt: String,
+    val sizeBytes: Long,
+    val sha256: String,
+    val verified: Boolean,
+)
+
+data class WechatBackupRestoreDto(
+    val backupId: String,
+    val accepted: Boolean,
+    val message: String,
+)

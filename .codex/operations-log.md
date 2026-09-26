@@ -1119,3 +1119,101 @@
 - 发现一个到达顺序缺口：附件先于微信消息上传时，原逻辑只在附件上传时反向找消息，消息后来入库不会再找待关联附件。
 - 已在`WorkOrderService.ingest`增加事务内反向关联：消息入库后按来源、发送者和前后120秒查找唯一待关联附件，同时设置车单记录归属和聊天消息归属；详细车单成为主记录后继续由既有归并逻辑切换到详细车单并保留简短消息附件引用。
 - 附件不复制文件，仍复用`linked_record_id`和`linked_message_id`；多个候选时保持未关联，避免错误跨单号绑定。
+
+## 编码前检查 - 微信聊天数据安全全量重建
+
+时间：2026-09-26
+
+- 已查阅上下文摘要：`.codex/context-summary-wechat-rebuild.md`。
+- 复用 `WorkOrderService`、`CatalogStateService`、`WorkOrderCacheDao.clear` 和既有管理员审计边界。
+- 维护锁接入所有 `/internal/wechat/*` 写入入口；目录重建代次复用 `/auth/profile` 和 `/client/catalog-state`。
+- 清理事务只删除微信业务数据，不在事务中删除磁盘文件。
+
+## 编码后声明 - 微信聊天数据安全全量重建
+
+时间：2026-09-26
+
+- 服务端新增 V50 重建批次、预览、维护锁、受控清理、清理校验和解锁接口。
+- Android 在账号级 DataStore 记录重建代次，代次变化时复用既有 Room 清理和全量同步流程。
+- 本地服务端测试、Docker 镜像构建、V50 本地迁移和健康检查均通过。
+
+## 2026-09-26 恢复反馈与旧约束兼容修复
+
+- 恢复按钮成功路径已设置成功反馈；失败路径传入 `WECHAT_REBUILD` 策略动作，由统一异常处理生成失败弹窗。
+- 旧备份恢复后重新创建包含 `CLEANING` 的微信重构状态约束和活动批次索引，并结束备份遗留的活动批次。
+- 服务端测试、Android 编译、Docker API 重建和真实恢复流程均在本地通过；Debug APK 已安装到设备 `83bdbca2`。
+
+## 2026-09-26 恢复会话失效与结构覆盖修复
+
+- 截图中的“操作未完成”来自恢复成功后的二次刷新请求；旧备份覆盖会话表后，旧令牌返回 401，客户端随即退出登录并覆盖成功反馈。
+- 恢复脚本改为从 PostgreSQL 目录清单排除 `users`、`refresh_sessions`、`audit_logs` 以及依赖运行态账号的更新时间函数，保留当前账号、会话和审计记录。
+- 本地验证期间发现旧版本完整恢复还会删除新版本表，导致登录接口因缺少 `schedule_participants` 返回 500；已使用恢复前紧急备份修复本地数据库，并确认相关表恢复。
+- 当前恢复后使用同一个访问令牌请求 `/auth/profile` 返回 200，未再主动退出登录。
+- Android Debug APK 已重新构建并安装到设备 `83bdbca2`。
+
+## 2026-09-26 开始重构反馈弹窗修复
+
+- 根因：`confirmWechatRebuild()` 未传入 `PolicySavingAction.WECHAT_REBUILD`，成功只更新批次状态，失败只更新页面错误区。
+- 修复：开始重构成功后弹出“微信数据重构已开始”；异常由统一管理员操作处理器弹出失败反馈。
+- 服务端测试、Android Debug 构建和真机安装均通过。
+
+## 2026-09-26 0.3.33 玻璃拟态 UI 重构实施记录
+
+- 完成上下文检索：现有玻璃组件、主题令牌、首页搜索、统计页、管理台、导航和 `satelite-one` 参考组件均已分析并记录。
+- `PlateViewTokens.kt` 增加静态玻璃渐变、语义颜色、Dock 高度、Hero 间距和内容宽度令牌。
+- `LiquidGlass.kt` 增加静态渐变玻璃、高光色和 `GlassStatusPill`、`GlassMetricCard`、`GlassBottomDock`；不引入实时背景模糊。
+- 首页搜索增加同步确认状态 Hero，继续复用现有车牌、单号、微信车单和微信聊天查询逻辑。
+- 统计页增加查询量、去重车辆和活跃账号遥测卡。
+- 底部导航切换到统一 `GlassBottomDock` 命名，详情页隐藏逻辑保持不变。
+- 由于并行 Gradle 任务触发 Kotlin 增量缓存锁，已停止守护进程并串行清理后重新验证，未保留缓存异常影响。
+- Android 单元测试、服务端测试、Debug 构建和设备 `83bdbca2` 安装均通过。
+
+## 编码前检查 - 0.3.33 玻璃拟态 UI 重构
+
+时间：2026-09-26
+
+- 已查阅上下文摘要：`.codex/context-summary-ui-0333.md`。
+- 将复用 `GlassSurface`、`LiquidGlassInput`、`GlassPill`、`GlassNavigationBar` 和现有主题令牌。
+- 将遵循 Kotlin/Compose 现有组件目录和回调式 UI 事件模式。
+- 已确认不重复创建网络层或业务规则；本次只替换视觉层和布局层。
+- 已阅读 `SearchScreen.kt`、`LiquidGlass.kt`、`AuthenticatedNavigation.kt`、`PlateViewTheme.kt` 以及参考项目对应玻璃组件。
+
+## 继续修复与备份恢复 - 2026-09-26
+
+- 根因确认：本地数据库仍使用旧的 `ck_wechat_rebuild_status`，清理流程写入 `CLEANING` 时触发约束错误。
+- 新增 V52 迁移，删除并重建状态约束，明确包含 `CLEANING`。
+- 新增最近三个备份列表接口和受控恢复接口；接口只返回文件名、时间、大小和 SHA-256，不返回服务器绝对路径。
+- 新增宿主机恢复脚本，恢复前校验 SHA-256、归档目录并创建恢复前紧急备份。
+- 未执行任何生产数据库恢复或删除操作；本次仅重建本地 Docker API、应用迁移并验证本地接口。
+## 预览重构响应解析修复
+
+时间：2026-09-26
+
+- 已通过本地接口确认预览请求返回 HTTP 200。
+- 根因：服务端 `fileReport.paths` 是 JSON 数组，Android DTO 错误声明为 `Map<String, Long>`，Gson 解析失败。
+- 修复：新增 `WechatRebuildFileReportDto` 与领域模型，按 `paths/listed/deleted/missing/rejected` 映射。
+- 验证：Android `:app:compileDebugKotlin`、`:app:assembleDebug` 均通过，Debug APK 已安装到设备 `83bdbca2`。
+
+## 数据库备份恢复修复
+
+时间：2026-09-26
+
+- 截图报错确认是 `PLATEVIEW_RESTORE_SCRIPT` 未配置，不是备份校验失败。
+- 本地 API 改为通过共享运行目录向 PostgreSQL 恢复执行器提交请求。
+- 修复 `pg_restore` 缺少 `--dbname` 参数的问题。
+- 使用现有本地备份完成真实恢复，接口返回 200，恢复前紧急备份已生成。
+
+## 微信重构验证误报修复
+
+时间：2026-09-26
+
+- 检查本地表计数，确认数据为恢复/重构后的新同步数据。
+- 定位 `verify` 使用“所有表必须为零”的错误判断。
+- 修改为依赖清理阶段状态判断，允许清理后正常新数据进入验证。
+- 服务端测试和本地 API 镜像部署均通过。
+- 为兼容旧失败批次，仅允许错误原因为“微信业务表仍有残留数据”的批次重新验证；其他失败原因仍保持禁止验证。
+## 玻璃拟态 UI 回退
+
+时间：2026-09-26
+
+按用户要求回退 `0.3.33` 玻璃拟态视觉重构。已恢复原有玻璃表面、首页、统计页和底部导航实现；保留微信重构、备份恢复、采集器和服务端业务改动。

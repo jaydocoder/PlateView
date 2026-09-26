@@ -18,7 +18,8 @@ services:
 
   api:
     build:
-      context: ./server
+      context: .
+      dockerfile: server/Dockerfile
     environment:
       PORT: ${API_PORT:-8080}
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-plateview}
@@ -34,10 +35,35 @@ services:
       SENTRY_RELEASE: ${SENTRY_RELEASE:-plateview-server@local}
       WECHAT_COLLECTOR_TOKEN: ${WECHAT_COLLECTOR_TOKEN:-}
       WORK_ORDER_IMAGE_DIR: /opt/plateview/work-order-images
+      PLATEVIEW_BACKUP_DIR: /opt/plateview/backups
+      PLATEVIEW_RESTORE_SCRIPT: /opt/plateview/bin/plateview-restore-backup.sh
+      PLATEVIEW_RESTORE_RUNTIME_DIR: /opt/plateview/restore-runtime
+      WECHAT_REBUILD_AUTO_BACKUP: ${WECHAT_REBUILD_AUTO_BACKUP:-true}
     volumes:
       - ./data/work-order-images:/opt/plateview/work-order-images
+      - ./data/backups:/opt/plateview/backups
+      - ./data/restore-runtime:/opt/plateview/restore-runtime
     ports:
       - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  restore-runner:
+    image: postgres:17-alpine
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_NAME: ${POSTGRES_DB:-plateview}
+      DATABASE_USERNAME: ${POSTGRES_USER:-plateview}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请在.env中设置数据库密码}
+      PLATEVIEW_BACKUP_DIR: /opt/plateview/backups
+      PLATEVIEW_RESTORE_RUNTIME_DIR: /opt/plateview/restore-runtime
+    volumes:
+      - ./data/backups:/opt/plateview/backups
+      - ./data/restore-runtime:/opt/plateview/restore-runtime
+      - ./deploy/plateview-restore-runner.sh:/opt/plateview/bin/runner.sh:ro
+      - ./deploy/plateview-restore-backup-container.sh:/opt/plateview/bin/plateview-restore-backup.sh:ro
+    entrypoint: ["/bin/sh", "/opt/plateview/bin/runner.sh"]
     depends_on:
       postgres:
         condition: service_healthy

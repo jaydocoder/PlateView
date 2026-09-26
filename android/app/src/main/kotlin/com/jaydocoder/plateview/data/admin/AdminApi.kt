@@ -62,6 +62,23 @@ interface AdminApi {
         @Path("userId") userId: Long,
     ): CacheResetStatusDto
 
+    @POST("admin/wechat-sync/rebuild/preview")
+    suspend fun previewWechatRebuild(@Header("Authorization") authorization: String): WechatRebuildRunDto
+    @POST("admin/wechat-sync/rebuild/{runId}/backup-verify")
+    suspend fun verifyWechatRebuildBackup(@Header("Authorization") authorization: String, @Path("runId") runId: String, @Query("path") path: String, @Query("sha256") sha256: String? = null): WechatRebuildRunDto
+    @POST("admin/wechat-sync/rebuild/{runId}/clean")
+    suspend fun cleanWechatRebuild(@Header("Authorization") authorization: String, @Path("runId") runId: String, @Query("confirmation") confirmation: String): WechatRebuildRunDto
+    @POST("admin/wechat-sync/rebuild/{runId}/verify")
+    suspend fun verifyWechatRebuild(@Header("Authorization") authorization: String, @Path("runId") runId: String): WechatRebuildRunDto
+    @POST("admin/wechat-sync/rebuild/{runId}/unlock")
+    suspend fun unlockWechatRebuild(@Header("Authorization") authorization: String, @Path("runId") runId: String, @Query("success") success: Boolean): WechatRebuildRunDto
+    @GET("admin/wechat-sync/rebuild/current")
+    suspend fun currentWechatRebuild(@Header("Authorization") authorization: String): WechatRebuildRunDto?
+    @GET("admin/wechat-sync/backups")
+    suspend fun listWechatBackups(@Header("Authorization") authorization: String): List<WechatBackupDto>
+    @POST("admin/wechat-sync/backups/{backupId}/restore")
+    suspend fun restoreWechatBackup(@Header("Authorization") authorization: String, @Path("backupId") backupId: String): WechatBackupRestoreDto
+
     @GET("admin/vehicles/creation-capabilities")
     suspend fun getVehicleCreationCapabilities(
         @Header("Authorization") authorization: String,

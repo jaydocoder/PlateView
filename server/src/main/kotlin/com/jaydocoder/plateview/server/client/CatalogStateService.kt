@@ -87,7 +87,7 @@ internal class CatalogStateService(
     private fun loadSnapshot(loadedAtMillis: Long): CatalogRevisionSnapshot = dataSource.connection.use { connection ->
         connection.prepareStatement(
             """
-            SELECT vehicle_revision, work_order_revision, wechat_message_revision, attachment_manifest_revision
+            SELECT vehicle_revision, work_order_revision, wechat_message_revision, attachment_manifest_revision, rebuild_generation
             FROM client_catalog_state WHERE id = 1
             """.trimIndent(),
         ).use { statement ->
@@ -98,6 +98,7 @@ internal class CatalogStateService(
                     workOrderRevision = result.getLong(2),
                     wechatMessageRevision = result.getLong(3),
                     attachmentManifestRevision = result.getLong(4),
+                    rebuildGeneration = result.getLong(5),
                     loadedAtMillis = loadedAtMillis,
                 )
             }
@@ -137,6 +138,7 @@ data class CatalogStateResponse(
     val workOrderRevision: Long,
     val wechatMessageRevision: Long,
     val attachmentManifestRevision: Long,
+    val rebuildGeneration: Long = 0,
     val policyRevision: Long,
     val serverTime: String,
 )
@@ -155,6 +157,7 @@ internal data class CatalogRevisionSnapshot(
     val workOrderRevision: Long,
     val wechatMessageRevision: Long,
     val attachmentManifestRevision: Long,
+    val rebuildGeneration: Long = 0,
     val loadedAtMillis: Long,
 )
 
@@ -174,6 +177,7 @@ internal fun CatalogRevisionSnapshot.visibleTo(
                 (if (workOrderAllowed) 2L else 0L) +
                 (if (messageAllowed) 1L else 0L)
         },
+        rebuildGeneration = rebuildGeneration,
         policyRevision = visibility.policyRevision,
         serverTime = serverTime.toString(),
     )

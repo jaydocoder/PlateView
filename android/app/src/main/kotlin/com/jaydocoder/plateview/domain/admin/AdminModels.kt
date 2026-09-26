@@ -243,6 +243,10 @@ data class WechatAttachmentCandidate(val recordId: Long, val orderNumber: String
 data class CachedAdminAttachment(val file: File, val variant: String)
 data class WechatWorkOrderSearchItem(val recordId: Long, val orderNumber: String?, val sentAt: String, val summary: String)
 data class WechatPassageSender(val senderUsername: String, val originalDisplayName: String?, val displayAlias: String, val enabled: Boolean)
+data class WechatRebuildRun(val runId: String, val actorId: Long, val status: String, val createdAt: String, val lockedAt: String?, val expiresAt: String, val completedAt: String?, val backupPath: String?, val backupSha256: String?, val previewReport: Map<String, Long>, val deletedCounts: Map<String, Long>, val fileReport: WechatRebuildFileReport, val lastError: String?)
+data class WechatRebuildFileReport(val paths: List<String>, val listed: Long, val deleted: Long, val missing: Long, val rejected: Long)
+data class WechatBackup(val id: String, val createdAt: String, val sizeBytes: Long, val sha256: String, val verified: Boolean)
+data class WechatBackupRestore(val backupId: String, val accepted: Boolean, val message: String)
 
 data class WorkOrderCorrectionCommand(
     val orderNumber: String?,

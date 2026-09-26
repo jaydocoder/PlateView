@@ -217,6 +217,7 @@ class AdminWorkspaceViewModel @Inject constructor(
                 AdminTab.DataAccess -> {
                     requirePrimaryAdministrator()
                     loadClientPolicy(accessToken)
+                    _uiState.update { it.copy(wechatBackups = repository.listWechatBackups(accessToken)) }
                 }
             }
             _uiState.update { it.copy(isLoading = false) }
@@ -331,6 +332,88 @@ class AdminWorkspaceViewModel @Inject constructor(
                 isSaving = false,
                 pendingCacheResetUser = null,
                 cacheResetStatuses = it.cacheResetStatuses + (user.id to status),
+            )
+        }
+    }
+
+    fun previewWechatRebuild() = launchAdminAction("预览微信重构范围") { accessToken ->
+        requirePrimaryAdministrator()
+        _uiState.update { it.copy(isSaving = true) }
+        val run = repository.previewWechatRebuild(accessToken)
+        _uiState.update { it.copy(isSaving = false, failure = null, wechatRebuild = run) }
+    }
+
+    fun requestWechatRebuild() = _uiState.update { it.copy(pendingWechatRebuild = true) }
+    fun dismissWechatRebuild() = _uiState.update { it.copy(pendingWechatRebuild = false) }
+    fun confirmWechatRebuild() = launchAdminAction(
+        operation = "清理微信同步数据",
+        policyAction = PolicySavingAction.WECHAT_REBUILD,
+    ) { accessToken ->
+        requirePrimaryAdministrator()
+        val run = requireNotNull(_uiState.value.wechatRebuild)
+        _uiState.update { it.copy(isSaving = true, pendingWechatRebuild = false) }
+        val locked = if (run.status == "LOCKED" && !run.backupSha256.isNullOrBlank()) {
+            run
+        } else {
+            repository.verifyWechatRebuildBackup(accessToken, run.runId, null, run.backupSha256)
+        }
+        val cleaned = repository.cleanWechatRebuild(accessToken, locked.runId)
+        _uiState.update {
+            it.copy(
+                isSaving = false,
+                failure = null,
+                wechatRebuild = cleaned,
+                policySaveFeedback = PolicySaveFeedback(
+                    title = "微信数据重构已开始",
+                    message = "服务器已完成备份校验并进入数据清理/重建阶段，当前状态：${cleaned.status}。",
+                    success = true,
+                ),
+            )
+        }
+    }
+    fun verifyWechatRebuild() = launchAdminAction("验证微信重构结果") { accessToken ->
+        val run = requireNotNull(_uiState.value.wechatRebuild)
+        val verified = repository.verifyWechatRebuild(accessToken, run.runId)
+        if (verified.status == "VERIFYING") {
+            val completed = repository.unlockWechatRebuild(accessToken, verified.runId, true)
+            _uiState.update {
+                it.copy(
+                    failure = null,
+                    wechatRebuild = completed,
+                    policySaveFeedback = PolicySaveFeedback(
+                        title = "微信数据重构已完成",
+                        message = "服务器清理结果已验证，重构批次已自动完成，采集器可以继续同步最新微信数据。",
+                        success = true,
+                    ),
+                )
+            }
+        } else {
+            _uiState.update { it.copy(failure = null, wechatRebuild = verified) }
+        }
+    }
+    fun unlockWechatRebuild(success: Boolean) = launchAdminAction("结束微信重构") { accessToken ->
+        val run = requireNotNull(_uiState.value.wechatRebuild)
+        _uiState.update { it.copy(failure = null, wechatRebuild = repository.unlockWechatRebuild(accessToken, run.runId, success)) }
+    }
+
+    fun requestWechatBackupRestore(backup: com.jaydocoder.plateview.domain.admin.WechatBackup) =
+        _uiState.update { it.copy(pendingWechatBackupRestore = backup) }
+
+    fun dismissWechatBackupRestore() = _uiState.update { it.copy(pendingWechatBackupRestore = null) }
+
+    fun confirmWechatBackupRestore() = launchAdminAction(
+        operation = "恢复微信数据库备份",
+        policyAction = PolicySavingAction.WECHAT_REBUILD,
+    ) { accessToken ->
+        requirePrimaryAdministrator()
+        val backup = requireNotNull(_uiState.value.pendingWechatBackupRestore)
+        _uiState.update { it.copy(isSaving = true, pendingWechatBackupRestore = null) }
+        val result = repository.restoreWechatBackup(accessToken, backup.id)
+        _uiState.update {
+            it.copy(
+                isSaving = false,
+                failure = null,
+                policySaveFeedback = PolicySaveFeedback("微信数据库恢复成功", result.message, success = true),
             )
         }
     }

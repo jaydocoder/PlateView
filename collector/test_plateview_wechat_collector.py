@@ -31,6 +31,29 @@ class CollectorTest(unittest.TestCase):
 
             self.assertNotIn("message_timestamp", collector.state["群"])
 
+    def test_rebuild_generation_clears_upload_cursors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            collector = self.create_collector(directory)
+            collector.state = {"rebuild_generation": 1, "群": {
+                "message_timestamp": 100, "message_id": "m", "image_timestamp": 100,
+                "image_id": "i", "file_timestamp": 100, "file_id": "f",
+                "image_retry_items": [{"attachment_id": "a"}], "file_retry_items": [{"attachment_id": "p"}],
+            }}
+            collector._request_json = mock.Mock(return_value={"rebuildGeneration": 2, "rebuildState": None})
+            collector._refresh_rebuild_state(collector.state["群"])
+            self.assertNotIn("message_timestamp", collector.state["群"])
+            self.assertNotIn("image_retry_items", collector.state["群"])
+            self.assertEqual(2, collector.state["rebuild_generation"])
+
+    def test_restore_with_lower_generation_also_clears_upload_cursors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            collector = self.create_collector(directory)
+            collector.state = {"rebuild_generation": 12, "群": {"message_timestamp": 100, "message_id": "m"}}
+            collector._request_json = mock.Mock(return_value={"rebuildGeneration": 3, "rebuildState": None})
+            collector._refresh_rebuild_state(collector.state["群"])
+            self.assertNotIn("message_timestamp", collector.state["群"])
+            self.assertEqual(3, collector.state["rebuild_generation"])
+
     def test_successful_upload_advances_cursor_after_server_confirmation(self):
         with tempfile.TemporaryDirectory() as directory:
             collector = self.create_collector(directory)

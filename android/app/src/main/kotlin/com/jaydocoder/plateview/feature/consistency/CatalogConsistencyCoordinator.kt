@@ -41,6 +41,7 @@ data class ClientCatalogState(
     val attachmentManifestRevision: Long,
     val policyRevision: Long,
     val serverTime: String,
+    val rebuildGeneration: Long = 0,
 )
 
 enum class CatalogKind { VEHICLE, WORK_ORDER, WECHAT_MESSAGE, ATTACHMENT }
@@ -165,6 +166,12 @@ class CatalogConsistencyCoordinator @Inject constructor(
         if (previousPolicyRevision != remote.policyRevision) {
             resetForPolicyChange(session.userId, local)
             persistPolicyRevision(session.userId, remote.policyRevision)
+            local = load(session.userId)
+        }
+        val previousRebuildGeneration = loadRebuildGeneration(session.userId)
+        if (previousRebuildGeneration != remote.rebuildGeneration) {
+            resetForPolicyChange(session.userId, local)
+            persistRebuildGeneration(session.userId, remote.rebuildGeneration)
             local = load(session.userId)
         }
         val targets = catalogTargetsForAccount(
@@ -414,6 +421,16 @@ class CatalogConsistencyCoordinator @Inject constructor(
     private suspend fun persistPolicyRevision(userId: Long, revision: Long) {
         context.catalogConsistencyDataStore.edit { preferences ->
             preferences[longPreferencesKey("$userId.policyRevision")] = revision
+        }
+    }
+
+    private suspend fun loadRebuildGeneration(userId: Long): Long = context.catalogConsistencyDataStore.data.first()[
+        longPreferencesKey("$userId.rebuildGeneration")
+    ] ?: 0L
+
+    private suspend fun persistRebuildGeneration(userId: Long, generation: Long) {
+        context.catalogConsistencyDataStore.edit { preferences ->
+            preferences[longPreferencesKey("$userId.rebuildGeneration")] = generation
         }
     }
 

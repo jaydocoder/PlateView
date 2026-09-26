@@ -97,6 +97,96 @@
 - 综合评分：94/100
 - 结论：通过。
 
+## 本次一键重构功能验证
+
+时间：2026-09-26
+
+- 服务端 `./gradlew --no-daemon test`：通过。
+- Android `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
+- V50 已包含 `BACKUP_VERIFYING`、`CLEANING` 状态，清理接口要求备份校验成功。
+- 管理工作台数据访问控制页已增加预览、备份路径确认、清理、验证和完成入口，仅主管理员可见。
+- 未连接生产数据库，未执行生产删除、生产备份或生产附件清理。
+
+### 尚未完成与风险
+
+- 服务端当前验证备份文件存在及 SHA-256，临时数据库恢复校验仍需受控运维环境执行。
+- 数据库清理后的服务器附件物理文件清理任务尚未接入，`clean` 当前只清理数据库记录。
+- 采集器尚未自动识别维护错误并从最早记录重置游标，需按运维流程重置后全量上传。
+- 本次综合评分：82/100，结论：需补充后再执行生产重构，禁止直接点击生产清理。
+
+## 备份流程与保留策略修正
+
+时间：2026-09-26
+
+- 预览按钮现在只统计待清理范围，不再要求管理员输入服务器文件路径。
+- 确认重构后由服务端自动选择 `WECHAT_REBUILD_BACKUP_PATH`、`PLATEVIEW_BACKUP_DIR` 中最新备份，并在校验成功后才允许清理。
+- 管理台提示改为普通说明，不再在预览状态显示误导性的红色“必须先备份”错误。
+- `deploy/plateview-database-backup.sh` 增加每日、每周、每月分层保留、最小剩余空间阈值、归档校验和并发锁。
+- 默认保留：每日14天、每周8周、每月12个月；低于10GB剩余空间时停止新备份。
+- 本地 Docker 后端重新构建并健康检查通过；最新 Debug APK 已安装到 RMX3461。
+- 管理台不再要求管理员填写服务器文件路径，服务端自动选择备份目录中最新的已生成备份；备份脚本按磁盘使用率达到85%时停止。
+
+## 三项补充实现验证
+
+时间：2026-09-26
+
+- 新增 `deploy/plateview-verify-backup.sh`：校验备份清单、恢复到临时 PostgreSQL 数据库并检查关键表数量，验证失败会以非零状态退出。
+- 重构清理事务现在先保存附件路径清单，提交后按 `WORK_ORDER_IMAGE_DIR` 规范化路径删除原图、预览图和缩略图；越界、失败和缺失文件进入报告，失败路径可重试。
+- 新增 `/internal/wechat/rebuild-status`，采集器读取服务端重建代次；代次变化会清除消息、图片、PDF游标及失败重试队列。
+- 采集器识别 `WECHAT_REBUILD_IN_PROGRESS` 后暂停上传且不推进游标，重构结束后下一轮从最早记录继续。
+- `python3 -m unittest collector/test_plateview_wechat_collector.py`：14 项通过。
+- `server/./gradlew --no-daemon test`：通过。
+- `git diff --check`：通过。
+
+## 2026-09-26 微信重构验证误报修复
+
+### 异常原因
+
+清理事务完成后，采集器会立即重新上传新微信数据。原验证逻辑要求所有微信业务表必须为零，因此把正常的新数据误判为“微信业务表仍有残留数据”。
+
+### 修复结果
+
+- 验证接口仅接受已经进入 `REBUILDING/VERIFYING` 的批次，保证清理事务已执行。
+- 不再要求重构后的业务表为空；清理事务本身负责删除旧数据，后续写入均视为新同步数据。
+- 验证成功自动进入 `VERIFYING`，客户端再自动完成批次。
+
+### 验证
+
+- 服务端 `./gradlew --no-daemon test`：通过。
+- API 镜像重新构建并部署成功。
+- 本地数据库当前存在重新同步数据时不会再被空表规则误报。
+- 对旧版本已经标记为“微信业务表仍有残留数据”的失败批次开放重新验证，避免必须重新清理数据。
+- Android Debug APK 已重新构建并安装到设备 `83bdbca2`。
+
+### 限制
+
+- 备份恢复脚本需要生产主机已有 Docker、PostgreSQL 容器和可用的 `.env`，本地未连接生产执行。
+- 采集器全量同步仍需由管理员结束维护批次后运行，代码不会擅自删除本地微信原始数据库。
+
+## 微信聊天数据安全全量重建实现验证
+
+时间：2026-09-26
+
+- 新增 V50 迁移：重建批次表、活动重建唯一约束、客户端 `rebuild_generation`。
+- 新增主管理员接口：预览、加锁、清理、清理校验、解锁和当前批次查询。
+- `/internal/wechat/messages/batch`、`sync/reconcile`、`heartbeat`、`images`、`attachments` 均在维护锁期间拒绝写入。
+- 服务端 `./gradlew --no-daemon test`：通过。
+- 服务端 `./gradlew --no-daemon installDist`：通过。
+- Android `:app:testDebugUnitTest :app:assembleDebug`：通过。
+- 本地 Docker API 镜像构建并启动：通过。
+- 本地 `/health`：返回 `200 {"status":"ok"}`。
+- 本地 PostgreSQL 已应用 Flyway V50，重建表和目录代次字段存在。
+
+### 未执行项
+
+- 未连接生产数据库，未执行生产备份、清理或全量上传。
+- 附件磁盘文件清理仍需由受控运维脚本在数据库事务提交后执行；当前服务端清理接口不会直接删除磁盘文件。
+- 备份恢复验证需要在生产服务器或隔离 PostgreSQL 实例执行，不能用本地业务数据库替代。
+
+### 风险结论
+
+- 方案已具备生产清理的服务端状态和写入封锁能力，但正式执行前必须完成生产备份恢复验证、附件文件清理脚本和小批量上传验收。
+
 ## 本地部署与真机安装记录
 
 时间：2026-09-26
@@ -587,3 +677,234 @@
 - 测试覆盖：91/100
 - 综合评分：94/100
 - 结论：通过。
+## V52 状态约束修复与备份恢复功能
+
+验证时间：2026-09-26
+
+### 已完成
+
+- 新增 `V52__fix_wechat_rebuild_status_constraint.sql`，本地数据库已确认迁移版本 50、51、52 均已应用。
+- 本地约束查询确认包含 `CLEANING`，原清理时报错不再由该约束触发。
+- 新增 `GET /admin/wechat-sync/backups`，仅返回最近三个 `.dump` 备份及校验信息。
+- 新增 `POST /admin/wechat-sync/backups/{backupId}/restore`，限制最近三个备份、归档校验和显式恢复脚本配置。
+- 新增 `deploy/plateview-restore-backup.sh`，恢复前生成紧急备份并验证 SHA-256。
+- 管理台数据访问控制新增最近三个备份展示、校验状态和二次确认恢复入口。
+
+### 本地验证
+
+- `cd server && ./gradlew --no-daemon test`：通过。
+- `cd android && ./gradlew --no-daemon :app:assembleDebug`：通过。
+- Docker API 镜像重建：通过。
+- Docker 服务启动及 `/health`：通过，返回 `{"status":"ok"}`。
+- 本地 PostgreSQL：V52 已应用，状态约束包含 `CLEANING`。
+- 管理员备份列表接口：通过，返回本地备份及 SHA-256、`verified=true`。
+- Debug APK 已安装到本地连接设备 `83bdbca2`。
+- `git diff --check`：通过。
+
+### 约束与风险
+
+- 未执行生产数据库清理、恢复或删除操作。
+- 恢复接口要求部署环境设置 `PLATEVIEW_RESTORE_SCRIPT`；未配置时会拒绝恢复，避免在 API 请求线程直接执行数据库覆盖。
+- 恢复脚本必须在具备 PostgreSQL 客户端和数据库容器访问权限的受控宿主机运行。
+
+### 评分
+
+- 代码质量：94/100
+- 测试覆盖：91/100
+- 需求匹配：95/100
+- 风险控制：96/100
+- 综合评分：94/100
+- 结论：通过（仅本地验证，生产恢复需按运维窗口执行）。
+
+补充：恢复请求在执行脚本前会创建 `LOCKED` 重构批次，脚本成功后标记完成，失败则保留失败批次，避免恢复期间采集器并发写入。补充改动后的服务端测试、Android 构建、Docker 重建、健康检查和真机 Debug APK 安装均再次通过。
+
+### 本次截图报错修复
+
+- 根因：已过期的 `LOCKED` 批次仍被唯一索引保留，新的备份验证插入活动批次时触发 `uq_wechat_rebuild_active` 冲突。
+- 修复：创建预览或恢复任务前自动将过期活动批次标记为 `FAILED` 并记录释放原因。
+- 本地验证：原过期批次已自动变为 `FAILED`；再次调用预览接口返回 200 并创建新 `PREVIEW` 批次。
+
+### 连续重构验证补充
+
+- 发现并修复同步清理外键顺序错误：先清理 `wechat_sync_watermarks`，再清理 `wechat_sync_batches` 和同步运行记录。
+- 发现并修复批量删除触发器冲突：清理事务中暂时禁用微信车单和消息用户触发器，事务完成前恢复。
+- 发现并修复附件相对路径误判：相对附件路径先拼接附件根目录，再执行规范化和越界校验。
+- 本地重新执行当前备份验证批次：数据库清理成功，消息和车单计数为 0；附件 1381 个全部清理，越界 0，缺失 0；空库验证返回 `VERIFYING`，无 500。
+
+### 重复点击幂等修复
+
+- 根因：批次已进入 `VERIFYING` 后，客户端仍可能保留旧的 `LOCKED` 状态，重复点击“开始重构”再次调用清理接口，服务端返回“必须先完成备份验证”。
+- 修复：`REBUILDING`、`VERIFYING`、`COMPLETED` 状态的重复清理请求直接返回当前批次；路由不会再次执行附件清理。
+- 本地验证：对已验证批次重复调用清理接口返回 `VERIFYING`，不再返回 400；服务端测试和差异检查通过。
+
+### 管理台旧错误提示修复
+
+- 日志确认截图对应的后端清理请求实际返回 200，红色提示是客户端保留了上一次失败状态。
+- 预览、备份验证、清理、验证、完成和备份恢复成功后统一清除旧的 `failure` 状态。
+- Android Debug APK 构建成功并已安装到测试设备；后端健康检查正常。
+
+### 备份恢复阻塞提示修复
+
+- 截图报错原因：服务器存在活动的微信重构批次，恢复备份会覆盖正在重构的数据，因此接口按设计拒绝恢复。
+- 管理台原先没有给 `REBUILDING` 状态提供取消入口，用户只能看到错误提示。
+- 已新增“取消重构”按钮，允许主管理员显式结束 `LOCKED`、`REBUILDING`、`VERIFYING` 或 `FAILED` 批次；取消后即可重新发起备份恢复。
+- Android Debug APK 构建并安装成功，`git diff --check` 通过。
+
+### 恢复后采集器行为补充
+
+- 恢复脚本在数据库恢复完成后递增 `rebuild_generation`，并将备份中遗留的活动重构批次标记为完成。
+- 采集器现在对代次“不一致”即触发游标、附件重试队列和同步运行号清理，不再只处理服务端代次更高的情况。
+- 因此恢复旧备份后，采集器会暂停维护窗口，恢复完成后从本地微信最早记录重新分页上传；之后产生的新微信记录也会继续按普通增量同步。
+- 新增“服务端代次低于本地代次”测试，采集器测试共 15 项全部通过。
+## 2026-09-26 预览重构格式异常修复
+
+### 根因
+
+预览接口实际返回 `fileReport.paths` 数组和文件计数数字字段；客户端此前把整个 `fileReport` 声明为 `Map<String, Long>`，数组字段触发 Gson `JsonSyntaxException`，界面因此显示“服务器返回的数据格式异常”。
+
+### 修复内容
+
+- Android 新增专用文件报告 DTO 和领域模型。
+- 支持路径列表及 `listed/deleted/missing/rejected` 计数。
+- 不改变服务端接口和重构业务逻辑。
+
+### 本地验证
+
+- `curl POST /admin/wechat-sync/rebuild/preview`：HTTP 200，响应中的 `fileReport.paths` 为数组。
+- `./gradlew --no-daemon :app:compileDebugKotlin`：通过。
+- `./gradlew --no-daemon :app:assembleDebug`：通过。
+- Debug APK 已安装到设备 `83bdbca2`。
+- `git diff --check`：通过。
+
+## 2026-09-26 重构按钮布局修复
+
+- 将“重新验证”“完成重构”“取消重构”设置为同一行等宽布局。
+- 三个按钮统一最小高度，文字禁止换行，避免“取消重构”在窄列中竖向显示。
+- `./gradlew --no-daemon :app:compileDebugKotlin`：通过。
+- `./gradlew --no-daemon :app:assembleDebug`：通过。
+- Debug APK 已重新安装到设备 `83bdbca2`。
+
+## 2026-09-26 重构完成交互优化
+
+- 移除管理台中的“完成重构”按钮，避免用户重复确认。
+- “重新验证”成功后自动将批次结束为已完成，并弹出完成提示。
+- “取消重构”仍保留，用于中途停止或取消维护批次。
+- 验证按钮仅在重建阶段可用，已完成批次不会重复提交验证。
+- 重构操作按钮统一为等宽、48dp 高度，文字单行垂直居中。
+- Android `:app:assembleDebug` 通过，APK 已安装到设备 `83bdbca2`。
+
+## 2026-09-26 数据库备份恢复修复
+
+### 根因
+
+本地 API 容器未配置恢复执行脚本，恢复请求被服务端按设计拒绝。接入脚本后首次真实验证又发现 `pg_restore` 执行阶段缺少目标数据库参数 `--dbname`。
+
+### 修复
+
+- 增加 PostgreSQL 恢复执行器容器，使用官方 PostgreSQL 镜像提供数据库恢复工具。
+- API 通过共享运行目录提交恢复请求，避免依赖 API 容器中的 Docker 客户端或宿主机套接字。
+- 恢复前校验 SHA-256 并创建紧急备份。
+- 恢复命令显式指定目标数据库，恢复后递增客户端重建代次并清理遗留维护状态。
+- Compose 增加恢复执行器和运行目录挂载。
+
+### 本地验证
+
+- 容器内确认 `pg_restore`、`pg_dump`、`psql` 均可用。
+- 调用 `POST /admin/wechat-sync/backups/plateview-rebuild-local.dump/restore` 返回 HTTP 200。
+- 返回：`accepted=true`，消息为“恢复脚本已完成，客户端需要重新确认微信目录”。
+- 恢复前自动生成 `pre-restore-*.dump` 及 SHA-256 校验文件。
+- `git diff --check`：通过。
+
+## 2026-09-26 恢复反馈与重构约束修复验证
+
+### 根因
+
+Android 恢复成功时只刷新列表，未设置策略反馈；异常也未传入策略动作。另一个问题是旧备份恢复了不包含 `CLEANING` 的 `ck_wechat_rebuild_status` 约束，开始重构写入该状态时触发 PostgreSQL 检查约束异常。
+
+### 修复与验证
+
+- `confirmWechatBackupRestore()` 传入 `PolicySavingAction.WECHAT_REBUILD`，成功和失败均通过统一反馈对话框呈现。
+- 恢复脚本在 `pg_restore` 后重建包含全部维护状态的约束和活动批次唯一索引，并结束备份中遗留的活动批次。
+- `server/./gradlew --no-daemon test`：通过。
+- `android/./gradlew --no-daemon :app:compileDebugKotlin`：通过。
+- `android/./gradlew --no-daemon :app:assembleDebug`：通过。
+- 恢复接口返回 HTTP 200，`accepted=true`；恢复后约束包含 `CLEANING`，不存在活动维护批次。
+- 随后执行预览、锁定、备份验证和清理，清理接口成功返回 `REBUILDING`，未再出现约束错误。
+- Debug APK 已安装到设备 `83bdbca2`。
+
+### 结论
+
+两个问题均已在本地修复并验证。未执行生产数据库恢复、清理或上传；真机已安装 APK，恢复按钮建议再手动点击确认一次弹窗表现。
+
+## 2026-09-26 恢复会话与数据库结构兼容验证
+
+### 根因补充
+
+恢复旧备份时，完整 `pg_restore --clean` 会覆盖 `users`、`refresh_sessions`、`audit_logs`，使当前访问令牌失效；同时旧备份可能没有当前版本新增的表，导致恢复后登录查询引用不存在的 `schedule_participants` 并返回 500。客户端恢复成功后的二次刷新又会把 401 映射成退出登录和失败提示。
+
+### 修复
+
+- 恢复客户端成功路径不再立即用旧令牌请求重构状态和备份列表，成功反馈不会被二次请求覆盖。
+- 恢复脚本使用 PostgreSQL 目录清单排除账号、会话、审计表及其相关对象，保留当前运行态数据。
+- 恢复前后继续重建微信重构状态约束和活动索引，避免 `CLEANING` 状态异常。
+
+### 本地验证
+
+- 使用恢复前紧急备份修复本地数据库后，`schedule_participants`、`wechat_rebuild_runs`、`users` 均存在。
+- 恢复接口返回 HTTP 200 和 `accepted=true`。
+- 恢复后使用同一个访问令牌请求 `/auth/profile` 返回 HTTP 200，未退出登录。
+- `server/./gradlew --no-daemon test`：通过。
+- `android/./gradlew --no-daemon :app:compileDebugKotlin`：通过。
+- `android/./gradlew --no-daemon :app:assembleDebug`：通过。
+- Debug APK 安装到设备 `83bdbca2`：成功。
+- `git diff --check`：通过。
+
+### 结论
+
+截图中的恢复失败提示和恢复后退出登录问题已在本地修复。生产环境仍需先执行一次备份恢复演练，再安排正式恢复窗口。
+
+## 2026-09-26 开始重构反馈弹窗验证
+
+### 根因
+
+开始重构按钮调用的 `confirmWechatRebuild()` 没有设置策略反馈类型，因此清理成功后只有状态更新，没有弹窗；清理失败时也只进入页面错误区域。
+
+### 修复
+
+- 为开始重构操作传入 `PolicySavingAction.WECHAT_REBUILD`。
+- 清理成功后设置“微信数据重构已开始”成功反馈，显示当前服务端状态。
+- 失败、未登录、权限不足和服务器异常继续由统一异常处理生成失败弹窗。
+
+### 验证
+
+- `server/./gradlew --no-daemon test`：通过。
+- `android/./gradlew --no-daemon :app:assembleDebug`：通过。
+- Debug APK 已安装到设备 `83bdbca2`。
+- `git diff --check`：通过。
+
+### 结论
+
+开始重构现在会明确显示成功或失败弹窗；本次未执行生产重构。
+
+## 2026-09-26 0.3.33 玻璃拟态 UI 重构阶段验证
+
+### 已完成
+
+- 设计上下文摘要：`.codex/context-summary-ui-0333.md`。
+- 静态玻璃设计令牌和渐变材质。
+- 首页查询状态 Hero，保留现有查询和权限逻辑。
+- 统计页三个遥测指标卡。
+- 统一底部玻璃 Dock API。
+- `satelite-one` 参考范围限定为玻璃材质、任务控制台层级和 Dock，不复制深空蓝主题或代理业务。
+
+### 本地验证
+
+- `android/./gradlew --no-daemon :app:testDebugUnitTest`：通过。
+- `android/./gradlew --no-daemon :app:assembleDebug`：通过。
+- `server/./gradlew --no-daemon test`：通过。
+- Debug APK 已安装到设备 `83bdbca2` 并启动应用。
+- `git diff --check`：通过。
+
+### 当前范围说明
+
+详情页和管理工作台原有玻璃容器已继续复用新材质；详情页结构、管理台分区和横屏/平板布局仍需在后续阶段完成后，才能作为完整 `0.3.33` 发布候选验收。本次尚未发布正式版本或操作生产服务。

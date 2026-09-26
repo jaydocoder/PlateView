@@ -30,6 +30,7 @@ import io.ktor.utils.io.readRemaining
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -40,25 +41,33 @@ import kotlinx.serialization.json.buildJsonObject
 internal fun Application.configureWorkOrderFeature() {
     val dataSource = attributes.getOrNull(DataSourceKey) ?: return
     val service = WorkOrderService(dataSource)
+    val rebuildService = WechatRebuildService(dataSource)
     val policyService = ClientPolicyService(dataSource)
     val collectorToken = System.getenv("WECHAT_COLLECTOR_TOKEN").orEmpty()
     val imageStorage = WorkOrderImageStorage(File(System.getenv("WORK_ORDER_IMAGE_DIR") ?: "./data/work-order-images"))
 
     routing {
         route("/internal/wechat") {
+            get("/rebuild-status") {
+                call.requireCollector(collectorToken)
+                call.respond(rebuildService.collectorStatus())
+            }
             post("/messages/batch") {
                 call.requireCollector(collectorToken)
+                rebuildService.assertUploadAllowed()
                 val request = call.receive<WorkOrderMessageBatchRequest>()
                 require(request.messages.size in 1..200) { "每批微信消息数量应为1至200条" }
                 call.respond(service.ingest(request.toModel()).toResponse())
             }
             post("/sync/reconcile") {
                 call.requireCollector(collectorToken)
+                rebuildService.assertUploadAllowed()
                 val request = call.receive<WechatReconcileRequest>()
                 call.respond(service.reconcile(request.toModel()).toResponse())
             }
             post("/heartbeat") {
                 call.requireCollector(collectorToken)
+                rebuildService.assertUploadAllowed()
                 val request = call.receive<WorkOrderHeartbeatRequest>()
                 require(request.status in COLLECTOR_STATUSES) { "微信采集状态无效" }
                 service.updateHeartbeat(request.toModel())
@@ -66,11 +75,13 @@ internal fun Application.configureWorkOrderFeature() {
             }
             post("/images") {
                 call.requireCollector(collectorToken)
+                rebuildService.assertUploadAllowed()
                 val upload = call.receiveImageUpload(imageStorage)
                 call.respond(WorkOrderImageUploadResponse(service.upsertImage(upload)))
             }
             post("/attachments") {
                 call.requireCollector(collectorToken)
+                rebuildService.assertUploadAllowed()
                 val upload = call.receiveImageUpload(imageStorage)
                 call.respond(WorkOrderImageUploadResponse(service.upsertImage(upload)))
             }
@@ -258,6 +269,83 @@ internal fun Application.configureWorkOrderFeature() {
             }
 
             route("/admin/wechat-sync") {
+                get("/backups") {
+                    call.requirePrimaryAdministrator(dataSource)
+                    call.respond(rebuildService.listBackups())
+                }
+                post("/backups/{backupId}/restore") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val backupId = call.parameters["backupId"] ?: throw IllegalArgumentException("备份标识无效")
+                    val result = rebuildService.requestBackupRestore(actorId, backupId)
+                    call.auditWorkOrderAdmin(actorId, "WECHAT_BACKUP_RESTORE", "WECHAT_BACKUP", backupId.hashCode().toLong())
+                    call.respond(result)
+                }
+                post("/rebuild/preview") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val expiresAt = Instant.now().plusSeconds(30 * 60)
+                    val result = rebuildService.preview(actorId, expiresAt)
+                    call.auditWorkOrderAdmin(actorId, "WECHAT_REBUILD_PREVIEW", "WECHAT_REBUILD", result.runId.hashCode().toLong())
+                    call.respond(result)
+                }
+                post("/rebuild/{runId}/lock") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val runId = call.parameters["runId"]?.let(UUID::fromString)
+                        ?: throw IllegalArgumentException("重建批次编号无效")
+                    val confirmation = call.request.queryParameters["confirmation"].orEmpty()
+                    val result = rebuildService.lock(actorId, runId, confirmation)
+                    call.auditWorkOrderAdmin(actorId, "WECHAT_REBUILD_LOCK", "WECHAT_REBUILD", runId.hashCode().toLong())
+                    call.respond(result)
+                }
+                post("/rebuild/{runId}/backup-verify") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val runId = call.parameters["runId"]?.let(UUID::fromString)
+                        ?: throw IllegalArgumentException("重建批次编号无效")
+                    val path = call.request.queryParameters["path"]
+                    val result = rebuildService.backupVerify(actorId, runId, path, call.request.queryParameters["sha256"])
+                    call.auditWorkOrderAdmin(actorId, "WECHAT_REBUILD_BACKUP_VERIFY", "WECHAT_REBUILD", runId.hashCode().toLong())
+                    call.respond(result)
+                }
+                post("/rebuild/{runId}/clean") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val runId = call.parameters["runId"]?.let(UUID::fromString)
+                        ?: throw IllegalArgumentException("重建批次编号无效")
+                    val confirmation = call.request.queryParameters["confirmation"].orEmpty()
+                    val result = rebuildService.clean(actorId, runId, confirmation)
+                    val cleaned = if (result.status == "REBUILDING" || result.status == "FAILED") {
+                        rebuildService.cleanupAttachmentFiles(actorId, runId)
+                    } else {
+                        result
+                    }
+                    call.auditWorkOrderAdmin(actorId, "WECHAT_REBUILD_CLEAN", "WECHAT_REBUILD", runId.hashCode().toLong())
+                    call.respond(cleaned)
+                }
+                post("/rebuild/{runId}/cleanup-files") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val runId = call.parameters["runId"]?.let(UUID::fromString) ?: throw IllegalArgumentException("重建批次编号无效")
+                    call.respond(rebuildService.cleanupAttachmentFiles(actorId, runId))
+                }
+                post("/rebuild/{runId}/verify") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val runId = call.parameters["runId"]?.let(UUID::fromString)
+                        ?: throw IllegalArgumentException("重建批次编号无效")
+                    val result = rebuildService.verify(actorId, runId)
+                    call.auditWorkOrderAdmin(actorId, "WECHAT_REBUILD_VERIFY", "WECHAT_REBUILD", runId.hashCode().toLong())
+                    call.respond(result)
+                }
+                post("/rebuild/{runId}/unlock") {
+                    val actorId = call.requirePrimaryAdministrator(dataSource)
+                    val runId = call.parameters["runId"]?.let(UUID::fromString)
+                        ?: throw IllegalArgumentException("重建批次编号无效")
+                    val success = call.request.queryParameters["success"]?.toBooleanStrictOrNull() ?: false
+                    val result = rebuildService.unlock(actorId, runId, success)
+                    call.auditWorkOrderAdmin(actorId, "WECHAT_REBUILD_UNLOCK", "WECHAT_REBUILD", runId.hashCode().toLong())
+                    call.respond(result)
+                }
+                get("/rebuild/current") {
+                    call.requirePrimaryAdministrator(dataSource)
+                    val current = rebuildService.current()
+                    if (current == null) call.respond(HttpStatusCode.NoContent) else call.respond(current)
+                }
                 get("/status") {
                     call.requirePrimaryAdministrator(dataSource)
                     call.respond(WechatSyncStatusResponse(service.syncStatus().map(WechatSourceStatus::toResponse)))

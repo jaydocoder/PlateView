@@ -37,6 +37,10 @@ MAX_IMAGE_RETRY_ITEMS = 5_000
 MAX_ATTACHMENT_RETRY_ITEMS = 5_000
 
 
+class RebuildInProgress(RuntimeError):
+    """服务端正在重构微信数据，采集器必须暂停写入。"""
+
+
 class Collector:
     def __init__(self, server_url, token, state_path, wx_command="wx", wechat_files_root="~/文档/xwechat_files"):
         self.server_url = server_url.rstrip("/")
@@ -52,6 +56,9 @@ class Collector:
             try:
                 self.run_once()
                 delay = SCAN_INTERVAL_SECONDS
+            except RebuildInProgress:
+                logging.info("服务端微信数据正在重构，采集器暂停上传")
+                delay = min(max(delay * 2, 30), 15 * 60)
             except Exception as error:
                 logging.error("采集轮次失败，错误类型=%s", type(error).__name__)
                 delay = min(max(delay * 2, 20), 15 * 60)
@@ -74,6 +81,7 @@ class Collector:
 
     def _sync_source(self, source_key, source_name):
         source_state = self.state.setdefault(source_key, {})
+        self._refresh_rebuild_state(source_state)
         sync_run_id = self.state.setdefault("_sync_run_id", str(uuid.uuid4()))
         now = int(time.time())
         full_rescan = now - int(source_state.get("last_rescan_at", 0)) >= RESCAN_INTERVAL_SECONDS
@@ -127,6 +135,23 @@ class Collector:
             self._save_state()
         self._heartbeat(source_key, source_name, "HEALTHY", self._latest_timestamp(messages), 0, None)
         logging.info("群同步完成，群=%s，新增候选=%d", source_name, len(pending))
+
+    def _refresh_rebuild_state(self, source_state):
+        status = self._request_json("GET", "/internal/wechat/rebuild-status", None) or {}
+        remote_generation = int(status.get("rebuildGeneration", 0))
+        local_generation = int(self.state.get("rebuild_generation", 0))
+        if status.get("rebuildState"):
+            raise RebuildInProgress("服务端正在重构微信数据")
+        # 恢复旧备份后服务端代次可能低于本地代次，任何不一致都必须触发全量重传。
+        if remote_generation != local_generation:
+            for key in ("message_timestamp", "message_id", "image_timestamp", "image_id", "file_timestamp", "file_id", "last_rescan_at", "last_reconcile_at"):
+                source_state.pop(key, None)
+            source_state.pop("image_retry_items", None)
+            source_state.pop("file_retry_items", None)
+            source_state.pop("reconcile_missing_message_ids", None)
+            self.state["rebuild_generation"] = remote_generation
+            self.state.pop("_sync_run_id", None)
+            self._save_state()
 
     def _reconcile_recent(self, source_key, source_name, source_state, messages, now):
         if now - int(source_state.get("last_reconcile_at", 0)) < RECONCILE_INTERVAL_SECONDS:
@@ -432,7 +457,7 @@ class Collector:
         return subprocess.run(command, check=True, capture_output=True, text=True, timeout=180)
 
     def _request_json(self, method, path, body):
-        data = json.dumps(body, ensure_ascii=False).encode()
+        data = None if body is None else json.dumps(body, ensure_ascii=False).encode()
         request = urllib.request.Request(
             self.server_url + path,
             data=data,
@@ -470,6 +495,13 @@ class Collector:
             try:
                 return urllib.request.urlopen(request, timeout=timeout)
             except urllib.error.HTTPError as error:
+                if error.code in {409, 423}:
+                    try:
+                        payload = json.loads(error.read().decode("utf-8"))
+                    except (OSError, ValueError):
+                        payload = {}
+                    if payload.get("code") == "WECHAT_REBUILD_IN_PROGRESS":
+                        raise RebuildInProgress("服务端正在重构微信数据")
                 if error.code < 500 or delay is None:
                     raise
                 logging.warning("服务器暂时不可用，状态码=%d，第%d次请求稍后重试", error.code, attempt)

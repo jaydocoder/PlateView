@@ -22,6 +22,8 @@ import com.jaydocoder.plateview.domain.admin.WechatPassageSender
 import com.jaydocoder.plateview.domain.admin.CachedAdminAttachment
 import com.jaydocoder.plateview.data.network.AppError
 import com.jaydocoder.plateview.domain.admin.CacheResetStatus
+import com.jaydocoder.plateview.domain.admin.WechatRebuildRun
+import com.jaydocoder.plateview.domain.admin.WechatBackup
 
 data class AdminUiState(
     val tab: AdminTab = AdminTab.Dashboard,
@@ -84,6 +86,10 @@ data class AdminUiState(
     val updateEndpointTestMessage: String? = null,
     val pendingCacheResetUser: ManagedUser? = null,
     val cacheResetStatuses: Map<Long, CacheResetStatus> = emptyMap(),
+    val wechatRebuild: WechatRebuildRun? = null,
+    val pendingWechatRebuild: Boolean = false,
+    val wechatBackups: List<WechatBackup> = emptyList(),
+    val pendingWechatBackupRestore: WechatBackup? = null,
 )
 
 data class PolicySaveFeedback(
@@ -96,6 +102,7 @@ enum class PolicySavingAction {
     LIMITS,
     API_ENDPOINT,
     UPDATE_ENDPOINT,
+    WECHAT_REBUILD,
 }
 
 enum class VehicleStatusFilter(val requestValue: String?, val label: String) {

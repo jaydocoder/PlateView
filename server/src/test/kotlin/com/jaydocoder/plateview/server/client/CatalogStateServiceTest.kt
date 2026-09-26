@@ -55,4 +55,21 @@ class CatalogStateServiceTest {
         assertEquals(-1, response.wechatMessageRevision)
         assertEquals(58, response.attachmentManifestRevision)
     }
+
+    @Test
+    fun `重建代次随目录状态返回`() {
+        val response = CatalogRevisionSnapshot(
+            vehicleRevision = 1,
+            workOrderRevision = 2,
+            wechatMessageRevision = 3,
+            attachmentManifestRevision = 4,
+            rebuildGeneration = 7,
+            loadedAtMillis = 0,
+        ).visibleTo(
+            visibility = CatalogVisibility(0, 1, true, true, true, true),
+            serverTime = Instant.parse("2026-09-24T08:00:00Z"),
+        )
+
+        assertEquals(7, response.rebuildGeneration)
+    }
 }

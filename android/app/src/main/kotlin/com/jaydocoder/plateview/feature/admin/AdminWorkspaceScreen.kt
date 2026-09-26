@@ -191,6 +191,15 @@ fun AdminWorkspaceRoute(
         onSaveClientPolicyLimits = viewModel::saveClientPolicyLimits,
         onSaveApiEndpoint = viewModel::saveApiEndpoint,
         onSaveUpdateEndpoint = viewModel::saveUpdateEndpoint,
+        onPreviewWechatRebuild = viewModel::previewWechatRebuild,
+        onRequestWechatRebuild = viewModel::requestWechatRebuild,
+        onDismissWechatRebuild = viewModel::dismissWechatRebuild,
+        onConfirmWechatRebuild = viewModel::confirmWechatRebuild,
+        onVerifyWechatRebuild = viewModel::verifyWechatRebuild,
+        onCancelWechatRebuild = { viewModel.unlockWechatRebuild(false) },
+        onRequestWechatBackupRestore = viewModel::requestWechatBackupRestore,
+        onDismissWechatBackupRestore = viewModel::dismissWechatBackupRestore,
+        onConfirmWechatBackupRestore = viewModel::confirmWechatBackupRestore,
         onDismissPolicySaveFeedback = viewModel::dismissPolicySaveFeedback,
         onChooseImport = { documentPicker.launch(arrayOf(EXCEL_MIME_TYPE, LEGACY_EXCEL_MIME_TYPE)) },
         onOpenImportBatch = viewModel::openImportBatch,
@@ -261,6 +270,15 @@ fun AdminWorkspaceScreen(
     onSaveClientPolicyLimits: () -> Unit = {},
     onSaveApiEndpoint: () -> Unit = {},
     onSaveUpdateEndpoint: () -> Unit = {},
+    onPreviewWechatRebuild: () -> Unit = {},
+    onRequestWechatRebuild: () -> Unit = {},
+    onDismissWechatRebuild: () -> Unit = {},
+    onConfirmWechatRebuild: () -> Unit = {},
+    onVerifyWechatRebuild: () -> Unit = {},
+    onCancelWechatRebuild: () -> Unit = {},
+    onRequestWechatBackupRestore: (com.jaydocoder.plateview.domain.admin.WechatBackup) -> Unit = {},
+    onDismissWechatBackupRestore: () -> Unit = {},
+    onConfirmWechatBackupRestore: () -> Unit = {},
     onDismissPolicySaveFeedback: () -> Unit = {},
     onChooseImport: () -> Unit,
     onOpenImportBatch: (Long) -> Unit,
@@ -471,6 +489,13 @@ fun AdminWorkspaceScreen(
                                 onSaveApi = onSaveApiEndpoint,
                                 onSaveUpdate = onSaveUpdateEndpoint,
                                 policySavingAction = uiState.policySavingAction,
+                                rebuild = uiState.wechatRebuild,
+                                onPreviewRebuild = onPreviewWechatRebuild,
+                                onRequestRebuild = onRequestWechatRebuild,
+                                onVerifyRebuild = onVerifyWechatRebuild,
+                                onCancelRebuild = onCancelWechatRebuild,
+                                backups = uiState.wechatBackups,
+                                onRestoreBackup = onRequestWechatBackupRestore,
                             )
                         }
                     }
@@ -523,6 +548,32 @@ fun AdminWorkspaceScreen(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismissCacheReset) { Text("取消") }
                     Button(onClick = onConfirmCacheReset, enabled = !uiState.isSaving) { Text("确认发送") }
+                }
+            }
+        }
+    }
+    if (uiState.pendingWechatRebuild) {
+        LiquidGlassDialog(onDismissRequest = onDismissWechatRebuild) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("确认重构微信同步数据", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("将清空服务器微信聊天、车单、附件关联和同步状态，采集器会暂时被拒绝上传，手机本地原始微信数据不会删除。此操作必须先完成可恢复备份验证。")
+                Text("确认后由服务器自动生成备份并进行恢复校验，备份通过后才会清理数据。", style = MaterialTheme.typography.bodySmall)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismissWechatRebuild) { Text("取消") }
+                    Button(onClick = onConfirmWechatRebuild, enabled = !uiState.isSaving) { Text("备份并开始重构") }
+                }
+            }
+        }
+    }
+    uiState.pendingWechatBackupRestore?.let { backup ->
+        LiquidGlassDialog(onDismissRequest = onDismissWechatBackupRestore) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("确认恢复微信数据库", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("将用所选备份覆盖当前数据库微信相关数据。恢复前会由服务端执行校验，恢复后客户端需要重新同步微信目录。")
+                Text("备份：${backup.id}\n校验：${backup.sha256}", style = MaterialTheme.typography.bodySmall)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismissWechatBackupRestore) { Text("取消") }
+                    Button(onClick = onConfirmWechatBackupRestore, enabled = !uiState.isSaving) { Text("确认恢复") }
                 }
             }
         }
@@ -1352,6 +1403,13 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
 private fun formatAuditTime(value: String): String = runCatching {
     auditTimeFormatter.format(Instant.parse(value))
 }.getOrElse { value }
+
+private fun formatBytes(value: Long): String = when {
+    value >= 1024L * 1024L * 1024L -> "%.1f GB".format(value / (1024.0 * 1024.0 * 1024.0))
+    value >= 1024L * 1024L -> "%.1f MB".format(value / (1024.0 * 1024.0))
+    value >= 1024L -> "%.1f KB".format(value / 1024.0)
+    else -> "$value B"
+}
 
 private fun String.auditActionLabel(): String = when (this) {
     "ADMIN_ACCESS" -> "尝试访问管理功能"
@@ -2633,6 +2691,13 @@ private fun DataAccessPane(
     onSaveApi: () -> Unit,
     onSaveUpdate: () -> Unit,
     policySavingAction: PolicySavingAction?,
+    rebuild: com.jaydocoder.plateview.domain.admin.WechatRebuildRun?,
+    onPreviewRebuild: () -> Unit,
+    onRequestRebuild: () -> Unit,
+    onVerifyRebuild: () -> Unit,
+    onCancelRebuild: () -> Unit,
+    backups: List<com.jaydocoder.plateview.domain.admin.WechatBackup>,
+    onRestoreBackup: (com.jaydocoder.plateview.domain.admin.WechatBackup) -> Unit,
 ) {
     if (editor == null) {
         LoadingPane()
@@ -2650,6 +2715,27 @@ private fun DataAccessPane(
                 metric = "策略版本 ${editor.revision}",
                 icon = Icons.Outlined.Security,
             )
+        }
+        item {
+            GlassSurface(modifier = Modifier.fillMaxWidth(), elevated = true) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("数据库备份恢复", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("仅显示最近三个已校验备份。恢复会覆盖当前数据库微信相关数据，操作前请确认当前重构任务已结束。", style = MaterialTheme.typography.bodySmall)
+                    if (backups.isEmpty()) {
+                        Text("暂无可恢复备份", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        backups.forEach { backup ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(backup.id, style = MaterialTheme.typography.bodyMedium)
+                                    Text("${formatAuditTime(backup.createdAt)} · ${formatBytes(backup.sizeBytes)} · ${if (backup.verified) "已校验" else "未校验"}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                OutlinedButton(onClick = { onRestoreBackup(backup) }, enabled = backup.verified) { Text("恢复") }
+                            }
+                        }
+                    }
+                }
+            }
         }
         item {
             GlassSurface(modifier = Modifier.fillMaxWidth(), elevated = true) {
@@ -2703,6 +2789,41 @@ private fun DataAccessPane(
         item {
             Text("客户端领取：${editor.appliedClientCount}/${editor.clientCount} · 更新时间 ${editor.updatedAt}", style = MaterialTheme.typography.bodySmall)
             Text("最近确认：${editor.lastConfirmedAt?.let(::formatAuditTime) ?: "尚无客户端确认"}", style = MaterialTheme.typography.bodySmall)
+        }
+        item {
+            GlassSurface(modifier = Modifier.fillMaxWidth(), elevated = true) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("微信同步数据重构", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(rebuild?.let { "状态：${it.status}，批次：${it.runId}" } ?: "尚未创建重构批次", style = MaterialTheme.typography.bodySmall)
+                    rebuild?.lastError?.let { Text("错误：$it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onPreviewRebuild) { Text("预览重构范围") }
+                        Button(onClick = onRequestRebuild, enabled = rebuild?.status == "PREVIEW" || rebuild?.status == "LOCKED") { Text("开始重构") }
+                    }
+                    if (rebuild != null) {
+                        if (rebuild.status == "PREVIEW" || rebuild.status == "BACKUP_VERIFYING") {
+                            Text("开始重构后服务器会自动备份并校验，校验失败时不会清理数据。", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("待删除记录：${rebuild.previewReport.values.sum()}；已删除：${rebuild.deletedCounts.values.sum()}", style = MaterialTheme.typography.bodySmall)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedButton(
+                                onClick = onVerifyRebuild,
+                                enabled = rebuild.status == "REBUILDING" || rebuild.status == "VERIFYING" ||
+                                    (rebuild.status == "FAILED" && rebuild.lastError == "微信业务表仍有残留数据"),
+                                modifier = Modifier.weight(1f).height(48.dp),
+                            ) { Text("重新验证", maxLines = 1, softWrap = false) }
+                            OutlinedButton(
+                                onClick = onCancelRebuild,
+                                enabled = rebuild.status in setOf("LOCKED", "REBUILDING", "VERIFYING", "FAILED"),
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            ) { Text("取消重构", maxLines = 1, softWrap = false) }
+                        }
+                    }
+                }
+            }
         }
     }
 }

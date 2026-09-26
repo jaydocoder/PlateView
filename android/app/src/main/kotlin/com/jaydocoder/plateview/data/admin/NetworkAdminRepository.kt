@@ -98,6 +98,15 @@ class NetworkAdminRepository @Inject constructor(
     override suspend fun requestUserCacheReset(accessToken: String, userId: Long): CacheResetStatus = api
         .requestUserCacheReset(bearer(accessToken), userId).toDomain()
 
+    override suspend fun previewWechatRebuild(accessToken: String) = api.previewWechatRebuild(bearer(accessToken)).toDomain()
+    override suspend fun verifyWechatRebuildBackup(accessToken: String, runId: String, path: String?, sha256: String?) = api.verifyWechatRebuildBackup(bearer(accessToken), runId, path.orEmpty(), sha256).toDomain()
+    override suspend fun cleanWechatRebuild(accessToken: String, runId: String) = api.cleanWechatRebuild(bearer(accessToken), runId, runId).toDomain()
+    override suspend fun verifyWechatRebuild(accessToken: String, runId: String) = api.verifyWechatRebuild(bearer(accessToken), runId).toDomain()
+    override suspend fun unlockWechatRebuild(accessToken: String, runId: String, success: Boolean) = api.unlockWechatRebuild(bearer(accessToken), runId, success).toDomain()
+    override suspend fun currentWechatRebuild(accessToken: String) = api.currentWechatRebuild(bearer(accessToken))?.toDomain()
+    override suspend fun listWechatBackups(accessToken: String) = api.listWechatBackups(bearer(accessToken)).map { it.toDomain() }
+    override suspend fun restoreWechatBackup(accessToken: String, backupId: String) = api.restoreWechatBackup(bearer(accessToken), backupId).toDomain()
+
     override suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities = api
         .getVehicleCreationCapabilities(bearer(accessToken))
         .let { VehicleCreationCapabilities(it.creatableCategories, it.canChangeVehicleCategory) }
@@ -359,6 +368,21 @@ private fun ClientPolicyDto.toDomain() = ClientPolicy(
 private fun CacheResetStatusDto.toDomain() = CacheResetStatus(
     userId, revision, expectedClientCount, completedClientCount, status, lastConfirmedAt,
 )
+
+private fun WechatRebuildRunDto.toDomain() = com.jaydocoder.plateview.domain.admin.WechatRebuildRun(
+    runId, actorId, status, createdAt, lockedAt, expiresAt, completedAt, backupPath, backupSha256, previewReport, deletedCounts,
+    com.jaydocoder.plateview.domain.admin.WechatRebuildFileReport(
+        paths = fileReport.paths,
+        listed = fileReport.listed,
+        deleted = fileReport.deleted,
+        missing = fileReport.missing,
+        rejected = fileReport.rejected,
+    ),
+    lastError,
+)
+
+private fun WechatBackupDto.toDomain() = com.jaydocoder.plateview.domain.admin.WechatBackup(id, createdAt, sizeBytes, sha256, verified)
+private fun WechatBackupRestoreDto.toDomain() = com.jaydocoder.plateview.domain.admin.WechatBackupRestore(backupId, accepted, message)
 
 private fun VehicleWriteCommand.toRequest(): AdminVehicleWriteRequestDto = AdminVehicleWriteRequestDto(
     plateNumber = plateNumber,

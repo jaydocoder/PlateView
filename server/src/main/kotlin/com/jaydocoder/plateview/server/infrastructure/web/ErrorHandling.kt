@@ -17,6 +17,7 @@ import com.jaydocoder.plateview.server.workorder.WorkOrderNotFoundException
 import com.jaydocoder.plateview.server.workorder.WorkOrderPermissionException
 import com.jaydocoder.plateview.server.workorder.WorkOrderCatalogVersionConflictException
 import com.jaydocoder.plateview.server.workorder.CollectorAuthenticationException
+import com.jaydocoder.plateview.server.workorder.WechatRebuildLockedException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.application
@@ -158,6 +159,13 @@ internal fun Application.configureErrorHandling() {
 
         exception<CollectorAuthenticationException> { call, cause ->
             call.respondApiError(HttpStatusCode.Unauthorized, ApiErrorResponse("COLLECTOR_UNAUTHENTICATED", cause.message ?: "微信采集凭据无效", call.callId))
+        }
+
+        exception<WechatRebuildLockedException> { call, cause ->
+            call.respondApiError(
+                status = HttpStatusCode.ServiceUnavailable,
+                message = ApiErrorResponse("WECHAT_REBUILD_IN_PROGRESS", cause.message ?: "微信数据正在重建，暂时无法上传", call.callId),
+            )
         }
 
         exception<IllegalArgumentException> { call, cause ->

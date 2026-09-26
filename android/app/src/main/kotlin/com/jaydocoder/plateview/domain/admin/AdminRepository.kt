@@ -14,6 +14,14 @@ interface AdminRepository {
     suspend fun testApiEndpoint(accessToken: String, baseUrl: String): String = error("当前仓库未实现后台地址测试")
     suspend fun testUpdateEndpoint(accessToken: String, baseUrl: String): String = error("当前仓库未实现更新地址测试")
     suspend fun requestUserCacheReset(accessToken: String, userId: Long): CacheResetStatus = error("当前仓库未实现远程清缓存")
+    suspend fun previewWechatRebuild(accessToken: String): WechatRebuildRun = error("当前仓库未实现微信重构预览")
+    suspend fun verifyWechatRebuildBackup(accessToken: String, runId: String, path: String? = null, sha256: String? = null): WechatRebuildRun = error("当前仓库未实现微信备份验证")
+    suspend fun cleanWechatRebuild(accessToken: String, runId: String): WechatRebuildRun = error("当前仓库未实现微信重构清理")
+    suspend fun verifyWechatRebuild(accessToken: String, runId: String): WechatRebuildRun = error("当前仓库未实现微信重构验证")
+    suspend fun unlockWechatRebuild(accessToken: String, runId: String, success: Boolean): WechatRebuildRun = error("当前仓库未实现微信重构解锁")
+    suspend fun currentWechatRebuild(accessToken: String): WechatRebuildRun? = null
+    suspend fun listWechatBackups(accessToken: String): List<WechatBackup> = emptyList()
+    suspend fun restoreWechatBackup(accessToken: String, backupId: String): WechatBackupRestore = error("当前仓库未实现微信备份恢复")
 
     suspend fun getVehicleCreationCapabilities(accessToken: String): VehicleCreationCapabilities
 
