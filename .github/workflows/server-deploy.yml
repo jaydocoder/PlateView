@@ -69,6 +69,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 准备数据库恢复脚本
+        run: cp deploy/plateview-request-restore.sh server/plateview-request-restore.sh
+
       - name: 构建并推送不可变镜像
         id: build
         uses: docker/build-push-action@v6
