@@ -4,6 +4,9 @@ COPY . .
 RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon installDist
 
 FROM eclipse-temurin:17-jre
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /workspace/build/install/plateview-server/ ./
 COPY plateview-request-restore.sh /opt/plateview/bin/plateview-restore-backup.sh

@@ -6,6 +6,8 @@ import java.time.OffsetDateTime
 import java.util.UUID
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.time.ZoneOffset
 import javax.sql.DataSource
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -144,8 +146,13 @@ internal class WechatRebuildService(private val dataSource: DataSource) {
         val backupDirectory = File(System.getenv("PLATEVIEW_BACKUP_DIR") ?: "./backups").canonicalFile
         val latest = backupDirectory.listFiles { file -> file.isFile && (file.extension == "dump" || file.name.endsWith(".sql")) }
             ?.maxByOrNull { it.lastModified() }?.absolutePath.orEmpty()
-        val file = File(configured.ifBlank { automatic.ifBlank { latest } }).canonicalFile
-        require(file.isFile) { "备份文件不存在" }
+        var file = File(configured.ifBlank { automatic.ifBlank { latest } }).canonicalFile
+        if (!file.isFile && configured.isBlank() && automatic.isBlank() &&
+            System.getenv("WECHAT_REBUILD_AUTO_BACKUP")?.lowercase() != "false"
+        ) {
+            file = createAutomaticBackup(backupDirectory)
+        }
+        require(file.isFile) { "备份文件不存在，且首次自动备份未生成" }
         val digest = MessageDigest.getInstance("SHA-256").digest(file.inputStream().use { it.readBytes() }).joinToString("") { "%02x".format(it) }
         require(expectedSha256.isNullOrBlank() || expectedSha256.equals(digest, ignoreCase = true)) { "备份校验值不匹配" }
         connection.prepareStatement("UPDATE wechat_rebuild_runs SET status = 'LOCKED', backup_path = ?, backup_sha256 = ?, locked_at = CURRENT_TIMESTAMP WHERE run_id = ?").use { statement ->
@@ -155,6 +162,33 @@ internal class WechatRebuildService(private val dataSource: DataSource) {
             statement.executeUpdate()
         }
         readRun(connection, runId)!!
+    }
+
+    private fun createAutomaticBackup(directory: File): File {
+        directory.mkdirs()
+        val store = Files.getFileStore(directory.toPath())
+        val usedPercent = ((store.totalSpace - store.usableSpace) * 100L) / store.totalSpace.coerceAtLeast(1L)
+        val maxUsage = System.getenv("WECHAT_REBUILD_MAX_DISK_USAGE_PERCENT")?.toLongOrNull() ?: 85L
+        require(usedPercent < maxUsage) { "备份目录磁盘使用率已达到${usedPercent}%，超过${maxUsage}%阈值，已停止自动备份" }
+        val file = File(directory, "plateview-rebuild-${java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC).format(Instant.now())}.dump")
+        val databaseUrl = System.getenv("DATABASE_URL").orEmpty()
+        val match = Regex("jdbc:postgresql://([^:/]+)(?::(\\d+))?/([^?]+)").matchEntire(databaseUrl)
+            ?: throw IllegalStateException("无法从数据库配置解析自动备份地址")
+        val host = match.groupValues[1]
+        val port = match.groupValues[2].ifBlank { "5432" }
+        val database = match.groupValues[3]
+        val process = ProcessBuilder("pg_dump", "-Fc", "-h", host, "-p", port, "-U", System.getenv("DATABASE_USERNAME").orEmpty(), "-d", database)
+            .redirectOutput(file)
+            .redirectErrorStream(false)
+            .apply { environment()["PGPASSWORD"] = System.getenv("DATABASE_PASSWORD").orEmpty() }
+            .start()
+        val error = process.errorStream.bufferedReader().use { it.readText() }
+        require(process.waitFor() == 0 && file.isFile && file.length() > 0) { "首次自动备份失败：${error.take(300)}" }
+        val digest = MessageDigest.getInstance("SHA-256").digest(file.inputStream().use { it.readBytes() }).joinToString("") { "%02x".format(it) }
+        File("${file.absolutePath}.sha256").writeText("$digest  ${file.name}\n")
+        val verify = ProcessBuilder("pg_restore", "--list", file.absolutePath).redirectErrorStream(true).start()
+        require(verify.waitFor() == 0) { "首次自动备份归档校验失败" }
+        return file
     }
 
 
