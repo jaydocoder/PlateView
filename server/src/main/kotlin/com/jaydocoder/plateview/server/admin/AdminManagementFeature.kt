@@ -44,6 +44,7 @@ internal fun Application.configureAdminManagementFeature() {
                     get {
                         val actorId = call.requireAdministrator() ?: return@get
                         val page = service.listVehicles(
+                            actorId = actorId,
                             keyword = call.request.queryParameters["keyword"],
                             status = call.request.queryParameters["status"]?.let { value ->
                                 parseEnum<AdminVehicleStatus>(value, "车辆状态") { AdminValidationException("车辆状态无效") }
@@ -67,7 +68,7 @@ internal fun Application.configureAdminManagementFeature() {
                     }
                     get("/{vehicleId}") {
                         val actorId = call.requireAdministrator() ?: return@get
-                        val vehicle = service.getVehicle(call.vehicleId())
+                        val vehicle = service.getVehicle(call.vehicleId(), actorId)
                         call.auditAdmin(actorId, "VEHICLE_VIEW", "VEHICLE", vehicle.id)
                         call.respond(vehicle.toResponse())
                     }

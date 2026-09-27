@@ -917,3 +917,10 @@ Android 恢复成功时只刷新列表，未设置策略反馈；异常也未传
 - `BLACKLISTED`、`STRICT_CHECK` 仅保留候选，详情字段继续隐藏。
 - 账号版本并入目录策略版本，权限变更会触发客户端清理旧车辆缓存并重新同步。
 - 未连接生产数据库，未执行生产数据修改。
+
+## 2026-09-28 管理工作台车辆档案权限补充
+
+- `/admin/vehicles` 列表和总数按账号车辆权限过滤。
+- `/admin/vehicles/{vehicleId}` 对无权限普通其他长期车辆不返回详情，对黑名单/严查车辆只返回候选级数据。
+- `residentProfile.remarks` 按村民备注权限清空。
+- `cd server && ./gradlew --no-daemon test`：通过。
