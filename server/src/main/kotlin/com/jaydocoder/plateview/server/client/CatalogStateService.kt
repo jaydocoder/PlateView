@@ -45,7 +45,7 @@ internal class CatalogStateService(
         return dataSource.connection.use { connection ->
             val visibility = connection.prepareStatement(
                 """
-                SELECT u.username, u.role, u.other_long_term_access_enabled, u.resident_remarks_access_enabled,
+                SELECT u.username, u.role, u.version, u.other_long_term_access_enabled, u.resident_remarks_access_enabled,
                        u.wechat_work_order_access_enabled, p.revision, p.vehicle_result_limit,
                        p.work_order_result_limit, p.wechat_message_result_limit
                 FROM users u CROSS JOIN client_runtime_policy p
@@ -56,15 +56,21 @@ internal class CatalogStateService(
                 statement.executeQuery().use { result ->
                     require(result.next()) { "当前账号不存在" }
                     val primaryAdministrator = result.getString(1) == "admin" && result.getString(2) == "ADMIN"
+                    // 账号权限变更会递增 users.version。把账号版本并入策略版本，
+                    // 让客户端立即丢弃旧车辆目录，而不是继续从本地缓存搜索。
+                    val accountPolicyRevision = combinePolicyRevision(
+                        globalRevision = result.getLong(7),
+                        accountVersion = result.getInt(3),
+                    )
                     CatalogVisibility(
                         vehicleBits = if (primaryAdministrator) 3L else {
-                            (if (result.getBoolean(3)) 2L else 0L) + (if (result.getBoolean(4)) 1L else 0L)
+                            (if (result.getBoolean(4)) 2L else 0L) + (if (result.getBoolean(5)) 1L else 0L)
                         },
-                        policyRevision = result.getLong(6),
-                        vehicleAllowed = effectiveLimit(result.getInt(7), primaryAdministrator) > 0,
-                        wechatAccessEnabled = primaryAdministrator || result.getBoolean(5),
-                        workOrderAllowedByPolicy = effectiveLimit(result.getInt(8), primaryAdministrator) > 0,
-                        messageAllowedByPolicy = effectiveLimit(result.getInt(9), primaryAdministrator) > 0,
+                        policyRevision = accountPolicyRevision,
+                        vehicleAllowed = effectiveLimit(result.getInt(8), primaryAdministrator) > 0,
+                        wechatAccessEnabled = primaryAdministrator || result.getBoolean(6),
+                        workOrderAllowedByPolicy = effectiveLimit(result.getInt(9), primaryAdministrator) > 0,
+                        messageAllowedByPolicy = effectiveLimit(result.getInt(10), primaryAdministrator) > 0,
                     )
                 }
             }
@@ -106,6 +112,11 @@ internal class CatalogStateService(
     }
 
 }
+
+private const val POLICY_REVISION_ACCOUNT_BITS = 32
+
+internal fun combinePolicyRevision(globalRevision: Long, accountVersion: Int): Long =
+    (globalRevision shl POLICY_REVISION_ACCOUNT_BITS) or (accountVersion.toLong() and 0xffffffffL)
 
 internal suspend fun cleanupExpiredChangeLogs(dataSource: DataSource) = withContext(Dispatchers.IO) {
     dataSource.connection.use { connection ->

@@ -6,6 +6,12 @@ import kotlin.test.assertEquals
 
 class CatalogStateServiceTest {
     @Test
+    fun `账号版本变化会生成不同的策略版本以触发缓存失效`() {
+        assertEquals(false, combinePolicyRevision(5, 1) == combinePolicyRevision(5, 2))
+        assertEquals(false, combinePolicyRevision(5, 1) == combinePolicyRevision(6, 1))
+    }
+
+    @Test
     fun `无微信权限账号不会获得微信目录修订号`() {
         val response = CatalogRevisionSnapshot(
             vehicleRevision = 11,

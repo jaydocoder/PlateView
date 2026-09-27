@@ -73,4 +73,22 @@ class VehicleAccessScopeTest {
         assertTrue(visible.attributes.isEmpty())
         assertNull(visible.longTermProfile)
     }
+
+    @Test
+    fun `服务端响应层不返回无权限的普通其他长期车辆`() {
+        val scope = VehicleAccessScope(otherLongTermAccessEnabled = false, residentRemarksAccessEnabled = false)
+        val ordinary = VehicleSearchCandidate(
+            id = 3,
+            plateNumber = "新H54321",
+            category = VehicleCategory.OTHER_LONG_TERM,
+            organizationName = null,
+            plateColor = null,
+            status = "ACTIVE",
+            detailAccessible = false,
+        )
+        val risk = ordinary.copy(status = "BLACKLISTED")
+
+        assertFalse(ordinary.isVisibleTo(scope))
+        assertTrue(risk.isVisibleTo(scope))
+    }
 }

@@ -49,7 +49,11 @@ internal class VehicleQueryService(
                 statement.setInt(7, limit)
                 statement.executeQuery().use { result ->
                     buildList {
-                        while (result.next()) add(result.toSearchCandidate(accessScope))
+                        while (result.next()) {
+                            result.toSearchCandidate(accessScope)
+                                .takeIf { it.isVisibleTo(accessScope) }
+                                ?.let(::add)
+                        }
                     }
                 }
             }
@@ -65,7 +69,15 @@ internal class VehicleQueryService(
         statement.setBoolean(2, accessScope.otherLongTermAccessEnabled)
         statement.setString(3, VehicleCategory.RESIDENT.name)
         statement.setInt(4, limit)
-        statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate(accessScope)) } }
+        statement.executeQuery().use { result ->
+            buildList {
+                while (result.next()) {
+                    result.toSearchCandidate(accessScope)
+                        .takeIf { it.isVisibleTo(accessScope) }
+                        ?.let(::add)
+                }
+            }
+        }
     }
 
     fun findDetail(vehicleId: Long, accessScope: VehicleAccessScope): VehicleDetail? {
@@ -106,7 +118,15 @@ internal class VehicleQueryService(
                 statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
                 statement.setInt(2, limit)
                 statement.setInt(3, offset.coerceAtLeast(0))
-                statement.executeQuery().use { result -> buildList { while (result.next()) add(result.toSearchCandidate(accessScope)) } }
+                statement.executeQuery().use { result ->
+                    buildList {
+                        while (result.next()) {
+                            result.toSearchCandidate(accessScope)
+                                .takeIf { it.isVisibleTo(accessScope) }
+                                ?.let(::add)
+                        }
+                    }
+                }
             }
             val total = connection.prepareStatement("SELECT COUNT(*) FROM vehicles WHERE status <> 'DELETED' AND (? OR category <> 'OTHER_LONG_TERM' OR status IN ('BLACKLISTED', 'STRICT_CHECK'))").use { statement ->
                 statement.setBoolean(1, accessScope.otherLongTermAccessEnabled)
@@ -135,7 +155,12 @@ internal class VehicleQueryService(
                 statement.setInt(5, safeOffset)
                 statement.executeQuery().use { result ->
                     buildList {
-                        while (result.next()) add(result.toVehicleDetail().visibleInCatalogFor(accessScope))
+                        while (result.next()) {
+                            val detail = result.toVehicleDetail()
+                            if (canViewVehicleCandidate(detail.category, detail.status, accessScope)) {
+                                add(detail.visibleInCatalogFor(accessScope))
+                            }
+                        }
                     }
                 }
             }
@@ -405,6 +430,9 @@ internal class VehicleQueryService(
         """
     }
 }
+
+internal fun VehicleSearchCandidate.isVisibleTo(accessScope: VehicleAccessScope): Boolean =
+    canViewVehicleCandidate(category, status, accessScope)
 
 @Serializable
 internal data class VehicleSearchCandidate(
