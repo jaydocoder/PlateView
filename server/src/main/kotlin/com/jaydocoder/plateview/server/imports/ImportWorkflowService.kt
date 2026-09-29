@@ -158,6 +158,20 @@ internal class ImportWorkflowService(
             if (activeVehicle != null) {
                 return@map classifyExistingVehicle(row, activeVehicle, ImportPlannedAction.UPDATE)
             }
+            val protectedVehicles = candidates.filter { isProtectedVehicleStatus(it.status) }
+            if (protectedVehicles.size == 1) {
+                // 黑名单/严查档案仍是同一车牌的正式档案。重新导入只更新其资料，
+                // 保留原风险状态，禁止创建新的 ACTIVE 副本绕过管控。
+                return@map classifyExistingVehicle(row, protectedVehicles.single(), ImportPlannedAction.UPDATE)
+            }
+            if (protectedVehicles.size > 1) {
+                return@map row.copy(
+                    resultStatus = ImportResultStatus.ERROR,
+                    plannedAction = ImportPlannedAction.NONE,
+                    resolution = ImportResolution.ERROR,
+                    errorMessage = appendMessage(row.errorMessage, "同一车牌存在多条严查或拉黑档案，无法自动合并"),
+                )
+            }
             val inactiveVehicles = candidates.filter { it.status == "INACTIVE" }
             when (inactiveVehicles.size) {
                 0 -> row
@@ -214,7 +228,9 @@ internal class ImportWorkflowService(
                 resolution = ImportResolution.PENDING,
                 warningMessage = appendMessage(
                     row.warningMessage,
-                    if (action == ImportPlannedAction.REACTIVATE) "正式库存在失效档案，请确认恢复有效" else "正式库存在同车牌数据，请确认是否更新",
+                    if (action == ImportPlannedAction.REACTIVATE) "正式库存在失效档案，请确认恢复有效"
+                    else if (isProtectedVehicleStatus(existing.status)) "正式库存在拉黑或严查档案，将保留原风险状态并更新资料"
+                    else "正式库存在同车牌数据，请确认是否更新",
                 ),
                 beforeValues = existing.toComparisonValues(),
             )
@@ -438,7 +454,7 @@ internal class ImportWorkflowService(
 
     private fun publishUpdate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
         val vehicle = ensureVehiclePublishable(row.vehicle)
-        val previous = vehicle.sourceVehicleId?.let { findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it) }
+        val previous = vehicle.sourceVehicleId?.let { findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it, expectedStatus = null) }
             ?: throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
         if (previous.version != vehicle.sourceVehicleVersion) {
             throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
@@ -723,7 +739,7 @@ internal class ImportWorkflowService(
         connection: Connection,
         normalizedPlate: String,
         expectedId: Long? = null,
-        expectedStatus: String = "ACTIVE",
+        expectedStatus: String? = "ACTIVE",
     ): ExistingVehicle? = connection.prepareStatement(
         """
         SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.import_batch_id,
@@ -735,12 +751,13 @@ internal class ImportWorkflowService(
         FROM vehicles v
         LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
         LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-        WHERE v.status = ? AND v.normalized_plate = ?
+        WHERE (? IS NULL OR v.status = ?) AND v.normalized_plate = ?
         FOR UPDATE OF v
         """.trimIndent(),
     ).use { statement ->
         statement.setString(1, expectedStatus)
-        statement.setString(2, normalizedPlate)
+        statement.setString(2, expectedStatus)
+        statement.setString(3, normalizedPlate)
         statement.executeQuery().use { result ->
             if (!result.next()) null else result.toExistingVehicle().also {
                 if (expectedId != null && it.id != expectedId) {

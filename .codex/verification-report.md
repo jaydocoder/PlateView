@@ -924,3 +924,11 @@ Android 恢复成功时只刷新列表，未设置策略反馈；异常也未传
 - `/admin/vehicles/{vehicleId}` 对无权限普通其他长期车辆不返回详情，对黑名单/严查车辆只返回候选级数据。
 - `residentProfile.remarks` 按村民备注权限清空。
 - `cd server && ./gradlew --no-daemon test`：通过。
+
+## 2026-09-29 Excel 导入风险档案复用修复
+
+- 拉黑/严查车辆重新导入时复用原车牌档案并保留风险状态。
+- 禁止因风险档案未被识别而新建启用车辆副本。
+- 多条风险档案冲突时导入行进入错误状态，不自动合并。
+- `cd server && ./gradlew --no-daemon test`：通过。
+- `git diff --check`：通过。

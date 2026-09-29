@@ -7,6 +7,12 @@ import kotlinx.serialization.json.JsonObject
 
 class ImportPublishLifecycleTest {
     @Test
+    fun `拉黑和严查车牌属于受保护档案不能按新车创建`() {
+        assertEquals(true, isProtectedVehicleStatus("BLACKLISTED"))
+        assertEquals(true, isProtectedVehicleStatus("STRICT_CHECK"))
+        assertEquals(false, isProtectedVehicleStatus("ACTIVE"))
+    }
+    @Test
     fun `已验证批次按首次发布处理`() {
         assertEquals(ImportPublishMode.INITIAL, prepareImportPublish("VALIDATED"))
     }

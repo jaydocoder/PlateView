@@ -43,6 +43,9 @@ internal enum class ImportPublishMode {
     REPUBLISH,
 }
 
+internal fun isProtectedVehicleStatus(status: String): Boolean =
+    status == "BLACKLISTED" || status == "STRICT_CHECK"
+
 internal fun prepareImportPublish(status: String): ImportPublishMode = when (status) {
     "VALIDATED" -> ImportPublishMode.INITIAL
     "ROLLED_BACK" -> ImportPublishMode.REPUBLISH
