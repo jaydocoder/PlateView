@@ -457,7 +457,22 @@ internal class ImportWorkflowService(
         val previous = vehicle.sourceVehicleId?.let { findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it, expectedStatus = null) }
             ?: throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
         if (previous.version != vehicle.sourceVehicleVersion) {
-            throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
+            if (previous.hasSameContent(vehicle)) {
+                // 其他批次已经发布了完全相同的内容，只增加了版本号；无需重复写入。
+                insertEffect(
+                    connection,
+                    batchId,
+                    row.id,
+                    previous.id,
+                    "UPDATED",
+                    previous.version,
+                    previous.toVehicleSnapshot(),
+                    previous.residentProfile?.toJson(),
+                    previous.longTermProfile?.toJson(),
+                )
+                return previous.id
+            }
+            throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "导入预览后正式数据已被其他管理员或其他导入批次修改，请重新预览")
         }
         updateVehicle(connection, previous.id, vehicle, actorId)
         replaceProfile(connection, previous.id, vehicle, actorId)
