@@ -443,7 +443,26 @@ internal class ImportWorkflowService(
 
     private fun publishCreate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
         val vehicle = ensureVehiclePublishable(row.vehicle)
-        if (findVehicleForUpdate(connection, vehicle.normalizedPlate!!) != null) {
+        val existing = findVehicleForUpdate(connection, vehicle.normalizedPlate!!, expectedStatus = null)
+        if (existing != null) {
+            // 预览后其他批次已经创建了相同资料时，复用现有档案，避免重复车牌。
+            // 风险档案也只能复用，不能因为导入而被提升为 ACTIVE。
+            if (existing.hasSameContent(vehicle) &&
+                (existing.status == "ACTIVE" || isProtectedVehicleStatus(existing.status))
+            ) {
+                insertEffect(
+                    connection,
+                    batchId,
+                    row.id,
+                    existing.id,
+                    "UPDATED",
+                    existing.version,
+                    existing.toVehicleSnapshot(),
+                    existing.residentProfile?.toJson(),
+                    existing.longTermProfile?.toJson(),
+                )
+                return existing.id
+            }
             throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
         }
         val vehicleId = insertVehicle(connection, vehicle, batchId, actorId)
@@ -524,10 +543,29 @@ internal class ImportWorkflowService(
     private fun publishReactivate(connection: Connection, batchId: Long, row: StoredImportRow, actorId: Long): Long {
         val vehicle = ensureVehiclePublishable(row.vehicle)
         val previous = vehicle.sourceVehicleId?.let {
-            findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it, expectedStatus = "INACTIVE")
+            findVehicleForUpdate(connection, vehicle.normalizedPlate!!, it, expectedStatus = null)
         } ?: throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
-        if (previous.version != vehicle.sourceVehicleVersion) {
-            throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
+
+        // 预览后其他批次已经完成相同恢复时，当前 ACTIVE 档案无需再次写入。
+        if (previous.status == "ACTIVE") {
+            if (!previous.hasSameContent(vehicle)) {
+                throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "导入预览后正式数据已被其他管理员或其他导入批次修改，请重新预览")
+            }
+            insertEffect(
+                connection,
+                batchId,
+                row.id,
+                previous.id,
+                "UPDATED",
+                previous.version,
+                previous.toVehicleSnapshot(),
+                previous.residentProfile?.toJson(),
+                previous.longTermProfile?.toJson(),
+            )
+            return previous.id
+        }
+        if (previous.status != "INACTIVE" || !previous.hasSameContent(vehicle)) {
+            throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "导入预览后正式数据已被其他管理员或其他导入批次修改，请重新预览")
         }
         if (findVehicleForUpdate(connection, vehicle.normalizedPlate!!, expectedStatus = "ACTIVE") != null) {
             throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "该车牌已有有效档案，请重新上传并预览")
@@ -755,8 +793,10 @@ internal class ImportWorkflowService(
         normalizedPlate: String,
         expectedId: Long? = null,
         expectedStatus: String? = "ACTIVE",
-    ): ExistingVehicle? = connection.prepareStatement(
-        """
+    ): ExistingVehicle? {
+        val idClause = if (expectedId == null) "" else "AND v.id = ?"
+        return connection.prepareStatement(
+            """
         SELECT v.id, v.plate_number, v.normalized_plate, v.category, v.vehicle_type, v.status, v.import_batch_id,
                v.attributes::text, v.version,
                rp.id AS resident_profile_id, rp.owner_name, rp.identity_card_number, rp.contact_phone,
@@ -766,19 +806,23 @@ internal class ImportWorkflowService(
         FROM vehicles v
         LEFT JOIN resident_profiles rp ON rp.vehicle_id = v.id
         LEFT JOIN long_term_profiles lp ON lp.vehicle_id = v.id
-        WHERE (? IS NULL OR v.status = ?) AND v.normalized_plate = ?
+        WHERE (? IS NULL OR v.status = ?) AND v.normalized_plate = ? $idClause
+        ORDER BY CASE v.status
+            WHEN 'ACTIVE' THEN 0
+            WHEN 'BLACKLISTED' THEN 1
+            WHEN 'STRICT_CHECK' THEN 2
+            WHEN 'INACTIVE' THEN 3
+            ELSE 4
+        END, v.id
+        LIMIT 1
         FOR UPDATE OF v
         """.trimIndent(),
-    ).use { statement ->
-        statement.setString(1, expectedStatus)
-        statement.setString(2, expectedStatus)
-        statement.setString(3, normalizedPlate)
-        statement.executeQuery().use { result ->
-            if (!result.next()) null else result.toExistingVehicle().also {
-                if (expectedId != null && it.id != expectedId) {
-                    throw ImportWorkflowConflictException("IMPORT_SOURCE_CHANGED", "正式数据已变更，请重新上传并预览")
-                }
-            }
+        ).use { statement ->
+            statement.setString(1, expectedStatus)
+            statement.setString(2, expectedStatus)
+            statement.setString(3, normalizedPlate)
+            if (expectedId != null) statement.setLong(4, expectedId)
+            statement.executeQuery().use { result -> if (result.next()) result.toExistingVehicle() else null }
         }
     }
 
