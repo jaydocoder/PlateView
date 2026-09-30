@@ -10,7 +10,7 @@ internal class WechatSyncHealthService(private val dataSource: DataSource) {
         if (!allowed) return null
         val sources = dataSource.connection.use { connection ->
             connection.prepareStatement(
-                "SELECT collector_status, last_heartbeat_at, last_successful_sync_at FROM wechat_sources",
+                "SELECT collector_status, last_heartbeat_at, last_uploaded_at FROM wechat_sources",
             ).use { statement ->
                 statement.executeQuery().use { result ->
                     buildList {
@@ -19,7 +19,7 @@ internal class WechatSyncHealthService(private val dataSource: DataSource) {
                                 WechatSyncHealthSource(
                                     status = result.getString("collector_status"),
                                     lastHeartbeatAt = result.getTimestamp("last_heartbeat_at")?.toInstant(),
-                                    lastSuccessfulSyncAt = result.getTimestamp("last_successful_sync_at")?.toInstant(),
+                                    lastUploadedAt = result.getTimestamp("last_uploaded_at")?.toInstant(),
                                 ),
                             )
                         }
@@ -34,7 +34,7 @@ internal class WechatSyncHealthService(private val dataSource: DataSource) {
 internal data class WechatSyncHealthSource(
     val status: String,
     val lastHeartbeatAt: Instant?,
-    val lastSuccessfulSyncAt: Instant?,
+    val lastUploadedAt: Instant?,
 )
 
 @Serializable
@@ -59,7 +59,8 @@ internal fun aggregateWechatSyncHealth(
     }
     return WechatSyncHealthResponse(
         state = state,
-        lastSuccessfulSyncAt = sources.mapNotNull { it.lastSuccessfulSyncAt }.maxOrNull()?.toString(),
+        // 首页显示的是各微信群最后一次成功上传的时间，而不是心跳时间。
+        lastSuccessfulSyncAt = sources.mapNotNull { it.lastUploadedAt }.maxOrNull()?.toString(),
         lastHeartbeatAt = sources.mapNotNull { it.lastHeartbeatAt }.maxOrNull()?.toString(),
     )
 }

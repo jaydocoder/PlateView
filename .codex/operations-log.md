@@ -1269,3 +1269,9 @@
 - 修复：CREATE 在当前 ACTIVE 或风险状态档案资料完全一致时复用现有档案；REACTIVATE 在档案已按相同资料恢复为 ACTIVE 时幂等接受，并允许失效档案版本变化但内容未变化时继续恢复。
 - 保护：资料不一致仍返回 `IMPORT_SOURCE_CHANGED`；风险状态不会因导入被提升为 ACTIVE；按车牌查找时优先精确来源 ID，并固定状态优先级。
 - 验证：`cd server && ./gradlew --no-daemon test` 通过；`git diff --check` 通过。
+## 2026-09-30 微信首页同步时间改为最后上传时间
+
+- 现象：首页“微信正常”时间取 `last_successful_sync_at`，该字段由健康心跳更新，显示的是心跳时间而不是微信群最后上传时间。
+- 修复：`WechatSyncHealthService` 查询并聚合所有微信来源的 `last_uploaded_at` 最大值；心跳时间仍用于判断在线状态。
+- 兼容：保留 `lastSuccessfulSyncAt` 响应字段名，客户端无需改版即可显示正确时间。
+- 验证：`cd server && ./gradlew --no-daemon test` 通过。

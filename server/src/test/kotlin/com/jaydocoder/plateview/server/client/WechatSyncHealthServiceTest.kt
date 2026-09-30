@@ -9,7 +9,7 @@ class WechatSyncHealthServiceTest {
     private val now = Instant.parse("2026-09-24T14:30:00Z")
 
     @Test
-    fun `任一来源健康时整体状态优先显示健康`() {
+    fun `任一来源健康时整体状态优先显示健康且时间取最后上传`() {
         val result = aggregateWechatSyncHealth(
             sources = listOf(
                 source("HEALTHY", "2026-09-24T14:29:30Z", "2026-09-24T14:29:20Z"),
@@ -47,9 +47,9 @@ class WechatSyncHealthServiceTest {
         assertEquals(false, isSuccessfulWechatSyncHeartbeat("CATCHING_UP", 0, null))
     }
 
-    private fun source(status: String, heartbeat: String, successful: String? = null) = WechatSyncHealthSource(
+    private fun source(status: String, heartbeat: String, uploaded: String? = null) = WechatSyncHealthSource(
         status = status,
         lastHeartbeatAt = Instant.parse(heartbeat),
-        lastSuccessfulSyncAt = successful?.let(Instant::parse),
+        lastUploadedAt = uploaded?.let(Instant::parse),
     )
 }
