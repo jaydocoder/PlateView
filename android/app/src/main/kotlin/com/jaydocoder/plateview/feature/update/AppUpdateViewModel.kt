@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 data class AppUpdateUiState(
     val update: AppUpdate? = null,
@@ -58,6 +60,7 @@ class AppUpdateViewModel @Inject constructor(
     private var lastCheckAtEpochMillis = 0L
     private var queryScreenVisible = false
     private var latestCheckResult: UpdateCheckResult? = null
+    private var foregroundMonitorJob: Job? = null
 
     fun onQueryScreenVisible() {
         queryScreenVisible = true
@@ -69,6 +72,27 @@ class AppUpdateViewModel @Inject constructor(
 
     fun onQueryScreenHidden() {
         queryScreenVisible = false
+    }
+
+    fun startForegroundMonitoring() {
+        if (foregroundMonitorJob?.isActive == true) return
+        checkForUpdate()
+        foregroundMonitorJob = viewModelScope.launch {
+            while (true) {
+                delay(FOREGROUND_CHECK_INTERVAL_MILLIS)
+                checkForUpdate()
+            }
+        }
+    }
+
+    fun stopForegroundMonitoring() {
+        foregroundMonitorJob?.cancel()
+        foregroundMonitorJob = null
+    }
+
+    fun onNetworkAvailable() {
+        lastCheckAtEpochMillis = 0L
+        checkForUpdate()
     }
 
     fun checkForUpdate() {
@@ -94,8 +118,8 @@ class AppUpdateViewModel @Inject constructor(
                         current.copy(
                             isChecking = false,
                             isForceUpdate = isForceUpdate,
-                            isForceUpdateUnavailable = isForceUpdate && queryScreenVisible,
-                            isUpdateDialogVisible = current.isUpdateDialogVisible || (isForceUpdate && queryScreenVisible),
+                            isForceUpdateUnavailable = isForceUpdate,
+                            isUpdateDialogVisible = current.isUpdateDialogVisible || isForceUpdate,
                             isManualCheckDialogVisible = shouldShowManualResult && !isForceUpdate,
                             manualCheckState = if (shouldShowManualResult && !isForceUpdate) {
                                 ManualUpdateCheckState.Failed(appError.displayText())
@@ -230,8 +254,8 @@ class AppUpdateViewModel @Inject constructor(
                         update = cached ?: current.update,
                         isChecking = false,
                         isForceUpdate = isForceUpdate,
-                        isForceUpdateUnavailable = isForceUpdate && cached == null && queryScreenVisible,
-                        isUpdateDialogVisible = current.isUpdateDialogVisible || (isForceUpdate && queryScreenVisible),
+                        isForceUpdateUnavailable = isForceUpdate && cached == null,
+                        isUpdateDialogVisible = current.isUpdateDialogVisible || isForceUpdate,
                         isManualCheckDialogVisible = manualCheck && !isForceUpdate,
                         manualCheckState = if (manualCheck && !isForceUpdate) ManualUpdateCheckState.Failed("无法连接更新服务，请检查网络后重试") else ManualUpdateCheckState.Idle,
                     )
@@ -241,7 +265,7 @@ class AppUpdateViewModel @Inject constructor(
     }
 
     private suspend fun presentLatestCheckResultIfNeeded(session: AuthSession?) {
-        if (!queryScreenVisible || session == null) return
+        if (session == null) return
         latestCheckResult?.let { result ->
             applyCheckResult(result, session)
             return
@@ -265,12 +289,13 @@ class AppUpdateViewModel @Inject constructor(
     }
 
     private suspend fun shouldPromptFor(update: AppUpdate, session: AuthSession?, isForceUpdate: Boolean): Boolean {
-        if (!queryScreenVisible || session == null) return false
+        if (session == null) return false
         if (isForceUpdate) return true
         return promptStateRepository.handledVersion(session.userId) != update.versionName
     }
 
     private companion object {
-        const val CHECK_INTERVAL_MILLIS = 15 * 60 * 1_000L
+        const val CHECK_INTERVAL_MILLIS = 60 * 1_000L
+        const val FOREGROUND_CHECK_INTERVAL_MILLIS = 60 * 1_000L
     }
 }

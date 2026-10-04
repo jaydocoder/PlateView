@@ -46,11 +46,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         appSessionViewModel.setForeground(true)
+        appUpdateViewModel.startForegroundMonitoring()
         registerNetworkRecoveryCallback()
     }
 
     override fun onStop() {
         unregisterNetworkRecoveryCallback()
+        appUpdateViewModel.stopForegroundMonitoring()
         appSessionViewModel.setForeground(false)
         super.onStop()
     }
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity() {
                 if (networkWasLost) {
                     networkWasLost = false
                     appSessionViewModel.onNetworkAvailable()
+                    appUpdateViewModel.onNetworkAvailable()
                 }
             }
 

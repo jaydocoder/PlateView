@@ -24,7 +24,7 @@ class AppUpdateViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun `检测到新发行版时仅显示更新入口而不自动弹窗`() = runTest {
+    fun `检测到新发行版时立即弹出更新窗口`() = runTest {
         val update = AppUpdate("0.3.3", "修复查询排序", "https://example.com/app-release.apk")
         val viewModel = createViewModel(update = update)
 
@@ -32,7 +32,7 @@ class AppUpdateViewModelTest {
         advanceUntilIdle()
 
         assertEquals(update, viewModel.uiState.value.update)
-        assertEquals(false, viewModel.uiState.value.isUpdateDialogVisible)
+        assertEquals(true, viewModel.uiState.value.isUpdateDialogVisible)
         assertEquals(UpdateDownloadState.Idle, viewModel.uiState.value.downloadState)
     }
 
@@ -169,12 +169,12 @@ fun `强制更新无法连接服务且没有缓存时阻止查询首页`() = run
 }
 
 @Test
-fun `启动检查早于查询首页时强制更新仍会阻止查询`() = runTest {
+    fun `启动检查早于进入首页时强制更新仍会阻止操作`() = runTest {
     val viewModel = createViewModel(updatePolicy = "FORCED", unavailable = true)
 
     viewModel.checkForUpdate()
     advanceUntilIdle()
-    assertEquals(false, viewModel.uiState.value.isForceUpdateUnavailable)
+    assertEquals(true, viewModel.uiState.value.isForceUpdateUnavailable)
 
     viewModel.onQueryScreenVisible()
     advanceUntilIdle()

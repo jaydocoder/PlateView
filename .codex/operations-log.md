@@ -1339,6 +1339,16 @@
 - 复用 `CatalogConsistencyCoordinator.latestStates/accountJobs` 合并同步期间到达的新 revision。
 - 未新增远程数据下载入口；首页仍只读本地缓存，远程目录同步只由一致性协调器触发。
 
+## 编码后声明 - 微信大数据 FTS 查询优化收尾
+
+时间：2026-10-05
+
+- 已复用 `LocalSearchMetricsRecorder` 记录搜索耗时，并补充最近秩 P50/P95/P99 统计。
+- 已复用 `WorkOrderSearchIndex` 的外部内容 FTS 表和触发器；启动时仅在索引为空时重建，避免重复全量扫描。
+- 已遵循现有 Kotlin、Room、SQLCipher、JUnit 和 Android instrumentation 测试约定。
+- 已完成主代码编译、单元测试、Debug/AndroidTest 构建、真机数据库测试和差异空白检查。
+- 未重复引入数据库框架或第二套搜索实现；FTS 不可用仍沿用既有 Room 兼容查询。
+
 ## 2026-10-04 服务端查询性能优化
 
 ### 编码前检查
@@ -1374,3 +1384,12 @@
 - 微信消息搜索：基线中位数 15.38 毫秒，当前 11.44 毫秒，减少 3.94 毫秒（25.6%）。
 - 首页综合搜索：基线中位数 19.48 毫秒，当前 15.79 毫秒，减少 3.69 毫秒（19.0%）。
 - 测试只代表本机热缓存和当前数据量，不等同于公网或生产高并发延迟。
+
+## 编码前检查 - 微信大数据 FTS 查询优化
+
+时间：2026-10-05
+
+- 已查阅上下文摘要：`.codex/context-summary-wechat-search.md`。
+- 复用 `WorkOrderCacheDao`、`RoomWorkOrderRepository`、`WorkOrderCacheDatabase` 和现有迁移测试。
+- 遵循现有 Kotlin、Room、SQLCipher、Hilt 与协程测试约定。
+- 未新增数据库框架，FTS5 不可用时保留兼容查询路径。

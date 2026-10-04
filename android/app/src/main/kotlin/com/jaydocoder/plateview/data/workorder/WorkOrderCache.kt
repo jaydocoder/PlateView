@@ -18,6 +18,10 @@ import kotlinx.coroutines.flow.Flow
     indices = [
         Index(value = ["userId", "sentAt", "recordId"]),
         Index(value = ["userId", "sourceKey", "orderYear", "orderNumber", "sentAt", "recordId"]),
+        Index(value = ["userId", "normalizedPlate"]),
+        Index(value = ["userId", "orderNumber"]),
+        Index(value = ["userId", "isLatest", "sentAt", "recordId"]),
+        Index(value = ["userId", "latestGroupKey", "sentAt", "recordId"]),
     ],
 )
 data class WorkOrderCacheEntity(
@@ -37,6 +41,16 @@ data class WorkOrderCacheEntity(
     val detailJson: String,
     val orderYear: Int = 0,
     val sourceKey: String = "",
+    val normalizedPlate: String? = null,
+    val rawContent: String = "",
+    val remarks: String? = null,
+    val senderUsername: String? = null,
+    val senderDisplay: String? = null,
+    val senderGroupNickname: String? = null,
+    val displayName: String? = null,
+    val isLatest: Boolean = true,
+    val latestGroupKey: String = "",
+    val displaySummary: String = "",
 )
 
 @Entity(tableName = "work_order_catalog_state")
@@ -50,7 +64,10 @@ data class WorkOrderCatalogStateEntity(
 @Entity(
     tableName = "wechat_message_cache",
     primaryKeys = ["userId", "messageId"],
-    indices = [Index(value = ["userId", "sentAt", "messageId"])],
+    indices = [
+        Index(value = ["userId", "sentAt", "messageId"]),
+        Index(value = ["userId", "sourceKey", "sentAt", "messageId"]),
+    ],
 )
 data class WechatMessageCacheEntity(
     val userId: Long,
@@ -64,6 +81,14 @@ data class WechatMessageCacheEntity(
     val cachedAt: Long,
     val lastValidatedAt: Long,
     val detailJson: String,
+    val rawContent: String = "",
+    val matchedSnippet: String = "",
+    val senderUsername: String? = null,
+    val senderDisplay: String? = null,
+    val senderGroupNickname: String? = null,
+    val sourceKey: String = "",
+    val plateNumbers: String = "",
+    val displaySummary: String = "",
 )
 
 @Entity(
@@ -149,7 +174,7 @@ interface WorkOrderCacheDao {
         SELECT c.* FROM work_order_cache AS c
         WHERE c.userId = :userId AND c.searchableText LIKE '%' || :keyword || '%'
           AND (
-            c.orderNumber IS NULL OR NOT EXISTS (
+            c.isLatest = 1 OR c.orderNumber IS NULL OR NOT EXISTS (
                 SELECT 1 FROM work_order_cache AS n
                 WHERE n.userId = c.userId
                   AND n.sourceKey = c.sourceKey
@@ -266,7 +291,7 @@ interface WorkOrderCacheDao {
     suspend fun clearAll() { clearAllRecords(); clearAllStates(); clearAllMessages(); clearAllAttachmentTasks() }
 }
 
-@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 8, exportSchema = true)
+@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 9, exportSchema = true)
 abstract class WorkOrderCacheDatabase : RoomDatabase() {
     abstract fun dao(): WorkOrderCacheDao
 }

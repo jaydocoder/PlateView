@@ -16,6 +16,7 @@ import com.jaydocoder.plateview.domain.workorder.WorkOrderAttachmentSyncResult
 import com.jaydocoder.plateview.domain.workorder.AttachmentDownloadState
 import com.jaydocoder.plateview.domain.workorder.AttachmentManifestSyncResult
 import com.jaydocoder.plateview.data.network.ClientRuntimePolicyProvider
+import android.os.SystemClock
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.map
 class RoomWorkOrderRepository @Inject constructor(
     private val api: WorkOrderApi,
     private val dao: WorkOrderCacheDao,
+    private val searchIndex: WorkOrderSearchIndex,
     private val runtimePolicyProvider: ClientRuntimePolicyProvider,
     private val attachmentCacheRepository: WechatAttachmentCacheRepository,
 ) : WorkOrderRepository {
@@ -54,20 +56,26 @@ class RoomWorkOrderRepository @Inject constructor(
 
     override suspend fun searchCached(userId: Long, keyword: String): List<WorkOrder> = searchCached(userId, keyword, MAXIMUM_RESULTS)
 
-    override suspend fun searchCached(userId: Long, keyword: String, limit: Int): List<WorkOrder> =
-        searchCache(workOrderSearchCache, userId, keyword, limit) {
-            dao.search(userId, normalize(keyword), limit.coerceIn(1, 50)).map(::fromEntity)
+    override suspend fun searchCached(userId: Long, keyword: String, limit: Int): List<WorkOrder> {
+        val startedAt = SystemClock.elapsedRealtime()
+        val normalized = normalize(keyword)
+        return searchCache(workOrderSearchCache, userId, normalized, limit, dao.state(userId)?.catalogVersion ?: 0L, SearchMetricKind.WORK_ORDER, SystemClock.elapsedRealtime() - startedAt, searchIndex::ensureReady, { searchIndex.ftsAvailable }) {
+            searchIndex.searchWorkOrders(userId, normalized, limit.coerceIn(1, 50))
         }
+    }
 
     override suspend fun searchRemote(accessToken: String, keyword: String): List<WorkOrder> =
         api.search(bearer(accessToken), keyword).candidates.map(WorkOrderDto::toDomain)
 
     override suspend fun searchMessagesCached(userId: Long, keyword: String): List<WechatMessage> = searchMessagesCached(userId, keyword, MAXIMUM_RESULTS)
 
-    override suspend fun searchMessagesCached(userId: Long, keyword: String, limit: Int): List<WechatMessage> =
-        searchCache(messageSearchCache, userId, keyword, limit) {
-            dao.searchMessages(userId, normalize(keyword), limit.coerceIn(1, 50)).map { gson.fromJson(it.detailJson, WechatMessage::class.java) }
+    override suspend fun searchMessagesCached(userId: Long, keyword: String, limit: Int): List<WechatMessage> {
+        val startedAt = SystemClock.elapsedRealtime()
+        val normalized = normalize(keyword)
+        return searchCache(messageSearchCache, userId, normalized, limit, dao.state(userId)?.messageCatalogVersion ?: 0L, SearchMetricKind.WECHAT_MESSAGE, SystemClock.elapsedRealtime() - startedAt, searchIndex::ensureReady, { searchIndex.ftsAvailable }) {
+            searchIndex.searchMessages(userId, normalized, limit.coerceIn(1, 50))
         }
+    }
 
     override suspend fun searchMessagesRemote(accessToken: String, keyword: String, offset: Int): WechatMessagePage {
         val page = api.searchMessages(bearer(accessToken), keyword, offset, MAXIMUM_RESULTS)
@@ -79,6 +87,7 @@ class RoomWorkOrderRepository @Inject constructor(
         searchHomeRemote(accessToken, userId, keyword, MAXIMUM_RESULTS)
 
     override suspend fun searchHomeRemote(accessToken: String, userId: Long, keyword: String, limit: Int): WorkOrderHomeSearchResult {
+        searchIndex.ensureReady()
         val response = api.searchHome(bearer(accessToken), keyword, limit.coerceIn(1, 50))
         val workOrders = response.workOrderCandidates.map(WorkOrderDto::toDomain)
         val messages = response.wechatMessages.map(WechatMessageDto::toDomain)
@@ -97,7 +106,7 @@ class RoomWorkOrderRepository @Inject constructor(
     }
 
     override suspend fun getCachedWechatMessage(userId: Long, messageId: Long): WechatMessage? =
-        dao.getMessage(userId, messageId)?.let { gson.fromJson(it.detailJson, WechatMessage::class.java) }
+        dao.getMessage(userId, messageId)?.let(::decodeWechatMessage)
 
     override suspend fun refreshWechatMessage(accessToken: String, userId: Long, messageId: Long): WechatMessage {
         val record = api.messageDetail(bearer(accessToken), messageId).toDomain()
@@ -113,6 +122,7 @@ class RoomWorkOrderRepository @Inject constructor(
         targetWorkOrderRevision: Long?,
         targetMessageRevision: Long?,
     ): WorkOrderSyncResult = synchronizationMutex.withLock {
+        searchIndex.ensureReady()
         workOrderSearchCache.clear()
         messageSearchCache.clear()
         val now = System.currentTimeMillis()
@@ -488,7 +498,7 @@ class RoomWorkOrderRepository @Inject constructor(
         dao.prioritizeAttachment(userId, attachmentId, PRIORITY_FOREGROUND, System.currentTimeMillis())
     }
 
-    override suspend fun getCachedWorkOrder(userId: Long, recordId: Long): WorkOrder? = dao.get(userId, recordId)?.let(::fromEntity)
+    override suspend fun getCachedWorkOrder(userId: Long, recordId: Long): WorkOrder? = dao.get(userId, recordId)?.let(::decodeWorkOrder)
 
     override suspend fun refreshWorkOrder(accessToken: String, userId: Long, recordId: Long): WorkOrder {
         val record = api.detail(bearer(accessToken), recordId).toDomain()
@@ -653,7 +663,35 @@ class RoomWorkOrderRepository @Inject constructor(
         }
     }
 
-    private fun fromEntity(entity: WorkOrderCacheEntity): WorkOrder = gson.fromJson(entity.detailJson, WorkOrder::class.java)
+    private fun decodeWorkOrder(entity: WorkOrderCacheEntity): WorkOrder {
+        val startedAt = SystemClock.elapsedRealtime()
+        return gson.fromJson(entity.detailJson, WorkOrder::class.java).also {
+            LocalSearchMetricsRecorder.record(
+                LocalSearchMetric(
+                    queryNormalizeMs = 0,
+                    detailDecodeMs = SystemClock.elapsedRealtime() - startedAt,
+                    cacheHit = true,
+                    ftsEnabled = searchIndex.ftsAvailable,
+                    resultCount = 1,
+                ),
+            )
+        }
+    }
+
+    private fun decodeWechatMessage(entity: WechatMessageCacheEntity): WechatMessage {
+        val startedAt = SystemClock.elapsedRealtime()
+        return gson.fromJson(entity.detailJson, WechatMessage::class.java).also {
+            LocalSearchMetricsRecorder.record(
+                LocalSearchMetric(
+                    queryNormalizeMs = 0,
+                    detailDecodeMs = SystemClock.elapsedRealtime() - startedAt,
+                    cacheHit = true,
+                    ftsEnabled = searchIndex.ftsAvailable,
+                    resultCount = 1,
+                ),
+            )
+        }
+    }
 
     private companion object {
         const val MAXIMUM_RESULTS = 8
@@ -694,10 +732,42 @@ private suspend fun <T> searchCache(
     userId: Long,
     keyword: String,
     limit: Int,
+    revision: Long,
+    kind: SearchMetricKind,
+    queryNormalizeMs: Long,
+    ensureIndex: () -> Unit,
+    ftsEnabled: () -> Boolean,
     loader: suspend () -> List<T>,
 ): List<T> {
-    val key = "$userId|${keyword.trim().uppercase()}|$limit"
-    return cache.get(key) ?: loader().also { loaded -> cache.put(key, loaded) }
+    ensureIndex()
+    val key = "$userId|$revision|${keyword.trim().uppercase()}|$limit"
+    val startedAt = SystemClock.elapsedRealtime()
+    cache.get(key)?.let { cached ->
+        recordSearchMetric(kind, elapsed = SystemClock.elapsedRealtime() - startedAt, queryNormalizeMs = queryNormalizeMs, resultCount = cached.size, cacheHit = true, ftsEnabled = ftsEnabled())
+        return cached
+    }
+    return loader().also { loaded ->
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        cache.put(key, loaded)
+        recordSearchMetric(kind, elapsed = elapsed, queryNormalizeMs = queryNormalizeMs, resultCount = loaded.size, cacheHit = false, ftsEnabled = ftsEnabled())
+    }
+}
+
+private enum class SearchMetricKind { WORK_ORDER, WECHAT_MESSAGE }
+
+private fun recordSearchMetric(kind: SearchMetricKind, elapsed: Long, queryNormalizeMs: Long, resultCount: Int, cacheHit: Boolean, ftsEnabled: Boolean) {
+    LocalSearchMetricsRecorder.record(
+        LocalSearchMetric(
+            queryNormalizeMs = queryNormalizeMs,
+            workOrderQueryMs = elapsed.takeIf { kind == SearchMetricKind.WORK_ORDER } ?: 0,
+            wechatMessageQueryMs = elapsed.takeIf { kind == SearchMetricKind.WECHAT_MESSAGE } ?: 0,
+            ftsQueryMs = elapsed.takeIf { ftsEnabled } ?: 0,
+            summaryMappingMs = 0,
+            cacheHit = cacheHit,
+            ftsEnabled = ftsEnabled,
+            resultCount = resultCount,
+        ),
+    )
 }
 
 private fun retryAt(attempt: Int): Long {
@@ -919,6 +989,7 @@ private fun WorkOrder.toEntity(userId: Long, gson: Gson, cachedAt: Long, lastVal
     recordId = id,
     orderNumber = orderNumber,
     orderYear = orderYear,
+    normalizedPlate = normalizedPlate,
     rawPlate = rawPlate,
     status = status,
     sourceKey = sourceKey,
@@ -926,7 +997,15 @@ private fun WorkOrder.toEntity(userId: Long, gson: Gson, cachedAt: Long, lastVal
     location = location,
     rawValidTime = rawValidTime,
     sentAt = sentAt,
+    rawContent = rawContent,
+    remarks = remarks,
+    senderUsername = senderUsername,
+    senderDisplay = senderDisplay,
+    senderGroupNickname = senderGroupNickname,
+    displayName = displayName,
     searchableText = listOfNotNull(orderNumber, rawPlate, normalizedPlate, rawContent).joinToString("").uppercase().replace(Regex("[\\s，。；：、,.;:()（）【】\\[\\]_-]+"), ""),
+    latestGroupKey = listOf(userId, sourceKey, orderYear, orderNumber.orEmpty()).joinToString("|"),
+    displaySummary = listOfNotNull(orderNumber, rawPlate, sourceName, rawValidTime, location).joinToString(" · "),
     catalogRevision = catalogRevision,
     cachedAt = cachedAt,
     lastValidatedAt = lastValidatedAt,
@@ -940,6 +1019,14 @@ private fun WechatMessage.toEntity(userId: Long, gson: Gson, catalogRevision: Lo
     displayName = displayName,
     sourceName = sourceName,
     sentAt = sentAt,
+    rawContent = rawContent,
+    matchedSnippet = matchedSnippet,
+    senderUsername = senderUsername,
+    senderDisplay = senderDisplay,
+    senderGroupNickname = senderGroupNickname,
+    sourceKey = sourceKey,
+    plateNumbers = plateNumbers.joinToString("|"),
+    displaySummary = listOfNotNull(displayName, senderDisplay, senderGroupNickname, sourceName).joinToString(" · "),
     searchableText = listOf(displayName, senderDisplay, senderGroupNickname, sourceName, rawContent, plateNumbers.joinToString())
         .joinToString("").uppercase().replace(Regex("[\\s，。；：、,.;:()（）【】\\[\\]_-]+"), ""),
     catalogRevision = catalogRevision,

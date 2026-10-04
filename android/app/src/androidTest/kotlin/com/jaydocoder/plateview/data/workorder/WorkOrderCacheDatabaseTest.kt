@@ -141,6 +141,54 @@ class WorkOrderCacheDatabaseTest {
     }
 
     @Test
+    fun 版本八迁移后回填摘要分组键并保留最新记录标记() {
+        migrationHelper.createDatabase("work-order-migration-8-9", 8).apply {
+            execSQL(
+                "INSERT INTO work_order_cache(userId, recordId, orderNumber, rawPlate, status, sourceName, location, rawValidTime, sentAt, searchableText, catalogRevision, cachedAt, lastValidatedAt, detailJson, orderYear, sourceKey) VALUES (7, 51, '0924001', '新H27274', 'ACTIVE', '测试群', '禾木', '9.24', '2026-09-24T03:00:00Z', '0924001', 8, 1, 1, '{}', 2026, 'source-a')",
+            )
+            execSQL(
+                "INSERT INTO work_order_cache(userId, recordId, orderNumber, rawPlate, status, sourceName, location, rawValidTime, sentAt, searchableText, catalogRevision, cachedAt, lastValidatedAt, detailJson, orderYear, sourceKey) VALUES (7, 52, '0924001', '新H27274', 'ACTIVE', '测试群', '禾木', '9.24', '2026-09-24T04:00:00Z', '0924001', 9, 1, 1, '{}', 2026, 'source-a')",
+            )
+            close()
+        }
+
+        migrationHelper.runMigrationsAndValidate(
+            "work-order-migration-8-9",
+            9,
+            true,
+            WORK_ORDER_CACHE_MIGRATION_8_9,
+        ).use { migrated ->
+            migrated.query("SELECT latestGroupKey, displaySummary, isLatest FROM work_order_cache ORDER BY recordId").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals("7|source-a|2026|0924001", cursor.getString(0))
+                assertEquals("0924001 · 新H27274 · 测试群", cursor.getString(1))
+                assertEquals(0, cursor.getInt(2))
+                assertEquals(true, cursor.moveToNext())
+                assertEquals(1, cursor.getInt(2))
+            }
+        }
+    }
+
+    @Test
+    fun FTS索引搜索车单和聊天摘要且只返回最新车单() = runBlocking {
+        val index = WorkOrderSearchIndex(database)
+        index.ensureReady()
+        database.dao().upsert(
+            listOf(
+                entity(61, "0924001", "2026-09-24T03:00:00Z"),
+                entity(62, "0924001", "2026-09-24T04:00:00Z"),
+            ),
+        )
+        database.dao().upsertMessages(listOf(messageEntity(7, 71)))
+
+        val orders = index.searchWorkOrders(7, "测试0", 20)
+        val messages = index.searchMessages(7, "测试消", 20)
+
+        assertEquals(listOf(62L), orders.map { it.id })
+        assertEquals(listOf(71L), messages.map { it.id })
+    }
+
+    @Test
     fun 目录事务同时应用更新墓碑并推进版本() = runBlocking {
         val dao = database.dao()
         dao.upsert(listOf(entity(1, "0924001", "2026-09-24T03:00:00Z")))
@@ -255,6 +303,7 @@ class WorkOrderCacheDatabaseTest {
         detailJson = "{}",
         orderYear = orderYear,
         sourceKey = sourceKey,
+        latestGroupKey = listOf(userId, sourceKey, orderYear, orderNumber).joinToString("|"),
     )
 
     private fun messageEntity(userId: Long, messageId: Long) = WechatMessageCacheEntity(
