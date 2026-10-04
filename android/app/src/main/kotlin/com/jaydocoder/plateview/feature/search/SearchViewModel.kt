@@ -45,6 +45,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import retrofit2.HttpException
+import android.util.Log
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -221,6 +222,7 @@ class SearchViewModel @Inject constructor(
             if (limits.vehicleResultLimit == 0) {
                 jobs += launch { vehicleCacheRepository.clearSnapshot(session.userId) }
             } else jobs += launch {
+                val startedAt = elapsedRealtimeMillis()
                 runCatching { vehicleCacheRepository.search(session.userId, normalizedQuery, limits.vehicleResultLimit) }
                     .onSuccess { local ->
                         _uiState.update {
@@ -229,10 +231,14 @@ class SearchViewModel @Inject constructor(
                                 vehicleSectionState = if (local.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
                             )
                         }
+                        logDebug("车辆本地查询耗时=${elapsedRealtimeMillis() - startedAt}ms，结果=${local.size}")
+                        updateOverallSearchState()
                     }
                     .onFailure { error ->
                         error.rethrowIfCancellation()
                         _uiState.update { it.copy(vehicleSectionState = SearchSectionState.Error(AppErrorMapper.map("查询本地车辆缓存", error))) }
+                        logWarn("车辆本地查询失败，耗时=${elapsedRealtimeMillis() - startedAt}ms", error)
+                        updateOverallSearchState()
                     }
             }
 
@@ -240,29 +246,41 @@ class SearchViewModel @Inject constructor(
                 jobs += launch { runCatching { workOrderRepository.clear(session.userId) } }
             } else {
                 if (limits.workOrderResultLimit == 0) jobs += launch { workOrderRepository.clearWorkOrders(session.userId) } else jobs += launch {
+                    val startedAt = elapsedRealtimeMillis()
                     runCatching { workOrderRepository.searchCached(session.userId, normalizedQuery, limits.workOrderResultLimit) }
                         .onSuccess { local -> _uiState.update {
                             it.copy(
                                 workOrderCandidates = local,
                                 workOrderSectionState = if (local.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
                             )
+                        }.also {
+                            logDebug("微信车单本地查询耗时=${elapsedRealtimeMillis() - startedAt}ms，结果=${local.size}")
+                            updateOverallSearchState()
                         } }
                         .onFailure { error ->
                             error.rethrowIfCancellation()
                             _uiState.update { it.copy(workOrderSectionState = SearchSectionState.Error(AppErrorMapper.map("查询本地微信车单缓存", error))) }
+                            logWarn("微信车单本地查询失败，耗时=${elapsedRealtimeMillis() - startedAt}ms", error)
+                            updateOverallSearchState()
                         }
                 }
                 if (limits.wechatMessageResultLimit == 0) jobs += launch { workOrderRepository.clearMessages(session.userId) } else jobs += launch {
+                    val startedAt = elapsedRealtimeMillis()
                     runCatching { workOrderRepository.searchMessagesCached(session.userId, normalizedQuery, limits.wechatMessageResultLimit) }
                         .onSuccess { local -> _uiState.update {
                             it.copy(
                                 wechatMessages = local,
                                 wechatMessageSectionState = if (local.isEmpty()) SearchSectionState.Empty else SearchSectionState.Success,
                             )
+                        }.also {
+                            logDebug("微信聊天本地查询耗时=${elapsedRealtimeMillis() - startedAt}ms，结果=${local.size}")
+                            updateOverallSearchState()
                         } }
                         .onFailure { error ->
                             error.rethrowIfCancellation()
                             _uiState.update { it.copy(wechatMessageSectionState = SearchSectionState.Error(AppErrorMapper.map("查询本地微信聊天缓存", error))) }
+                            logWarn("微信聊天本地查询失败，耗时=${elapsedRealtimeMillis() - startedAt}ms", error)
+                            updateOverallSearchState()
                         }
                 }
             }
@@ -351,6 +369,7 @@ class SearchViewModel @Inject constructor(
     }
 
     private companion object {
+        const val LOG_TAG = "PlateViewSearch"
         const val QUERY_DEBOUNCE_MILLIS = 250L
         const val HTTP_UNAUTHORIZED = 401
         const val HTTP_FORBIDDEN = 403
@@ -359,6 +378,16 @@ class SearchViewModel @Inject constructor(
 
 private fun formatConfirmationTime(epochMillis: Long): String =
     java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.CHINA).format(java.util.Date(epochMillis))
+
+private fun elapsedRealtimeMillis(): Long = System.nanoTime() / 1_000_000L
+
+private fun logDebug(message: String) {
+    runCatching { Log.d("PlateViewSearch", message) }
+}
+
+private fun logWarn(message: String, error: Throwable) {
+    runCatching { Log.w("PlateViewSearch", message, error) }
+}
 
 private fun searchError(kind: AppErrorKind, message: String) = AppError(
     operation = "查询车辆",

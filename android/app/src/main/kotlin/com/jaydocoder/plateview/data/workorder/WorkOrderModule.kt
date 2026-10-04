@@ -34,6 +34,7 @@ object WorkOrderDataModule {
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_4_5)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_5_6)
             .addMigrations(WORK_ORDER_CACHE_MIGRATION_6_7)
+            .addMigrations(WORK_ORDER_CACHE_MIGRATION_7_8)
             .build()
 
     @Provides
@@ -62,6 +63,14 @@ internal val WORK_ORDER_CACHE_MIGRATION_6_7 = object : Migration(6, 7) {
         db.execSQL("ALTER TABLE `work_order_cache` ADD COLUMN `sourceKey` TEXT NOT NULL DEFAULT ''")
         db.execSQL("UPDATE `work_order_cache` SET `orderYear` = COALESCE(CAST(strftime('%Y', `sentAt`, '+8 hours') AS INTEGER), 0)")
         db.execSQL("UPDATE `work_order_cache` SET `sourceKey` = `sourceName` WHERE `sourceKey` = ''")
+    }
+}
+
+internal val WORK_ORDER_CACHE_MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_work_order_cache_userId_sentAt_recordId` ON `work_order_cache` (`userId`, `sentAt`, `recordId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_work_order_cache_userId_sourceKey_orderYear_orderNumber_sentAt_recordId` ON `work_order_cache` (`userId`, `sourceKey`, `orderYear`, `orderNumber`, `sentAt`, `recordId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_wechat_message_cache_userId_sentAt_messageId` ON `wechat_message_cache` (`userId`, `sentAt`, `messageId`)")
     }
 }
 

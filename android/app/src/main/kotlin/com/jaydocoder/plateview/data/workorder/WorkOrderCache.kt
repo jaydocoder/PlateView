@@ -12,7 +12,14 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
-@Entity(tableName = "work_order_cache", primaryKeys = ["userId", "recordId"])
+@Entity(
+    tableName = "work_order_cache",
+    primaryKeys = ["userId", "recordId"],
+    indices = [
+        Index(value = ["userId", "sentAt", "recordId"]),
+        Index(value = ["userId", "sourceKey", "orderYear", "orderNumber", "sentAt", "recordId"]),
+    ],
+)
 data class WorkOrderCacheEntity(
     val userId: Long,
     val recordId: Long,
@@ -40,7 +47,11 @@ data class WorkOrderCatalogStateEntity(
     val checkedAtEpochMillis: Long,
 )
 
-@Entity(tableName = "wechat_message_cache", primaryKeys = ["userId", "messageId"])
+@Entity(
+    tableName = "wechat_message_cache",
+    primaryKeys = ["userId", "messageId"],
+    indices = [Index(value = ["userId", "sentAt", "messageId"])],
+)
 data class WechatMessageCacheEntity(
     val userId: Long,
     val messageId: Long,
@@ -255,7 +266,7 @@ interface WorkOrderCacheDao {
     suspend fun clearAll() { clearAllRecords(); clearAllStates(); clearAllMessages(); clearAllAttachmentTasks() }
 }
 
-@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 7, exportSchema = true)
+@Database(entities = [WorkOrderCacheEntity::class, WorkOrderCatalogStateEntity::class, WechatMessageCacheEntity::class, WechatAttachmentDownloadTaskEntity::class], version = 8, exportSchema = true)
 abstract class WorkOrderCacheDatabase : RoomDatabase() {
     abstract fun dao(): WorkOrderCacheDao
 }
