@@ -34,6 +34,7 @@ import okhttp3.ResponseBody
 import retrofit2.HttpException
 import kotlin.math.min
 import kotlin.random.Random
+import java.util.LinkedHashMap
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -48,11 +49,15 @@ class RoomWorkOrderRepository @Inject constructor(
     private val synchronizationMutex = Mutex()
     private val attachmentManifestMutex = Mutex()
     private val attachmentDownloadMutex = Mutex()
+    private val workOrderSearchCache = SearchResultCache<List<WorkOrder>>(24)
+    private val messageSearchCache = SearchResultCache<List<WechatMessage>>(24)
 
     override suspend fun searchCached(userId: Long, keyword: String): List<WorkOrder> = searchCached(userId, keyword, MAXIMUM_RESULTS)
 
     override suspend fun searchCached(userId: Long, keyword: String, limit: Int): List<WorkOrder> =
-        dao.search(userId, normalize(keyword), limit.coerceIn(1, 50)).map(::fromEntity)
+        searchCache(workOrderSearchCache, userId, keyword, limit) {
+            dao.search(userId, normalize(keyword), limit.coerceIn(1, 50)).map(::fromEntity)
+        }
 
     override suspend fun searchRemote(accessToken: String, keyword: String): List<WorkOrder> =
         api.search(bearer(accessToken), keyword).candidates.map(WorkOrderDto::toDomain)
@@ -60,7 +65,9 @@ class RoomWorkOrderRepository @Inject constructor(
     override suspend fun searchMessagesCached(userId: Long, keyword: String): List<WechatMessage> = searchMessagesCached(userId, keyword, MAXIMUM_RESULTS)
 
     override suspend fun searchMessagesCached(userId: Long, keyword: String, limit: Int): List<WechatMessage> =
-        dao.searchMessages(userId, normalize(keyword), limit.coerceIn(1, 50)).map { gson.fromJson(it.detailJson, WechatMessage::class.java) }
+        searchCache(messageSearchCache, userId, keyword, limit) {
+            dao.searchMessages(userId, normalize(keyword), limit.coerceIn(1, 50)).map { gson.fromJson(it.detailJson, WechatMessage::class.java) }
+        }
 
     override suspend fun searchMessagesRemote(accessToken: String, keyword: String, offset: Int): WechatMessagePage {
         val page = api.searchMessages(bearer(accessToken), keyword, offset, MAXIMUM_RESULTS)
@@ -106,6 +113,8 @@ class RoomWorkOrderRepository @Inject constructor(
         targetWorkOrderRevision: Long?,
         targetMessageRevision: Long?,
     ): WorkOrderSyncResult = synchronizationMutex.withLock {
+        workOrderSearchCache.clear()
+        messageSearchCache.clear()
         val now = System.currentTimeMillis()
         var state = dao.state(userId) ?: WorkOrderCatalogStateEntity(userId, 0, 0, 0)
         if (!forceVersionCheck && state.checkedAtEpochMillis > 0 && now - state.checkedAtEpochMillis < VERSION_CHECK_INTERVAL_MILLIS) {
@@ -661,6 +670,34 @@ class RoomWorkOrderRepository @Inject constructor(
         fun bearer(token: String) = "Bearer $token"
         fun normalize(value: String) = value.uppercase().replace(Regex("[\\s，。；：、,.;:()（）【】\\[\\]_-]+"), "")
     }
+}
+
+private class SearchResultCache<T>(private val capacity: Int) {
+    private val values = object : LinkedHashMap<String, T>(capacity, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, T>?): Boolean = size > capacity
+    }
+
+    @Synchronized
+    fun get(key: String): T? = values[key]
+
+    @Synchronized
+    fun put(key: String, value: T) {
+        values[key] = value
+    }
+
+    @Synchronized
+    fun clear() = values.clear()
+}
+
+private suspend fun <T> searchCache(
+    cache: SearchResultCache<List<T>>,
+    userId: Long,
+    keyword: String,
+    limit: Int,
+    loader: suspend () -> List<T>,
+): List<T> {
+    val key = "$userId|${keyword.trim().uppercase()}|$limit"
+    return cache.get(key) ?: loader().also { loaded -> cache.put(key, loaded) }
 }
 
 private fun retryAt(attempt: Int): Long {
