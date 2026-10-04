@@ -9,7 +9,6 @@ on:
       - "compose.production.yaml"
       - "deploy/**"
       - "infra/**"
-      - "web/**"
       - ".github/workflows/server-deploy.yml"
   workflow_dispatch:
     inputs:
@@ -52,25 +51,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-
-      - name: 配置 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: 构建网页客户端
-        working-directory: web
-        run: npm ci && npm run build
-
-      - name: 上传网页构建产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: plateview-web-dist
-          path: web/dist
-          if-no-files-found: error
-          retention-days: 3
 
       - name: 配置 Gradle 缓存
         uses: gradle/actions/setup-gradle@v4
@@ -116,12 +96,6 @@ jobs:
     needs: build-image
     runs-on: ubuntu-latest
     steps:
-      - name: 下载网页构建产物
-        uses: actions/download-artifact@v4
-        with:
-          name: plateview-web-dist
-          path: web-dist
-
       - name: 配置 SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -152,11 +126,6 @@ jobs:
             -o ServerAliveCountMax=20 \
             -o ConnectTimeout=20 \
             -p "$DEPLOY_PORT")
-          scp_args=(-i "$HOME/.ssh/plateview_deploy" \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=20 \
-            -P "$DEPLOY_PORT")
           printf '%s' "$GHCR_TOKEN" | ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
             "docker login ghcr.io -u '$GHCR_USER' --password-stdin >/dev/null"
 
@@ -181,8 +150,6 @@ jobs:
             -o ConnectTimeout=20 \
             -p "$DEPLOY_PORT")
           remote="$DEPLOY_USER@$DEPLOY_HOST"
-          ssh "${ssh_args[@]}" "$remote" "mkdir -p /opt/plateview/web-dist && find /opt/plateview/web-dist -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
-          scp "${scp_args[@]}" -r web-dist/. "$remote:/opt/plateview/web-dist/"
           status_file="/opt/plateview/runtime/deploy-status-$TARGET_COMMIT"
           ssh "${ssh_args[@]}" "$remote" \
             "rm -f '$status_file'; nohup sh -c 'set -u; rc=0; (cd /opt/plateview/source && git fetch --prune origin main && git checkout --detach --force $TARGET_COMMIT && ./deploy/plateview-deploy.sh $TARGET_COMMIT $TARGET_IMAGE) || rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"; exit \"\$rc\"' </dev/null >/dev/null 2>&1 &"

@@ -46,7 +46,6 @@ services:
       - ./data/caddy:/data:Z
       - ./data/caddy-config:/config:Z
       - ./updates:/srv/updates:ro,Z
-      - ./web-dist:/srv/web:ro,Z
     networks:
       - backend
       - edge
