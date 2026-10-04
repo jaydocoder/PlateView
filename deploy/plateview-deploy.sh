@@ -238,7 +238,8 @@ record_resource_snapshot "部署前"
 : "${POSTGRES_USER:?生产环境缺少 POSTGRES_USER}"
 : "${POSTGRES_PASSWORD:?生产环境缺少 POSTGRES_PASSWORD}"
 
-compose up -d --no-recreate postgres caddy
+compose up -d --no-recreate postgres
+compose up -d --force-recreate caddy
 docker update --memory 384m --memory-reservation 256m --memory-swap 512m --cpus 0.45 --pids-limit 256 "$POSTGRES_CONTAINER" >/dev/null
 docker update --memory 128m --memory-reservation 64m --memory-swap 192m --cpus 0.20 --pids-limit 128 "$CADDY_CONTAINER" >/dev/null
 [[ "$(docker inspect -f '{{.State.Health.Status}}' "$POSTGRES_CONTAINER" 2>/dev/null || true)" == "healthy" ]] \
