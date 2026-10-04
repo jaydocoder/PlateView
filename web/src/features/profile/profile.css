@@ -1,0 +1,41 @@
+.profile-page { max-width: 640px; margin: 12px auto; display: grid; gap: 24px; }
+.profile-identity { display: flex; align-items: center; gap: 20px; min-height: 180px; padding: 28px 24px; border-radius: 8px; background: #d9eef1 url('/web/vehicle-detail-mountain-road.png') center/cover; color: #083f34; }
+.profile-identity .avatar { width: 80px; height: 80px; flex: 0 0 80px; background: #f7fcfa; }
+.profile-identity-text { min-width: 0; flex: 1; }
+.profile-identity h2 { margin: 0 0 14px; font-size: 24px; overflow-wrap: anywhere; }
+.profile-role { display: inline-block; padding: 5px 14px; border-radius: 6px; background: #d4f0e4; font-size: 15px; }
+.profile-edit { min-width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: #f2faf3d9; color: #124e40; cursor: pointer; flex-shrink: 0; }
+.profile-menu { border-block: 1px solid #c9d8d2; }
+.profile-menu-row { width: 100%; min-height: 80px; display: flex; align-items: center; gap: 18px; padding: 16px 12px; color: #17463c; background: #f8fcf9; border: 0; border-bottom: 1px solid #dce5df; text-decoration: none; text-align: left; font: inherit; font-size: 18px; cursor: pointer; }
+.profile-menu-row:last-child { border-bottom: 0; }
+.profile-menu-row > span:nth-child(2) { flex: 1; }
+.profile-menu-row > svg { width: 20px; color: #748c83; }
+.profile-menu-icon { width: 48px; height: 48px; border-radius: 8px; background: #e8f2ec; display: grid; place-items: center; }
+.profile-menu-icon.source { background: #f3f0d8; color: #786720; }
+.profile-menu-row.logout { color: #b52e35; }
+.logout .profile-menu-icon { background: #faecec; }
+.profile-menu-row:hover { background: #eef6f1; }
+.profile-menu-row:focus-visible, .profile-edit:focus-visible, .profile-avatar-upload:focus-within { outline: 2px solid #238474; outline-offset: 2px; }
+.profile-overlay { position: fixed; inset: 0; z-index: 200; }
+.glass-dialog.profile-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 201; width: min(460px, calc(100% - 24px)); max-height: calc(100dvh - 40px); overflow-y: auto; border-radius: 8px; background: #f6faf7; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.profile-dialog .glass-dialog-heading { position: sticky; top: 0; z-index: 1; margin: 0; padding: 0 0 12px; background: #f6faf7; border-bottom: 1px solid #dce5df; }
+.profile-avatar-editor { display: flex; align-items: center; gap: 20px; margin: 18px 0; }
+.profile-avatar-editor > div:last-child { display: grid; gap: 8px; }
+.profile-avatar-upload, .profile-avatar-editor button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; background: #e8f3ed; border: 0; border-radius: 6px; color: #17463c; font: inherit; cursor: pointer; }
+.profile-avatar-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.profile-avatar-editor button:disabled, .profile-avatar-upload.disabled { opacity: .5; cursor: default; }
+.profile-account-form { display: grid; gap: 16px; }
+.profile-account-form fieldset { display: grid; gap: 14px; min-width: 0; margin: 0; padding: 16px 0 0; border: 0; border-top: 1px solid #dce5df; }
+.profile-account-form legend { padding: 0 10px 0 0; font-size: 15px; font-weight: 700; color: #17463c; }
+.profile-account-form label { display: grid; gap: 8px; font-size: 14px; color: #385d50; }
+.profile-account-form .profile-account-input { display: block; width: 100%; min-width: 0; height: 48px; padding: 12px; border: 1px solid #8fae9f; border-radius: 6px; background: #fbfdfb; color: #17352d; font-size: 16px; font-weight: 400; line-height: 22px; opacity: 1; appearance: none; -webkit-appearance: none; }
+.profile-account-input::placeholder { color: #60796d; opacity: 1; }
+.profile-account-form .profile-account-input:focus { border-color: #187c67; outline: 2px solid #187c67; outline-offset: 1px; box-shadow: none; }
+.profile-account-form .profile-account-input:disabled { background: #e9f0eb; color: #526c5f; border-color: #b5c7bd; }
+.profile-account-input:-webkit-autofill { -webkit-text-fill-color: #17352d; box-shadow: 0 0 0 1000px #f2f8f3 inset; }
+.profile-save-row { position: sticky; bottom: -20px; padding: 14px 0; background: #f6faf7; }
+.profile-save-row .glass-button { width: 100%; border-radius: 6px; }
+.profile-message { margin: 0; overflow-wrap: anywhere; color: #a22e39; }
+.profile-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+@media (max-width: 400px) { .profile-identity { gap: 12px; padding: 20px 14px; } .profile-identity .avatar { width: 64px; height: 64px; flex-basis: 64px; } .profile-identity h2 { font-size: 21px; } }
+@media (prefers-color-scheme: dark) { .profile-menu-row { background: #182d26; color: #dbebe2; } .profile-menu-row:hover { background: #243b31; } .profile-menu-icon { background: #294739; } .glass-dialog.profile-dialog, .profile-dialog .glass-dialog-heading, .profile-save-row { background: #182d26; color: #dbebe2; } .profile-account-form label, .profile-account-form legend { color: #dbebe2; } .profile-account-form .profile-account-input { background: #233a30; color: #edf6f0; border-color: #91b09f; } .profile-account-input::placeholder { color: #b1c7b9; } .profile-account-form .profile-account-input:disabled { background: #2c4035; color: #b1c7b9; } .profile-account-input:-webkit-autofill { -webkit-text-fill-color: #edf6f0; box-shadow: 0 0 0 1000px #233a30 inset; } }

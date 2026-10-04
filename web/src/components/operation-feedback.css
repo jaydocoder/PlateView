@@ -1,0 +1,15 @@
+.operation-feedback { position: fixed; z-index: 10000; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(420px, calc(100vw - 24px)); box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid; border-radius: 8px; box-shadow: 0 6px 24px #17352d26; animation: feedback-enter 150ms ease-out; }
+.operation-feedback.success { background: #edf8f1; border-color: #73a68c; color: #14513b; }
+.operation-feedback.error { background: #fff1f0; border-color: #d5918d; color: #942f2b; }
+.operation-feedback > svg { width: 22px; height: 22px; flex-shrink: 0; }
+.operation-feedback { pointer-events: none; }
+.operation-feedback button { pointer-events: auto; }
+.operation-feedback > div { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.operation-feedback strong { font-size: 14px; line-height: 20px; }
+.operation-feedback span { font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+.operation-feedback button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; background: transparent; color: inherit; border: 0; border-radius: 6px; cursor: pointer; }
+.operation-feedback button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.operation-feedback button svg { width: 20px; height: 20px; }
+@keyframes feedback-enter { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .operation-feedback { animation: none; } }
+@media (prefers-color-scheme: dark) { .operation-feedback.success { background: #18392a; color: #dcf8e7; } .operation-feedback.error { background: #492523; color: #ffe6e3; } }

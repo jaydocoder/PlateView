@@ -1,0 +1,55 @@
+/* Liquid Glass 只覆盖导航和关键交互层，普通业务内容继续使用稳定表面。 */
+.glass-surface{position:relative;isolation:isolate;border:1px solid rgba(255,255,255,.62);background:rgba(255,255,255,.56);box-shadow:0 10px 30px rgba(28,74,55,.08),inset 0 1px rgba(255,255,255,.75);backdrop-filter:blur(18px) saturate(1.12);-webkit-backdrop-filter:blur(18px) saturate(1.12)}
+.glass-surface:before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(135deg,rgba(255,255,255,.34),transparent 42%);z-index:-1}
+.glass-liquid{background:rgba(245,252,248,.62);box-shadow:0 14px 38px rgba(28,74,55,.12),inset 0 1px rgba(255,255,255,.9),inset 0 -1px rgba(76,135,107,.12)}
+.glass-subtle{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);background:rgba(255,255,255,.4)}
+.glass-strong{backdrop-filter:blur(26px) saturate(1.18);-webkit-backdrop-filter:blur(26px) saturate(1.18);background:rgba(255,255,255,.72)}
+.glass-card{border-radius:18px}
+.glass-input{border:0!important;background:transparent!important;box-shadow:none!important;min-width:0}
+.glass-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:10px 15px;border-radius:13px;border:1px solid transparent;font:inherit;font-weight:800;cursor:pointer;transition:transform .18s ease,background .18s ease,box-shadow .18s ease;touch-action:manipulation}
+.glass-button:active{transform:scale(.97)}
+.glass-button:focus-visible{outline:3px solid rgba(8,123,138,.25);outline-offset:2px}
+.glass-button:disabled{cursor:not-allowed;opacity:.55}
+.glass-button-primary{color:#fff;background:var(--green);box-shadow:0 8px 18px rgba(32,99,67,.18)}
+.glass-button-secondary{color:var(--green);background:rgba(255,255,255,.54);border-color:#b9d9c9}
+.glass-button-ghost{color:var(--green);background:transparent}
+.glass-button-danger{color:#fff;background:var(--red)}
+.glass-switch{position:relative;width:52px;height:32px;padding:3px;border:1px solid rgba(70,120,94,.24);border-radius:999px;background:#d3e4da;cursor:pointer;transition:background .2s ease;touch-action:manipulation}
+.glass-switch span{display:block;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(28,74,55,.2);transition:transform .22s cubic-bezier(.2,.8,.2,1)}
+.glass-switch.checked{background:var(--teal)}.glass-switch.checked span{transform:translateX(20px)}
+.glass-slider{width:100%;height:6px;accent-color:var(--teal);cursor:pointer}
+.glass-dialog-backdrop{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:rgba(20,55,39,.2);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.glass-dialog,.glass-bottom-sheet{width:min(100%,480px);padding:20px;border-radius:24px;background:rgba(247,253,249,.82);border:1px solid rgba(255,255,255,.78);box-shadow:0 24px 70px rgba(18,65,42,.22);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px)}
+.mobile-header,.bottom-nav{background:rgba(247,253,249,.72)!important;border-color:rgba(255,255,255,.72)!important;backdrop-filter:blur(22px) saturate(1.14)!important;-webkit-backdrop-filter:blur(22px) saturate(1.14)!important;box-shadow:0 8px 25px rgba(28,74,55,.08)}
+.attachment-row{width:100%;text-align:left;font:inherit;cursor:pointer}
+.glass-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.glass-dialog-heading h2{margin:0;font-size:20px}.glass-bottom-sheet{align-self:end;border-radius:24px 24px 0 0;padding-bottom:calc(20px + env(safe-area-inset-bottom));animation:sheet-in .25s ease-out}.sheet-handle{width:40px;height:4px;margin:0 auto 14px;border-radius:99px;background:#9db9aa}@keyframes sheet-in{from{transform:translateY(24px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.button-spinner{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+.sidebar-logout{margin-left:auto;min-height:32px;padding:5px 8px;font-size:12px}
+.sidebar-logout svg{flex:none}
+.search-box .glass-input{flex:1}
+.search-box>svg{color:var(--teal);flex:none}
+.clear-search{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;background:transparent;color:var(--muted);cursor:pointer}
+.clear-search:hover{background:#e4f0e9;color:var(--green)}
+.nav-item span{display:grid;place-items:center}
+.bottom-nav button span{display:grid;place-items:center}
+.chevron{display:grid;place-items:center}
+@supports not (backdrop-filter: blur(1px)){.glass-surface,.glass-dialog,.glass-bottom-sheet{background:#f5fbf7}}
+@supports not (-webkit-backdrop-filter: blur(1px)){.glass-surface,.glass-dialog,.glass-bottom-sheet{background:#f5fbf7}}
+@media(prefers-reduced-motion:reduce){.glass-button{transition:none}.glass-button:active{transform:none}}
+@media(max-width:760px){.glass-dialog-backdrop{align-items:end;padding:0}.glass-dialog{width:100%;border-radius:24px 24px 0 0;padding-bottom:calc(20px + env(safe-area-inset-bottom))}.glass-dialog,.glass-bottom-sheet{max-height:calc(100dvh - env(safe-area-inset-top) - 12px);overflow:auto}}
+@media(max-width:360px){.glass-button{padding-inline:11px;font-size:13px}.glass-dialog,.glass-bottom-sheet{padding-inline:16px}}
+
+/* 首页两段固定区域共用不透明材质，避免独立滤镜及留白形成接缝。 */
+@media(max-width:760px){
+  body:has(.home-fixed-tools){--home-toolbar-background:#edf5f0}
+  body:has(.home-fixed-tools) .mobile-header,
+  body:has(.home-fixed-tools) .home-fixed-tools{
+    background:var(--home-toolbar-background)!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+  body:has(.home-fixed-tools) .home-fixed-tools{padding-top:0;gap:0}
+  body:has(.home-fixed-tools) .home-fixed-tools .search-box{background:var(--home-toolbar-background)!important}
+}

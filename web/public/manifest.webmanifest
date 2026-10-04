@@ -1,0 +1,10 @@
+{
+  "name": "PlateView 车辆核验",
+  "short_name": "PlateView",
+  "start_url": "/web/",
+  "scope": "/web/",
+  "display": "standalone",
+  "background_color": "#edf5f0",
+  "theme_color": "#174d3d",
+  "icons": []
+}
