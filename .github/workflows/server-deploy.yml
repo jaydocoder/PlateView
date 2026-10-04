@@ -181,8 +181,8 @@ jobs:
             -o ConnectTimeout=20 \
             -p "$DEPLOY_PORT")
           remote="$DEPLOY_USER@$DEPLOY_HOST"
-          ssh "${ssh_args[@]}" "$remote" "mkdir -p /opt/plateview/web-dist && find /opt/plateview/web-dist -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
-          scp "${scp_args[@]}" -r web-dist/. "$remote:/opt/plateview/web-dist/"
+          ssh "${ssh_args[@]}" "$remote" "mkdir -p /opt/plateview/source/web-dist && find /opt/plateview/source/web-dist -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
+          scp "${scp_args[@]}" -r web-dist/. "$remote:/opt/plateview/source/web-dist/"
           status_file="/opt/plateview/runtime/deploy-status-$TARGET_COMMIT"
           ssh "${ssh_args[@]}" "$remote" \
             "rm -f '$status_file'; nohup sh -c 'set -u; rc=0; (cd /opt/plateview/source && git fetch --prune origin main && git checkout --detach --force $TARGET_COMMIT && ./deploy/plateview-deploy.sh $TARGET_COMMIT $TARGET_IMAGE) || rc=\$?; printf \"%s\\n\" \"\$rc\" > \"$status_file\"; exit \"\$rc\"' </dev/null >/dev/null 2>&1 &"
