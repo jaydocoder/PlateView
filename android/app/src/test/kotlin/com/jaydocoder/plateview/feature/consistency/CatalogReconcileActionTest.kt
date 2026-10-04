@@ -1,6 +1,8 @@
 package com.jaydocoder.plateview.feature.consistency
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CatalogReconcileActionTest {
@@ -12,6 +14,12 @@ class CatalogReconcileActionTest {
     @Test
     fun `服务器版本较新时仅同步对应目录`() {
         assertEquals(CatalogReconcileAction.SYNCHRONIZE, catalogReconcileAction(41, 42))
+    }
+
+    @Test
+    fun `成功同步后一分钟内的新版本只等待合并`() {
+        assertTrue(shouldDeferCatalogSync(100_000L, 100_000L + 59_999L))
+        assertFalse(shouldDeferCatalogSync(100_000L, 100_000L + 60_000L))
     }
 
     @Test

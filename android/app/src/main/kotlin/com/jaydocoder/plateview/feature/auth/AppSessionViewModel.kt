@@ -16,6 +16,9 @@ import kotlinx.coroutines.Job
 import kotlin.random.Random
 import retrofit2.HttpException
 
+private const val MINIMUM_VALIDATION_INTERVAL_MILLIS = 55_000L
+private const val MAXIMUM_VALIDATION_INTERVAL_MILLIS = 65_000L
+
 @HiltViewModel
 class AppSessionViewModel @Inject constructor(
     private val authRepository: AuthRepository,
@@ -48,7 +51,7 @@ class AppSessionViewModel @Inject constructor(
 
     fun onNetworkAvailable() = viewModelScope.launch {
         val currentSession = authRepository.session.first() ?: return@launch
-        runCatching { authRepository.checkCatalogState(currentSession) }
+        runCatching { authRepository.checkCatalogState(currentSession, force = true) }
             .onFailure { authRepository.reportValidationFailure("NETWORK_RECOVERY_CHECK_FAILED") }
     }
 
@@ -71,11 +74,9 @@ class AppSessionViewModel @Inject constructor(
 
     private companion object {
         const val HTTP_UNAUTHORIZED = 401
-        const val MINIMUM_VALIDATION_INTERVAL_MILLIS = 12_000L
-        const val MAXIMUM_VALIDATION_INTERVAL_MILLIS = 18_000L
     }
 }
 
 internal fun sessionValidationDelayMillis(
     nextLong: (Long, Long) -> Long = Random::nextLong,
-): Long = nextLong(12_000L, 18_001L)
+): Long = nextLong(MINIMUM_VALIDATION_INTERVAL_MILLIS, MAXIMUM_VALIDATION_INTERVAL_MILLIS + 1L)

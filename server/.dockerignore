@@ -1,4 +1,5 @@
-.gradle
-build
-out
+.gradle/
+build/
+data/
 *.log
+*.hprof

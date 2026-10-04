@@ -14,6 +14,7 @@ readonly RUNTIME_DIR="$APP_DIR/runtime"
 readonly BACKUP_DIR="$APP_DIR/backups"
 readonly LOG_DIR="$APP_DIR/logs/deploy"
 readonly WORK_ORDER_IMAGE_DIR="$APP_DIR/data/work-order-images"
+readonly WEB_DIST_DIR="$APP_DIR/web-dist"
 readonly LOCK_FILE="$RUNTIME_DIR/deploy.lock"
 readonly COMPOSE_FILE="$SOURCE_DIR/compose.production.yaml"
 readonly CADDY_CONTAINER="${PLATEVIEW_CADDY_CONTAINER:-plateview-caddy-1}"
@@ -53,6 +54,10 @@ mkdir -p "$WORK_ORDER_IMAGE_DIR" 2>/dev/null \
     || die "微信车单附件目录不可创建，请先使用 root 执行 install-low-pressure-host.sh：$WORK_ORDER_IMAGE_DIR"
 [[ -w "$WORK_ORDER_IMAGE_DIR" ]] \
     || die "微信车单附件目录不可写：$WORK_ORDER_IMAGE_DIR"
+mkdir -p "$WEB_DIST_DIR" 2>/dev/null \
+    || die "网页静态资源目录不可创建：$WEB_DIST_DIR"
+[[ -r "$WEB_DIST_DIR/index.html" ]] \
+    || die "网页静态资源不完整，缺少 $WEB_DIST_DIR/index.html"
 
 read_runtime_value() {
     local name="$1"

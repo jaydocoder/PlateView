@@ -37,8 +37,8 @@ internal fun Application.configureVehicleQueryFeature() {
                         call.respond(HttpStatusCode.Forbidden, mapOf("message" to "匹配车辆访问已关闭"))
                         return@get
                     }
-                    val candidates = service.search(call.request.queryParameters["keyword"].orEmpty(), accessScope, limit)
-                    call.respond(VehicleSearchResponse(service.catalogVersion(accessScope), candidates.map(VehicleSearchCandidate::toResponse)))
+                    val page = service.searchPage(call.request.queryParameters["keyword"].orEmpty(), accessScope, limit)
+                    call.respond(VehicleSearchResponse(page.revision, page.items.map(VehicleSearchCandidate::toResponse)))
                 }
                 get("/catalog/version") {
                     val actorId = call.principal<JWTPrincipal>()!!.payload.getClaim("userId").asLong()

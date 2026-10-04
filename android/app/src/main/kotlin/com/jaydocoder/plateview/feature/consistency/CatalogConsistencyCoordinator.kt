@@ -75,6 +75,10 @@ internal fun catalogSyncFailureCode(error: Throwable): String =
         ?: error::class.simpleName
         ?: "SYNC_FAILED"
 
+internal fun shouldDeferCatalogSync(lastSuccessfulSyncAtEpochMillis: Long, now: Long): Boolean =
+    lastSuccessfulSyncAtEpochMillis > 0 &&
+        now - lastSuccessfulSyncAtEpochMillis < MINIMUM_CATALOG_SYNC_INTERVAL_MILLIS
+
 internal fun CatalogFreshness.unavailableAfterNetworkFailure(
     now: Long,
     errorCode: String,
@@ -82,7 +86,7 @@ internal fun CatalogFreshness.unavailableAfterNetworkFailure(
     this
 } else {
     copy(
-        status = if (now - lastConfirmedAtEpochMillis > FRESHNESS_WINDOW_MILLIS) CatalogSyncStatus.OFFLINE_STALE else status,
+        status = if (now - lastConfirmedAtEpochMillis > MAX_ACCEPTABLE_STALENESS_MILLIS) CatalogSyncStatus.OFFLINE_STALE else status,
         lastErrorCode = errorCode,
     )
 }
@@ -108,11 +112,12 @@ data class CatalogFreshness(
     val lastErrorCode: String? = null,
 ) {
     fun isConfirmed(now: Long = System.currentTimeMillis()): Boolean =
-        status == CatalogSyncStatus.CONFIRMED && now - lastConfirmedAtEpochMillis <= FRESHNESS_WINDOW_MILLIS
+        status == CatalogSyncStatus.CONFIRMED && now - lastConfirmedAtEpochMillis <= MAX_ACCEPTABLE_STALENESS_MILLIS
 
 }
 
-private const val FRESHNESS_WINDOW_MILLIS = 30_000L
+private const val MAX_ACCEPTABLE_STALENESS_MILLIS = 5 * 60 * 1_000L
+private const val MINIMUM_CATALOG_SYNC_INTERVAL_MILLIS = 60_000L
 
 interface CatalogConsistencyStateProvider {
     val freshness: StateFlow<Map<CatalogKind, CatalogFreshness>>
@@ -246,6 +251,14 @@ class CatalogConsistencyCoordinator @Inject constructor(
             ))
             return@withLock
         }
+        if (shouldDeferCatalogSync(initial.lastSuccessfulSyncAtEpochMillis, now)) {
+            persist(session.userId, initial.copy(
+                observedServerRevision = remoteRevision,
+                status = CatalogSyncStatus.OUTDATED,
+                lastErrorCode = null,
+            ))
+            return@withLock
+        }
         persist(session.userId, initial.copy(
             observedServerRevision = remoteRevision,
             status = CatalogSyncStatus.SYNCING,
@@ -305,6 +318,15 @@ class CatalogConsistencyCoordinator @Inject constructor(
         ) {
             if (!workOrderRevoked) persist(session.userId, workOrderInitial.copy(observedServerRevision = workOrderRevision, status = CatalogSyncStatus.FAILED, lastErrorCode = "SERVER_REVISION_ROLLBACK"))
             if (!messageRevoked) persist(session.userId, messageInitial.copy(observedServerRevision = messageRevision, status = CatalogSyncStatus.FAILED, lastErrorCode = "SERVER_REVISION_ROLLBACK"))
+            return
+        }
+        val latestSuccessfulSync = maxOf(
+            workOrderInitial.lastSuccessfulSyncAtEpochMillis,
+            messageInitial.lastSuccessfulSyncAtEpochMillis,
+        )
+        if (shouldDeferCatalogSync(latestSuccessfulSync, System.currentTimeMillis())) {
+            if (!workOrderRevoked) persist(session.userId, workOrderInitial.copy(observedServerRevision = workOrderRevision, status = CatalogSyncStatus.OUTDATED, lastErrorCode = null))
+            if (!messageRevoked) persist(session.userId, messageInitial.copy(observedServerRevision = messageRevision, status = CatalogSyncStatus.OUTDATED, lastErrorCode = null))
             return
         }
         val pairLock = kindLocks.getValue(CatalogKind.WORK_ORDER)
@@ -437,7 +459,6 @@ class CatalogConsistencyCoordinator @Inject constructor(
     private fun CatalogFreshness?.orEmpty(kind: CatalogKind): CatalogFreshness = this ?: CatalogFreshness(kind)
 
     private companion object {
-        const val FRESHNESS_WINDOW_MILLIS = 30_000L
         const val NO_ACTIVE_USER = -1L
     }
 }

@@ -137,8 +137,7 @@ class AuthRepository @Inject constructor(
         }
         val session = response.user.toSession(response.accessToken, response.refreshToken)
         runtimeCoordinator.apply(session, response.runtimePolicy)
-        response.catalogState?.let { catalogConsistencyCoordinator.accept(session, it) }
-        response.catalogState?.let { rememberCatalogState(session.userId, it) }
+        response.catalogState?.let { acceptCatalogState(session, it, force = true) }
         wechatSyncHealthRepository.apply(response.wechatSyncHealth)
     }
 
@@ -169,17 +168,13 @@ class AuthRepository @Inject constructor(
     suspend fun checkCatalogState(session: AuthSession, force: Boolean = false) = catalogCheckMutex.withLock {
         val now = System.currentTimeMillis()
         val cached = catalogStates.get(session.userId)
-        if (!force && cached != null && now - cached.receivedAtEpochMillis <= CATALOG_STATE_REUSE_MILLIS) {
-            catalogConsistencyCoordinator.accept(session, cached.state)
-            return@withLock
-        }
+        if (!force && !catalogStates.shouldProbe(session.userId, now)) return@withLock
         val remote = clientPolicyApi.catalogState("Bearer ${session.accessToken}")
         if (cached != null && cached.state.policyRevision != remote.policyRevision) {
             validateSessionLocked(session)
             return@withLock
         }
-        rememberCatalogState(session.userId, remote)
-        catalogConsistencyCoordinator.accept(session, remote)
+        acceptCatalogState(session, remote, force = true)
     }
 
     suspend fun reportValidationFailure(errorCode: String) {
@@ -187,20 +182,27 @@ class AuthRepository @Inject constructor(
         wechatSyncHealthRepository.markUnknown()
     }
 
-    private fun rememberCatalogState(userId: Long, state: ClientCatalogState) {
-        catalogStates.remember(userId, state)
-    }
-
     private suspend fun validateSessionLocked(session: AuthSession) {
         val profile = api.profile("Bearer ${session.accessToken}")
         profile.runtimePolicy?.let { runtimeCoordinator.apply(session, it) }
-        profile.catalogState?.let { catalogConsistencyCoordinator.accept(session, it) }
-        profile.catalogState?.let { rememberCatalogState(session.userId, it) }
+        profile.catalogState?.let { acceptCatalogState(session, it) }
         wechatSyncHealthRepository.apply(profile.wechatSyncHealth)
     }
 
+    private suspend fun acceptCatalogState(
+        session: AuthSession,
+        state: ClientCatalogState,
+        force: Boolean = false,
+    ) {
+        val now = System.currentTimeMillis()
+        val cached = catalogStates.get(session.userId)
+        val policyChanged = cached != null && cached.state.policyRevision != state.policyRevision
+        if (!force && !policyChanged && !catalogStates.shouldProbe(session.userId, now)) return
+        catalogConsistencyCoordinator.accept(session, state)
+        catalogStates.remember(session.userId, state)
+    }
+
     private companion object {
-        const val CATALOG_STATE_REUSE_MILLIS = 5_000L
         val ACCESS = stringPreferencesKey("access")
         val REFRESH = stringPreferencesKey("refresh")
         val USERNAME = stringPreferencesKey("username")
@@ -219,10 +221,29 @@ internal class AccountCatalogStateCache(
     private val states = ConcurrentHashMap<Long, CachedCatalogState>()
 
     fun remember(userId: Long, state: ClientCatalogState) {
-        states[userId] = CachedCatalogState(state, clockMillis())
+        val now = clockMillis()
+        val previous = states[userId]
+        val changed = previous == null || previous.state.revisionKey() != state.revisionKey()
+        val unchangedProbeCount = if (changed) 0 else checkNotNull(previous).unchangedProbeCount + 1
+        val nextProbeAt = now + when {
+            changed -> CATALOG_PROBE_AFTER_CHANGE_MILLIS
+            unchangedProbeCount == 1 -> CATALOG_PROBE_BACKOFF_MILLIS
+            else -> CATALOG_PROBE_MAX_INTERVAL_MILLIS
+        }
+        states[userId] = CachedCatalogState(
+            state = state,
+            receivedAtEpochMillis = now,
+            lastCatalogProbeAtEpochMillis = now,
+            nextCatalogProbeAtEpochMillis = nextProbeAt,
+            unchangedProbeCount = unchangedProbeCount,
+        )
     }
 
     fun get(userId: Long): CachedCatalogState? = states[userId]
+
+    fun shouldProbe(userId: Long, now: Long): Boolean = states[userId]?.let {
+        now >= it.nextCatalogProbeAtEpochMillis
+    } ?: true
 
     fun remove(userId: Long) {
         states.remove(userId)
@@ -232,7 +253,23 @@ internal class AccountCatalogStateCache(
 internal data class CachedCatalogState(
     val state: ClientCatalogState,
     val receivedAtEpochMillis: Long,
+    val lastCatalogProbeAtEpochMillis: Long = receivedAtEpochMillis,
+    val nextCatalogProbeAtEpochMillis: Long = receivedAtEpochMillis,
+    val unchangedProbeCount: Int = 0,
 )
+
+private fun ClientCatalogState.revisionKey(): List<Long> = listOf(
+    vehicleRevision,
+    workOrderRevision,
+    wechatMessageRevision,
+    attachmentManifestRevision,
+    policyRevision,
+    rebuildGeneration,
+)
+
+private const val CATALOG_PROBE_AFTER_CHANGE_MILLIS = 60_000L
+private const val CATALOG_PROBE_BACKOFF_MILLIS = 2 * 60 * 1_000L
+private const val CATALOG_PROBE_MAX_INTERVAL_MILLIS = 5 * 60 * 1_000L
 
 internal suspend fun completeLogout(
     clearSession: suspend () -> Unit,

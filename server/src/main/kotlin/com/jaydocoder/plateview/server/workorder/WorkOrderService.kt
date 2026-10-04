@@ -2144,55 +2144,37 @@ internal class WorkOrderService(private val dataSource: DataSource) {
         const val MESSAGE_INDEXED_SEARCH = """
             WITH input AS (
                 SELECT ?::TEXT AS exact, ?::TEXT AS contains, ?::TEXT AS prefix
-            ), matches AS MATERIALIZED (
-                SELECT message_id, MIN(match_rank) AS match_rank
-                FROM (
-                    SELECT m.id AS message_id,
-                           CASE WHEN m.normalized_content = input.exact THEN 0
-                                WHEN m.normalized_content LIKE input.prefix THEN 2 ELSE 3 END AS match_rank
-                    FROM wechat_messages m, input
-                    WHERE $MESSAGE_VISIBLE_PREDICATE
-                      AND m.normalized_content LIKE input.contains
-                    UNION ALL
-                    SELECT m.id, CASE WHEN UPPER(COALESCE(m.sender_display, '')) = input.exact THEN 1
-                                      WHEN UPPER(COALESCE(m.sender_display, '')) LIKE input.prefix THEN 2 ELSE 3 END
-                    FROM wechat_messages m, input
-                    WHERE $MESSAGE_VISIBLE_PREDICATE
-                      AND UPPER(COALESCE(m.sender_display, '')) LIKE input.contains
-                    UNION ALL
-                    SELECT m.id, CASE WHEN UPPER(COALESCE(m.sender_group_nickname, '')) = input.exact THEN 1
-                                      WHEN UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.prefix THEN 2 ELSE 3 END
-                    FROM wechat_messages m, input
-                    WHERE $MESSAGE_VISIBLE_PREDICATE
-                      AND UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.contains
-                    UNION ALL
-                    SELECT m.id, CASE WHEN UPPER(ps.display_alias) = input.exact THEN 1
-                                      WHEN UPPER(ps.display_alias) LIKE input.prefix THEN 2 ELSE 3 END
-                    FROM wechat_passage_senders ps
-                    JOIN wechat_messages m ON m.sender_username = ps.sender_username
-                    CROSS JOIN input
-                    WHERE ps.enabled AND $MESSAGE_VISIBLE_PREDICATE
-                      AND UPPER(ps.display_alias) LIKE input.contains
-                    UNION ALL
-                    SELECT m.id, CASE WHEN UPPER(s.display_name) = input.exact THEN 1
-                                      WHEN UPPER(s.display_name) LIKE input.prefix THEN 2 ELSE 3 END
-                    FROM wechat_sources s
-                    JOIN wechat_messages m ON m.source_id = s.id
-                    CROSS JOIN input
-                    WHERE $MESSAGE_VISIBLE_PREDICATE
-                      AND UPPER(s.display_name) LIKE input.contains
-                    UNION ALL
-                    SELECT a.linked_message_id,
-                           CASE WHEN UPPER(COALESCE(a.file_name, '')) LIKE input.prefix THEN 2 ELSE 3 END
-                    FROM work_order_images a, input
-                    WHERE a.linked_message_id IS NOT NULL
-                      AND UPPER(COALESCE(a.file_name, '')) LIKE input.contains
-                ) candidates
-                GROUP BY message_id
+            ), attachment_matches AS MATERIALIZED (
+                SELECT linked_message_id,
+                       MIN(CASE WHEN UPPER(COALESCE(file_name, '')) LIKE input.prefix THEN 2 ELSE 3 END) AS match_rank
+                FROM work_order_images, input
+                WHERE linked_message_id IS NOT NULL
+                  AND UPPER(COALESCE(file_name, '')) LIKE input.contains
+                GROUP BY linked_message_id
             )
             $MESSAGE_BASE_SELECT
-            JOIN matches ON matches.message_id = m.id
-            ORDER BY matches.match_rank, m.sent_at DESC, m.id DESC
+            LEFT JOIN attachment_matches am ON am.linked_message_id = m.id
+            CROSS JOIN input
+            WHERE $MESSAGE_VISIBLE_PREDICATE
+              AND (
+                m.normalized_content LIKE input.contains OR
+                UPPER(COALESCE(m.sender_display, '')) LIKE input.contains OR
+                UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.contains OR
+                UPPER(COALESCE(ps.display_alias, '')) LIKE input.contains OR
+                UPPER(s.display_name) LIKE input.contains OR
+                am.linked_message_id IS NOT NULL
+              )
+            ORDER BY
+                CASE WHEN m.normalized_content = input.exact THEN 0
+                     WHEN UPPER(COALESCE(ps.display_alias, m.sender_group_nickname, m.sender_display, '')) = input.exact
+                       OR UPPER(s.display_name) = input.exact THEN 1
+                     WHEN m.normalized_content LIKE input.prefix
+                       OR UPPER(COALESCE(m.sender_display, '')) LIKE input.prefix
+                       OR UPPER(COALESCE(m.sender_group_nickname, '')) LIKE input.prefix
+                       OR UPPER(COALESCE(ps.display_alias, '')) LIKE input.prefix
+                       OR UPPER(s.display_name) LIKE input.prefix
+                       OR am.match_rank = 2 THEN 2 ELSE 3 END,
+                m.sent_at DESC, m.id DESC
             LIMIT ? OFFSET ?
         """
         val WORK_ORDER_NUMBER_PATTERN = Regex("^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[0-9]{3}$")

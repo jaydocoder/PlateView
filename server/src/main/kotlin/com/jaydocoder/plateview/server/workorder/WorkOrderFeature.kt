@@ -93,7 +93,8 @@ internal fun Application.configureWorkOrderFeature() {
                     val userId = call.requireWorkOrderAccess(service)
                     val keyword = call.request.queryParameters["keyword"].orEmpty()
                     val limits = policyService.resultLimits(userId)
-                    val (workOrderResult, messageResult) = supervisorScope {
+                    val (workOrderResult, messageResult, catalogVersion) = supervisorScope {
+                        val catalogVersion = async(Dispatchers.IO) { service.catalogVersion() }
                         val workOrders = async(Dispatchers.IO) {
                             if (limits.workOrder == 0) Result.success(emptyList())
                             else runSearchSection { service.search(keyword, limits.workOrder + 1) }
@@ -102,7 +103,7 @@ internal fun Application.configureWorkOrderFeature() {
                             if (limits.wechatMessage == 0) Result.success(WechatMessagePage(emptyList(), null))
                             else runSearchSection { service.searchMessages(keyword, 0, limits.wechatMessage) }
                         }
-                        workOrders.await() to messages.await()
+                        Triple(workOrders.await(), messages.await(), catalogVersion.await())
                     }
                     val workOrders = workOrderResult.getOrDefault(emptyList())
                     val messages = messageResult.getOrDefault(WechatMessagePage(emptyList(), null))
@@ -112,7 +113,7 @@ internal fun Application.configureWorkOrderFeature() {
                             wechatMessages = messages.records.map(WechatMessageRecord::toResponse),
                             workOrderHasMore = workOrders.size > limits.workOrder,
                             wechatMessageHasMore = messages.nextOffset != null,
-                            catalogVersion = service.catalogVersion(),
+                            catalogVersion = catalogVersion,
                             workOrderFailed = workOrderResult.isFailure,
                             wechatMessageFailed = messageResult.isFailure,
                         ),

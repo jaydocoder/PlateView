@@ -6,11 +6,11 @@ import org.junit.Test
 
 class CatalogFreshnessTest {
     @Test
-    fun `确认状态在三十秒边界内视为新鲜`() {
+    fun `确认状态在五分钟边界内视为新鲜`() {
         val now = 100_000L
         val state = CatalogFreshness(
             kind = CatalogKind.VEHICLE,
-            lastConfirmedAtEpochMillis = now - 30_000L,
+            lastConfirmedAtEpochMillis = now - 5 * 60 * 1_000L,
             status = CatalogSyncStatus.CONFIRMED,
         )
 
@@ -18,12 +18,12 @@ class CatalogFreshnessTest {
     }
 
     @Test
-    fun `超过三十秒或状态异常时不能显示核验就绪`() {
+    fun `超过五分钟或状态异常时不能显示核验就绪`() {
         val now = 100_000L
         assertFalse(
             CatalogFreshness(
                 kind = CatalogKind.WORK_ORDER,
-                lastConfirmedAtEpochMillis = now - 30_001L,
+                lastConfirmedAtEpochMillis = now - (5 * 60 * 1_000L + 1L),
                 status = CatalogSyncStatus.CONFIRMED,
             ).isConfirmed(now),
         )

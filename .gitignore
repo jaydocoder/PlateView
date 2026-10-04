@@ -33,3 +33,7 @@ backups/
 .codex/
 .agents/
 .ccpanes/
+
+# 网页本地依赖与构建产物
+web/node_modules/
+web/dist/

@@ -3,6 +3,8 @@ package com.jaydocoder.plateview.feature.auth
 import com.jaydocoder.plateview.feature.consistency.ClientCatalogState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AccountCatalogStateCacheTest {
@@ -33,6 +35,30 @@ class AccountCatalogStateCacheTest {
 
         assertNull(cache.get(1))
         assertEquals(22L, cache.get(2)?.state?.vehicleRevision)
+    }
+
+    @Test
+    fun 目录探测在发现变化后先快速检查随后逐步退避且不超过五分钟() {
+        var now = 0L
+        val cache = AccountCatalogStateCache { now }
+        val initial = state(vehicleRevision = 11)
+
+        cache.remember(1, initial)
+        assertEquals(60_000L, cache.get(1)?.nextCatalogProbeAtEpochMillis)
+        assertFalse(cache.shouldProbe(1, 59_999L))
+        assertTrue(cache.shouldProbe(1, 60_000L))
+
+        now = 60_000L
+        cache.remember(1, initial)
+        assertEquals(180_000L, cache.get(1)?.nextCatalogProbeAtEpochMillis)
+
+        now = 180_000L
+        cache.remember(1, initial)
+        assertEquals(480_000L, cache.get(1)?.nextCatalogProbeAtEpochMillis)
+
+        now = 480_000L
+        cache.remember(1, initial.copy(vehicleRevision = 12))
+        assertEquals(540_000L, cache.get(1)?.nextCatalogProbeAtEpochMillis)
     }
 
     private fun state(vehicleRevision: Long) = ClientCatalogState(

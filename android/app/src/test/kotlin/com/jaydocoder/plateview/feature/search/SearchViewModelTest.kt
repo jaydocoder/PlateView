@@ -237,6 +237,30 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `目录刷新期间保留已有搜索结果`() = runTest {
+        val cached = VehicleCandidate(101, "新A12345", "RESIDENT", "村民车辆")
+        val vehicleCacheRepository = FakeVehicleCacheRepository(localCandidates = listOf(cached))
+        val viewModel = createViewModel(vehicleCacheRepository = vehicleCacheRepository)
+
+        viewModel.updateQuery("新A")
+        advanceTimeBy(250)
+        advanceUntilIdle()
+        assertEquals(listOf(cached), viewModel.uiState.value.candidates)
+
+        val refreshGate = CompletableDeferred<Unit>()
+        vehicleCacheRepository.searchGate = refreshGate
+        viewModel.retrySearch()
+        advanceTimeBy(250)
+        runCurrent()
+
+        assertEquals(listOf(cached), viewModel.uiState.value.candidates)
+        assertEquals(SearchResultState.Idle, viewModel.uiState.value.resultState)
+
+        refreshGate.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
     fun `本地微信车单查询失败不影响本地聊天记录显示`() = runTest {
         val message = sampleWechatMessage(41)
         val viewModel = createViewModel(
@@ -507,7 +531,7 @@ private class FakeVehicleRepository(
 private class FakeVehicleCacheRepository(
     private val localCandidates: List<VehicleCandidate> = emptyList(),
     private val searchFailure: Throwable? = null,
-    private val searchGate: CompletableDeferred<Unit>? = null,
+    var searchGate: CompletableDeferred<Unit>? = null,
 ) : VehicleCacheRepository {
     val searchKeywords = mutableListOf<String>()
 

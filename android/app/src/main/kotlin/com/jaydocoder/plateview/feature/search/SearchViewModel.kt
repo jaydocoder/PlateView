@@ -141,15 +141,20 @@ class SearchViewModel @Inject constructor(
 
     private fun observeQuery() {
         viewModelScope.launch {
+            var previousRetryVersion = 0
             combine(
                 query,
                 retryVersion,
                 runtimePolicyRepository.policy,
                 runtimePolicyRepository.cacheMaintenanceActive,
-            ) { queryValue, _, _, maintenance -> PlateQueryNormalizer.normalize(queryValue) to maintenance }
-                .debounce { (_, maintenance) -> if (maintenance) 0L else QUERY_DEBOUNCE_MILLIS }
-                .collectLatest { (normalizedQuery, maintenance) ->
-                    if (maintenance) clearSearchForMaintenance() else performSearch(normalizedQuery)
+            ) { queryValue, retry, _, maintenance ->
+                Triple(PlateQueryNormalizer.normalize(queryValue), maintenance, retry)
+            }
+                .debounce { (_, maintenance, _) -> if (maintenance) 0L else QUERY_DEBOUNCE_MILLIS }
+                .collectLatest { (normalizedQuery, maintenance, retry) ->
+                    val catalogRefresh = retry != previousRetryVersion
+                    previousRetryVersion = retry
+                    if (maintenance) clearSearchForMaintenance() else performSearch(normalizedQuery, preserveResults = catalogRefresh)
                 }
         }
     }
@@ -164,7 +169,7 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private suspend fun performSearch(normalizedQuery: String) {
+    private suspend fun performSearch(normalizedQuery: String, preserveResults: Boolean = false) {
         if (normalizedQuery.isBlank()) {
             _uiState.update {
                 it.copy(
@@ -193,15 +198,21 @@ class SearchViewModel @Inject constructor(
         }
 
         val limits = runtimePolicyRepository.policy.value
+        val current = _uiState.value
+        val keepResults = preserveResults && (
+            current.candidates.isNotEmpty() ||
+                current.workOrderCandidates.isNotEmpty() ||
+                current.wechatMessages.isNotEmpty()
+            )
         _uiState.update {
             it.copy(
-                candidates = emptyList(),
-                workOrderCandidates = emptyList(),
-                wechatMessages = emptyList(),
+                candidates = if (keepResults) it.candidates else emptyList(),
+                workOrderCandidates = if (keepResults) it.workOrderCandidates else emptyList(),
+                wechatMessages = if (keepResults) it.wechatMessages else emptyList(),
                 vehicleSectionState = if (limits.vehicleResultLimit > 0) SearchSectionState.Loading else SearchSectionState.Idle,
                 workOrderSectionState = if (session.wechatWorkOrderAccessEnabled && limits.workOrderResultLimit > 0) SearchSectionState.Loading else SearchSectionState.Idle,
                 wechatMessageSectionState = if (session.wechatWorkOrderAccessEnabled && limits.wechatMessageResultLimit > 0) SearchSectionState.Loading else SearchSectionState.Idle,
-                resultState = SearchResultState.Loading,
+                resultState = if (keepResults) SearchResultState.Idle else SearchResultState.Loading,
             )
         }
 
@@ -303,6 +314,7 @@ class SearchViewModel @Inject constructor(
                         freshnessLabel = when {
                             relevant.any { it.status == CatalogSyncStatus.SYNCING } -> "发现更新，正在同步"
                             relevant.any { it.status == CatalogSyncStatus.CHECKING } -> "正在确认最新数据"
+                            relevant.any { it.status == CatalogSyncStatus.OUTDATED } -> "发现更新，等待同步"
                             relevant.any { it.status in setOf(CatalogSyncStatus.OFFLINE_STALE, CatalogSyncStatus.FAILED) } -> "数据未确认，请谨慎核验"
                             newestConfirmation > 0 -> "数据已确认 · ${formatConfirmationTime(newestConfirmation)}"
                             else -> "正在确认最新数据"

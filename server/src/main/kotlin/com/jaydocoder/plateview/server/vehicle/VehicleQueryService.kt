@@ -33,27 +33,43 @@ internal class VehicleQueryService(
     }
 
     fun search(keyword: String, accessScope: VehicleAccessScope, limit: Int = MAXIMUM_SEARCH_RESULT_COUNT): List<VehicleSearchCandidate> {
+        return searchPage(keyword, accessScope, limit).items
+    }
+
+    fun searchPage(keyword: String, accessScope: VehicleAccessScope, limit: Int = MAXIMUM_SEARCH_RESULT_COUNT): VehicleSearchPage {
         require(limit in 1..MAXIMUM_SEARCH_RESULT_COUNT) { "车辆搜索数量必须在1至50之间" }
         val normalizedKeyword = normalizeSearchKeyword(keyword)
         return dataSource.connection.use { connection ->
-            if (isCompletePlateNumber(normalizedKeyword)) {
-                connection.queryExactPlate(normalizedKeyword, accessScope, limit).takeIf(List<*>::isNotEmpty)?.let { return@use it }
-            }
-            connection.prepareStatement(SEARCH_VEHICLES).use { statement ->
-                statement.setString(1, VehicleCategory.RESIDENT.name)
-                statement.setString(2, normalizedKeyword)
-                statement.setString(3, "$normalizedKeyword%")
-                statement.setString(4, normalizedKeyword)
-                statement.setString(5, "%$normalizedKeyword%")
-                statement.setBoolean(6, accessScope.otherLongTermAccessEnabled)
-                statement.setInt(7, limit)
-                statement.executeQuery().use { result ->
-                    buildList {
-                        while (result.next()) {
-                            result.toSearchCandidate(accessScope)
-                                .takeIf { it.isVisibleTo(accessScope) }
-                                ?.let(::add)
-                        }
+            val items = connection.search(normalizedKeyword, accessScope, limit)
+            VehicleSearchPage(
+                revision = catalogVersion(catalogRevision(connection), accessScope),
+                items = items,
+            )
+        }
+    }
+
+    private fun Connection.search(
+        normalizedKeyword: String,
+        accessScope: VehicleAccessScope,
+        limit: Int,
+    ): List<VehicleSearchCandidate> {
+        if (isCompletePlateNumber(normalizedKeyword)) {
+            queryExactPlate(normalizedKeyword, accessScope, limit).takeIf(List<*>::isNotEmpty)?.let { return it }
+        }
+        return prepareStatement(SEARCH_VEHICLES).use { statement ->
+            statement.setString(1, VehicleCategory.RESIDENT.name)
+            statement.setString(2, normalizedKeyword)
+            statement.setString(3, "$normalizedKeyword%")
+            statement.setString(4, normalizedKeyword)
+            statement.setString(5, "%$normalizedKeyword%")
+            statement.setBoolean(6, accessScope.otherLongTermAccessEnabled)
+            statement.setInt(7, limit)
+            statement.executeQuery().use { result ->
+                buildList {
+                    while (result.next()) {
+                        result.toSearchCandidate(accessScope)
+                            .takeIf { it.isVisibleTo(accessScope) }
+                            ?.let(::add)
                     }
                 }
             }
@@ -477,6 +493,7 @@ internal data class LongTermVehicleProfile(
 
 @Serializable
 internal data class VehicleCatalogPage(val revision: Long, val total: Int, val items: List<VehicleSearchCandidate>)
+internal data class VehicleSearchPage(val revision: Long, val items: List<VehicleSearchCandidate>)
 
 @Serializable
 

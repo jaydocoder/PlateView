@@ -1275,3 +1275,102 @@
 - 修复：`WechatSyncHealthService` 查询并聚合所有微信来源的 `last_uploaded_at` 最大值；心跳时间仍用于判断在线状态。
 - 兼容：保留 `lastSuccessfulSyncAt` 响应字段名，客户端无需改版即可显示正确时间。
 - 验证：`cd server && ./gradlew --no-daemon test` 通过。
+## 2026-09-30 PlateView 网页版实施
+
+### 编码前检查
+
+□ 已查阅上下文摘要文件：`.codex/context-summary-web-frontend.md`
+□ 将复用 Android 查询、微信车单、统计、管理工作台的交互模式。
+□ 将复用服务端现有认证、车辆、微信、日程、统计和管理接口。
+□ 遵循现有视觉约定：冰湖浅色、冷杉深绿、核验青、通行琥珀、异常红。
+□ 不重复实现数据库和权限规则，权限边界继续由服务端负责。
+
+### 编码后声明
+
+- 复用服务端 `/vehicles`、`/work-orders`、`/schedule`、`/statistics` 和 `/admin` 接口。
+- 复用 Android 查询、微信详情和统计的信息层级，网页只负责响应式展示。
+- 认证增加网页专用 Cookie 刷新入口，Android Bearer Token 不变。
+- 前端构建产物由部署工作流上传到 `/opt/plateview/web-dist`，Caddy 从该目录提供 `/web/`。
+
+## 2026-09-30 网页端重构操作面板与纯逻辑测试
+
+- 为网页本地产物增加忽略规则，避免 `web/node_modules` 和 `web/dist` 进入提交。
+- 新增车辆候选静默访问、聊天多车牌匹配和重构状态映射纯函数，并使用 Vitest 覆盖正常、回退和受限分支。
+- 管理工作台微信重构页接入预览、暂停上传、备份校验、清理、重新验证、取消维护和最近三个备份恢复按钮；危险清理和恢复继续要求浏览器二次确认，服务端仍是最终权限边界。
+- 编码前复用：`VehicleQueryFeature` 的候选权限字段、`WorkOrderFeature` 的重构接口、Android 查询与管理台状态分组；未新增数据库或权限规则。
+- 本地联调支持通过 `WEB_COOKIE_SECURE=false` 关闭网页刷新 Cookie 的 Secure 属性；生产默认值仍为 `true`，避免纯 HTTP 本地限制被带入生产。
+- Vite 开发服务器增加本地 Ktor API 代理，覆盖认证、车辆、微信、日程、统计和管理路径；生产构建仍使用同域相对地址。
+
+## 2026-09-30 本地网页与后端部署
+
+- 修复本地 Compose 的服务端构建上下文：改为 `server/`，补齐镜像所需的受控恢复请求脚本，并增加服务端 Docker 构建忽略规则。
+- 使用宿主机网络和本机混合代理构建 `plateview-api:local`，随后以 Compose 启动 PostgreSQL、API 和恢复执行器。
+- API 健康检查返回 `{"status":"ok"}`；网页开发服务器可通过 `http://127.0.0.1:4175/web/` 访问。
+- 登录 404 根因：Compose 启动了旧的 `plateview-api` 镜像，而手动构建镜像使用了 `plateview-api:local` 标签；重新标记并重启后 `/auth/web-login` 和 Vite 代理均返回预期的 `401 INVALID_CREDENTIALS`（错误密码），路由已生效。
+
+## 2026-09-30 网页端详情与管理工作台 UI 对齐
+
+- 依据安卓端详情页和管理工作台的分组层级，替换车辆、微信车单、微信聊天详情的通用字段直出。
+- 管理工作台概览、车辆档案、账号管理、导入中心和审计日志改为指标卡、状态徽章、列表和权限标签，不再把服务端响应直接渲染为 JSON；微信重构统计改为结构化指标。
+- 继续复用服务端权限过滤、备份校验和维护锁接口，没有新增客户端权限判断或数据库规则。
+- 视觉沿用项目既有冰湖浅色、冷杉深绿、核验青、通行琥珀和异常红。
+
+## 2026-10-04 Android 首页数据同步策略修正
+
+### 编码前检查
+
+- 已查阅目录协调器、认证会话、Room 车辆缓存、Room 微信缓存和首页搜索 ViewModel 的现有实现。
+- 复用 `CatalogConsistencyCoordinator` 的按账号持久化版本状态、目录变更接口和 `SearchViewModel` 的本地 Room 查询路径。
+- 保持 Android 既有 Kotlin、协程、StateFlow、DataStore 和 JUnit 测试约定，不修改 Web 或服务端。
+
+### 本次实现
+
+- 前台会话校验调整为 55 至 65 秒随机间隔，避免十几秒一次的目录处理。
+- 账号目录探测增加自适应退避：版本变化后 60 秒探测，无变化后退避至 2 分钟，再到最长 5 分钟；网络恢复强制立即探测。
+- 目录版本未变化只确认新鲜度，不调用 changes 或全量目录；版本变化继续由协调器单任务合并到最新 revision。
+- 目录同步增加 60 秒最小合并窗口，快速连续 revision 只保留最新目标，不并发启动重复同步。
+- 新鲜度和离线陈旧判断由 30 秒改为最多 5 分钟。
+- 首页同步期间不清空已经展示的车辆、微信车单和聊天记录候选，完成后再用 Room 最新结果刷新。
+
+### 编码后声明
+
+- 复用 `AccountCatalogStateCache` 保存账号级探测时间和退避状态。
+- 复用 `CatalogFreshness.lastSuccessfulSyncAtEpochMillis` 作为每个目录的同步冷却依据。
+- 复用 `CatalogConsistencyCoordinator.latestStates/accountJobs` 合并同步期间到达的新 revision。
+- 未新增远程数据下载入口；首页仍只读本地缓存，远程目录同步只由一致性协调器触发。
+
+## 2026-10-04 服务端查询性能优化
+
+### 编码前检查
+
+- 已查阅车辆搜索服务、首页车单/微信搜索路由、消息搜索 SQL 和已有 V36 搜索索引迁移。
+- 复用现有车辆目录 revision、消息批量 hydration、协程并行查询和数据库索引，不新增重复的数据访问层。
+
+### 本次实现
+
+- 车辆搜索在原搜索连接内读取目录 revision，移除搜索完成后的额外数据库连接。
+- 首页目录版本读取与车单、微信消息搜索并行执行，避免串行增加接口尾延迟。
+- 长关键词微信搜索由六个重复可见性扫描改为单个可见性扫描加字段 OR 条件，保留附件命中和排序规则。
+
+### 编码后验证
+
+- `cd server && ./gradlew --no-daemon test`：通过。
+- `git diff --check`：通过。
+- 本机未运行 PostgreSQL，未伪造执行计划或延迟数据；部署后需用真实数据量补做 `EXPLAIN (ANALYZE, BUFFERS)` 与 P95 对比。
+
+## 2026-10-04 本地后端与真机 Debug 部署
+
+- 使用本地 Gradle `installDist` 产物构建 `plateview-api:local` 运行时镜像，避免重新下载缺失的 JDK 构建层。
+- 清理了一个已停止且不属于当前 Compose 项目的旧 `plateview-api-1` 容器，保留 PostgreSQL 数据卷后启动当前 Compose 服务。
+- PostgreSQL、API 和恢复执行器均已运行，`http://127.0.0.1:8080/health` 返回 `{"status":"ok"}`。
+- 真机 `3B65BL021BV00000` 已建立 `adb reverse tcp:8080 tcp:8080`，安装并启动 `com.jaydocoder.plateview.debug`，版本 `0.3.33`、版本号 `37`。
+- 真机前台 Activity 为 `com.jaydocoder.plateview.debug/com.jaydocoder.plateview.MainActivity`，未发现启动崩溃。
+
+## 2026-10-04 服务端查询毫秒对比
+
+- 使用同一 PostgreSQL 数据库、同一管理员账号和同一查询关键词，对未修改前基线服务与当前服务进行交替请求测试。
+- 每个接口执行 30 组交替请求，使用 `curl` 记录端到端本机 HTTP 耗时，统计中位数、平均值和 P95。
+- 车辆搜索：基线中位数 5.86 毫秒，当前 2.96 毫秒，减少 2.91 毫秒（49.6%）。
+- 微信消息搜索：基线中位数 15.38 毫秒，当前 11.44 毫秒，减少 3.94 毫秒（25.6%）。
+- 首页综合搜索：基线中位数 19.48 毫秒，当前 15.79 毫秒，减少 3.69 毫秒（19.0%）。
+- 测试只代表本机热缓存和当前数据量，不等同于公网或生产高并发延迟。

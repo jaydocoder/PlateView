@@ -83,6 +83,32 @@ internal fun Application.configureAuthenticationFeature() {
 
     routing {
         route("/auth") {
+            post("/web-login") {
+                val request = call.receive<LoginRequest>()
+                val result = service.login(request.username, request.password, call.callId)
+                if (result == null) {
+                    call.respond(HttpStatusCode.Unauthorized, ApiErrorResponse("INVALID_CREDENTIALS", "账号或密码错误", call.callId))
+                } else {
+                    call.setWebRefreshCookie(result.refreshToken, settings.refreshLifetime, settings.webCookieSecure)
+                    call.respond(result.toWebResponse())
+                }
+            }
+            post("/web-refresh") {
+                val refreshToken = call.webRefreshToken()
+                val result = refreshToken?.let { service.refresh(it, call.callId) }
+                if (result == null) {
+                    call.clearWebRefreshCookie(settings.webCookieSecure)
+                    call.respond(HttpStatusCode.Unauthorized, ApiErrorResponse("INVALID_REFRESH_TOKEN", "登录状态已失效，请重新登录", call.callId))
+                } else {
+                    call.setWebRefreshCookie(result.refreshToken, settings.refreshLifetime, settings.webCookieSecure)
+                    call.respond(result.toWebResponse())
+                }
+            }
+            post("/web-logout") {
+                call.webRefreshToken()?.let { service.logout(it, call.callId) }
+                call.clearWebRefreshCookie(settings.webCookieSecure)
+                call.respond(HttpStatusCode.NoContent)
+            }
             post("/login") {
                 val request = call.receive<LoginRequest>()
                 val result = service.login(request.username, request.password, call.callId)
@@ -160,7 +186,30 @@ private fun Application.authenticationSettings(): AuthenticationSettings {
     require(initialPassword.length >= 6) { "初始管理员密码长度不足" }
     val accessMinutes = environment.config.property("auth.accessTokenMinutes").getString().toLong()
     val refreshDays = environment.config.property("auth.refreshTokenDays").getString().toLong()
-    return AuthenticationSettings(secret, initialPassword, Duration.ofMinutes(accessMinutes), Duration.ofDays(refreshDays))
+    val webCookieSecure = environment.config.propertyOrNull("auth.webCookieSecure")?.getString()?.toBooleanStrictOrNull() ?: true
+    return AuthenticationSettings(secret, initialPassword, Duration.ofMinutes(accessMinutes), Duration.ofDays(refreshDays), webCookieSecure)
+}
+
+private const val WEB_REFRESH_COOKIE = "plateview_web_refresh"
+
+private fun ApplicationCall.webRefreshToken(): String? = request.headers[HttpHeaders.Cookie]
+    ?.split(';')
+    ?.map { it.trim() }
+    ?.firstOrNull { it.startsWith("$WEB_REFRESH_COOKIE=") }
+    ?.substringAfter('=')
+    ?.takeIf(String::isNotBlank)
+
+private fun ApplicationCall.setWebRefreshCookie(token: String, lifetime: Duration, secure: Boolean) {
+    val secureAttribute = if (secure) "; Secure" else ""
+    response.headers.append(
+        HttpHeaders.SetCookie,
+        "$WEB_REFRESH_COOKIE=$token; Max-Age=${lifetime.seconds}; Path=/; HttpOnly$secureAttribute; SameSite=Lax",
+    )
+}
+
+private fun ApplicationCall.clearWebRefreshCookie(secure: Boolean) {
+    val secureAttribute = if (secure) "; Secure" else ""
+    response.headers.append(HttpHeaders.SetCookie, "$WEB_REFRESH_COOKIE=; Max-Age=0; Path=/; HttpOnly$secureAttribute; SameSite=Lax")
 }
 
 internal suspend fun ApplicationCall.requireAdministrator(): Long? {
@@ -179,6 +228,7 @@ private data class AuthenticationSettings(
     val initialAdminPassword: String,
     val accessLifetime: Duration,
     val refreshLifetime: Duration,
+    val webCookieSecure: Boolean,
 ) {
     val algorithm: Algorithm = Algorithm.HMAC256(secret)
     val verifier = JWT.require(algorithm).withIssuer(ISSUER).withAudience(AUDIENCE).build()
@@ -410,6 +460,11 @@ private data class UserAccount(
     val updatePolicy: String,
     val wechatWorkOrderAccessEnabled: Boolean,
 )
+
+@Serializable
+private data class WebTokenResponse(val accessToken: String, val accessTokenExpiresAt: String, val user: UserResponse)
+
+private fun TokenResponse.toWebResponse() = WebTokenResponse(accessToken, accessTokenExpiresAt, user)
 private data class AvatarContent(val content: ByteArray, val contentType: String)
 internal data class AvatarUpload(val content: ByteArray, val contentType: String)
 internal class ProfileConflictException(message: String) : RuntimeException(message)
