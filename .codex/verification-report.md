@@ -1361,3 +1361,34 @@ Android 恢复成功时只刷新列表，未设置策略反馈；异常也未传
 - 测试覆盖：91/100（单元、迁移、FTS 真机测试通过；降级设备和三档大数据压测待补）。
 - 需求匹配：96/100（本地优先、精确索引、FTS、事务和缓存要求均已实现）。
 - 综合评分：93/100，建议通过当前功能交付，并将大数据真机压测作为下一步性能验收。
+
+## 2026-10-05 微信大数据查询计划补强
+
+### 已补齐
+
+- 搜索索引现在分别记录 SQL 执行耗时、摘要映射耗时和是否使用 FTS5。
+- 仓储指标中的 `ftsQueryMs` 改为真实 FTS SQL 耗时，不再把整个搜索流程误记为 FTS 耗时。
+- 增加强制关闭 FTS5 的测试入口，验证 Room `LIKE` 兼容查询仍能返回结果。
+- 增加可配置真机基准测试 `WorkOrderSearchBenchmarkTest`，同时覆盖车单和微信聊天记录；通过 instrumentation 参数 `searchBenchmarkRows` 选择数据规模，默认 1000 行冒烟。
+- 基准测试输出车单和聊天记录的 P50、P95、P99 到 Logcat，支持后续执行 5 万、20 万、50 万档位。
+
+### 本轮验证
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:testDebugUnitTest` | 通过 |
+| `:app:compileDebugAndroidTestKotlin` | 通过 |
+| AndroidTest APK 编译 | 通过 |
+| FTS 降级真机执行 | 当前无连接设备，未执行 |
+| 三档大数据真机基准 | 已提供测试入口，当前无连接设备，未执行 |
+
+### 基准执行命令
+
+```bash
+adb shell am instrument -w \
+  -e class com.jaydocoder.plateview.data.workorder.WorkOrderSearchBenchmarkTest \
+  -e searchBenchmarkRows 50000 \
+  com.jaydocoder.plateview.debug.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+其中 `searchBenchmarkRows=50000` 会生成 5 万条车单和 10 万条聊天记录；`200000`、`500000` 分别对应另外两档数据规模。当前不能把未连接真机时的目标指标宣称为已达标。

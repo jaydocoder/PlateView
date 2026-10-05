@@ -1393,3 +1393,12 @@
 - 复用 `WorkOrderCacheDao`、`RoomWorkOrderRepository`、`WorkOrderCacheDatabase` 和现有迁移测试。
 - 遵循现有 Kotlin、Room、SQLCipher、Hilt 与协程测试约定。
 - 未新增数据库框架，FTS5 不可用时保留兼容查询路径。
+
+## 编码后声明 - 查询指标和基准测试补强
+
+时间：2026-10-05
+
+- 已复用 `WorkOrderSearchIndex` 的摘要投影和现有 Room 数据库，不新增第二套缓存或数据库框架。
+- 已将 SQL 计时、摘要映射计时和 FTS 使用状态通过 `LocalSearchQueryResult` 传递到统一指标记录器。
+- 已新增 FTS 强制降级测试和可配置车单/聊天大数据基准测试，遵循现有 Android instrumentation 测试风格。
+- 已完成单元测试、AndroidTest Kotlin 编译和差异检查；真机未连接，因此大数据 P95/P99 尚未测量。

@@ -60,7 +60,7 @@ class RoomWorkOrderRepository @Inject constructor(
         val startedAt = SystemClock.elapsedRealtime()
         val normalized = normalize(keyword)
         return searchCache(workOrderSearchCache, userId, normalized, limit, dao.state(userId)?.catalogVersion ?: 0L, SearchMetricKind.WORK_ORDER, SystemClock.elapsedRealtime() - startedAt, searchIndex::ensureReady, { searchIndex.ftsAvailable }) {
-            searchIndex.searchWorkOrders(userId, normalized, limit.coerceIn(1, 50))
+            searchIndex.searchWorkOrdersDetailed(userId, normalized, limit.coerceIn(1, 50))
         }
     }
 
@@ -73,7 +73,7 @@ class RoomWorkOrderRepository @Inject constructor(
         val startedAt = SystemClock.elapsedRealtime()
         val normalized = normalize(keyword)
         return searchCache(messageSearchCache, userId, normalized, limit, dao.state(userId)?.messageCatalogVersion ?: 0L, SearchMetricKind.WECHAT_MESSAGE, SystemClock.elapsedRealtime() - startedAt, searchIndex::ensureReady, { searchIndex.ftsAvailable }) {
-            searchIndex.searchMessages(userId, normalized, limit.coerceIn(1, 50))
+            searchIndex.searchMessagesDetailed(userId, normalized, limit.coerceIn(1, 50))
         }
     }
 
@@ -737,7 +737,7 @@ private suspend fun <T> searchCache(
     queryNormalizeMs: Long,
     ensureIndex: () -> Unit,
     ftsEnabled: () -> Boolean,
-    loader: suspend () -> List<T>,
+    loader: suspend () -> LocalSearchQueryResult<T>,
 ): List<T> {
     ensureIndex()
     val key = "$userId|$revision|${keyword.trim().uppercase()}|$limit"
@@ -746,23 +746,24 @@ private suspend fun <T> searchCache(
         recordSearchMetric(kind, elapsed = SystemClock.elapsedRealtime() - startedAt, queryNormalizeMs = queryNormalizeMs, resultCount = cached.size, cacheHit = true, ftsEnabled = ftsEnabled())
         return cached
     }
-    return loader().also { loaded ->
+    return loader().let { loaded ->
         val elapsed = SystemClock.elapsedRealtime() - startedAt
-        cache.put(key, loaded)
-        recordSearchMetric(kind, elapsed = elapsed, queryNormalizeMs = queryNormalizeMs, resultCount = loaded.size, cacheHit = false, ftsEnabled = ftsEnabled())
+        cache.put(key, loaded.results)
+        recordSearchMetric(kind, elapsed = elapsed, queryNormalizeMs = queryNormalizeMs, resultCount = loaded.results.size, cacheHit = false, ftsEnabled = loaded.ftsUsed, sqlMs = loaded.sqlMs, summaryMappingMs = loaded.summaryMappingMs)
+        loaded.results
     }
 }
 
 private enum class SearchMetricKind { WORK_ORDER, WECHAT_MESSAGE }
 
-private fun recordSearchMetric(kind: SearchMetricKind, elapsed: Long, queryNormalizeMs: Long, resultCount: Int, cacheHit: Boolean, ftsEnabled: Boolean) {
+private fun recordSearchMetric(kind: SearchMetricKind, elapsed: Long, queryNormalizeMs: Long, resultCount: Int, cacheHit: Boolean, ftsEnabled: Boolean, sqlMs: Long = elapsed, summaryMappingMs: Long = 0) {
     LocalSearchMetricsRecorder.record(
         LocalSearchMetric(
             queryNormalizeMs = queryNormalizeMs,
             workOrderQueryMs = elapsed.takeIf { kind == SearchMetricKind.WORK_ORDER } ?: 0,
             wechatMessageQueryMs = elapsed.takeIf { kind == SearchMetricKind.WECHAT_MESSAGE } ?: 0,
-            ftsQueryMs = elapsed.takeIf { ftsEnabled } ?: 0,
-            summaryMappingMs = 0,
+            ftsQueryMs = sqlMs.takeIf { ftsEnabled } ?: 0,
+            summaryMappingMs = summaryMappingMs,
             cacheHit = cacheHit,
             ftsEnabled = ftsEnabled,
             resultCount = resultCount,

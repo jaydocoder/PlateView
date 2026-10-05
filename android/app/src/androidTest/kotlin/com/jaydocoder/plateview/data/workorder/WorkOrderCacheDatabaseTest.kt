@@ -189,6 +189,17 @@ class WorkOrderCacheDatabaseTest {
     }
 
     @Test
+    fun FTS不可用时回退到兼容查询仍可搜索() = runBlocking {
+        val index = WorkOrderSearchIndex(database)
+        index.forceFtsUnavailableForTest()
+        database.dao().upsertMessages(listOf(messageEntity(7, 81)))
+
+        val messages = index.searchMessages(7, "测试消息", 20)
+
+        assertEquals(listOf(81L), messages.map { it.id })
+    }
+
+    @Test
     fun 目录事务同时应用更新墓碑并推进版本() = runBlocking {
         val dao = database.dao()
         dao.upsert(listOf(entity(1, "0924001", "2026-09-24T03:00:00Z")))

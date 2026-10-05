@@ -18,6 +18,12 @@ class WorkOrderSearchIndex @Inject constructor(private val database: WorkOrderCa
     var ftsAvailable: Boolean = false
         private set
 
+    /** 仅供降级测试使用，模拟当前设备不支持 FTS5。 */
+    internal fun forceFtsUnavailableForTest() {
+        initialized = true
+        ftsAvailable = false
+    }
+
     @Synchronized
     fun ensureReady() {
         if (initialized) return
@@ -39,22 +45,37 @@ class WorkOrderSearchIndex @Inject constructor(private val database: WorkOrderCa
     }
 
     fun searchWorkOrders(userId: Long, keyword: String, limit: Int): List<WorkOrder> {
+        return searchWorkOrdersDetailed(userId, keyword, limit).results
+    }
+
+    fun searchWorkOrdersDetailed(userId: Long, keyword: String, limit: Int): LocalSearchQueryResult<WorkOrder> {
         ensureReady()
         val db = database.openHelper.readableDatabase
         val normalized = keyword.trim()
-        val rows = if (ftsAvailable && normalized.length >= MIN_FTS_QUERY_LENGTH) {
+        val useFts = ftsAvailable && normalized.length >= MIN_FTS_QUERY_LENGTH
+        val sqlStartedAt = android.os.SystemClock.elapsedRealtime()
+        val rows = if (useFts) {
             queryWorkOrdersFts(db, userId, normalized, limit)
         } else {
             queryWorkOrdersFields(db, userId, normalized, limit)
         }
-        return rows.use { c -> generateSequence { if (c.moveToNext()) workOrderFromCursor(c) else null }.toList() }
+        val sqlMs = android.os.SystemClock.elapsedRealtime() - sqlStartedAt
+        val mappingStartedAt = android.os.SystemClock.elapsedRealtime()
+        val results = rows.use { c -> generateSequence { if (c.moveToNext()) workOrderFromCursor(c) else null }.toList() }
+        return LocalSearchQueryResult(results, sqlMs, android.os.SystemClock.elapsedRealtime() - mappingStartedAt, useFts)
     }
 
     fun searchMessages(userId: Long, keyword: String, limit: Int): List<WechatMessage> {
+        return searchMessagesDetailed(userId, keyword, limit).results
+    }
+
+    fun searchMessagesDetailed(userId: Long, keyword: String, limit: Int): LocalSearchQueryResult<WechatMessage> {
         ensureReady()
         val db = database.openHelper.readableDatabase
         val normalized = keyword.trim()
-        val cursor = if (ftsAvailable && normalized.length >= MIN_FTS_QUERY_LENGTH) {
+        val useFts = ftsAvailable && normalized.length >= MIN_FTS_QUERY_LENGTH
+        val sqlStartedAt = android.os.SystemClock.elapsedRealtime()
+        val cursor = if (useFts) {
             db.query(SimpleSQLiteQuery(
                 "SELECT c.messageId, c.businessType, c.rawContent, c.matchedSnippet, c.sentAt, c.sourceKey, c.sourceName, c.senderUsername, c.senderDisplay, c.senderGroupNickname, c.displayName, c.plateNumbers FROM wechat_message_search_fts f JOIN wechat_message_cache c ON c.rowid = f.rowid WHERE c.userId = ? AND wechat_message_search_fts MATCH ? ORDER BY c.sentAt DESC, c.messageId DESC LIMIT ?",
                 arrayOf<Any>(userId, ftsExpression(normalized), limit),
@@ -65,7 +86,10 @@ class WorkOrderSearchIndex @Inject constructor(private val database: WorkOrderCa
                 arrayOf<Any>(userId, normalized, limit),
             ))
         }
-        return cursor.use { c -> generateSequence { if (c.moveToNext()) messageFromCursor(c) else null }.toList() }
+        val sqlMs = android.os.SystemClock.elapsedRealtime() - sqlStartedAt
+        val mappingStartedAt = android.os.SystemClock.elapsedRealtime()
+        val results = cursor.use { c -> generateSequence { if (c.moveToNext()) messageFromCursor(c) else null }.toList() }
+        return LocalSearchQueryResult(results, sqlMs, android.os.SystemClock.elapsedRealtime() - mappingStartedAt, useFts)
     }
 
     private fun queryWorkOrdersFts(db: SupportSQLiteDatabase, userId: Long, keyword: String, limit: Int): Cursor =
@@ -135,3 +159,10 @@ class WorkOrderSearchIndex @Inject constructor(private val database: WorkOrderCa
         const val MIN_FTS_QUERY_LENGTH = 3
     }
 }
+
+data class LocalSearchQueryResult<T>(
+    val results: List<T>,
+    val sqlMs: Long,
+    val summaryMappingMs: Long,
+    val ftsUsed: Boolean,
+)
