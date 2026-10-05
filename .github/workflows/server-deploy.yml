@@ -186,8 +186,6 @@ jobs:
             -o ConnectTimeout=20 \
             -P "$DEPLOY_PORT")
           remote="$DEPLOY_USER@$DEPLOY_HOST"
-          ssh "${ssh_args[@]}" "$remote" \
-            "rm -f /opt/plateview/updates/PlateView-v0.3.34-arm64-v8a.apk /opt/plateview/updates/PlateView-v0.3.34-armeabi-v7a.apk /opt/plateview/updates/PlateView-v0.3.34-universal.apk /opt/plateview/updates/latest.json"
           ssh "${ssh_args[@]}" "$remote" "mkdir -p /opt/plateview/source/web-dist && find /opt/plateview/source/web-dist -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
           scp "${scp_args[@]}" -r web-dist/. "$remote:/opt/plateview/source/web-dist/"
           status_file="/opt/plateview/runtime/deploy-status-$TARGET_COMMIT"

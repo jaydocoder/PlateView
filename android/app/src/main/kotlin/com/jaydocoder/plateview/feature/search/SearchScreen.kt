@@ -557,9 +557,11 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
                     CandidatePrimaryText(
                         text = candidate.orderNumber?.let { orderNumber ->
                             val year = candidate.displayOrderYear()
-                            if (year != null) "$orderNumber · ${year}年" else orderNumber
+                            if (year != null) "$orderNumber · $year" else orderNumber
                         } ?: "未识别",
                         color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
                     )
                     if (importantSender != null) {
                         Text(
@@ -599,16 +601,31 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
 }
 
 private fun WorkOrder.displayOrderYear(): Int? {
-    if (orderYear > 0) return orderYear
-    val embeddedYear = YEAR_PATTERN.find(sourceName)?.value
-        ?: YEAR_PATTERN.find(rawContent)?.value
-    if (embeddedYear != null) return embeddedYear.toIntOrNull()
+    orderYear.takeIf(::isDisplayYear)?.let { return it }
+
+    // 车单数据来自不同版本的同步接口，年份可能落在来源群名、显示名或原文中。
+    // 统一从所有摘要字段提取，避免后端字段迁移导致标题丢失年份。
+    val embeddedYear = sequenceOf(
+        sourceName,
+        displayName,
+        sourceKey,
+        rawContent,
+        remarks,
+        rawValidTime,
+        sentAt,
+    ).filterNotNull()
+        .mapNotNull { YEAR_PATTERN.find(it)?.value?.toIntOrNull() }
+        .firstOrNull(::isDisplayYear)
+    if (embeddedYear != null) return embeddedYear
+
     return runCatching {
         Instant.parse(sentAt).atZone(ZoneId.of("Asia/Shanghai")).year
-    }.getOrNull()?.takeIf { it > 0 }
+    }.getOrNull()?.takeIf(::isDisplayYear)
 }
 
 private val YEAR_PATTERN = Regex("(?:19|20)\\d{2}")
+
+private fun isDisplayYear(year: Int): Boolean = year in 1900..2100
 
 @Composable
 private fun WorkOrderStatusBadge(workOrder: WorkOrder, selectedPlate: String?, modifier: Modifier = Modifier) {
@@ -669,14 +686,21 @@ private fun CandidateCompactBadge(
 }
 
 @Composable
-private fun CandidatePrimaryText(text: String, color: Color, modifier: Modifier = Modifier) {
+private fun CandidatePrimaryText(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.titleMedium,
+    maxLines: Int = 1,
+) {
     Text(
         text = text,
         modifier = modifier,
-        style = MaterialTheme.typography.titleMedium,
+        style = style,
         fontWeight = FontWeight.SemiBold,
         color = color,
-        maxLines = 1,
+        maxLines = maxLines,
+        softWrap = maxLines > 1,
     )
 }
 

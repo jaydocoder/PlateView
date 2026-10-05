@@ -144,7 +144,7 @@ class WorkOrderScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("0916024 · 2026年").assertIsDisplayed()
+        composeRule.onNodeWithText("0916024 · 2026").assertIsDisplayed()
         composeRule.onNodeWithText("新H·B8V00").assertIsDisplayed()
         composeRule.onAllNodesWithText("新H·E6Q96").assertCountEquals(0)
         composeRule.onAllNodesWithText("新H·C5J11").assertCountEquals(0)
@@ -194,7 +194,7 @@ class WorkOrderScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("0916024 · 2026年").assertIsDisplayed()
+        composeRule.onNodeWithText("0916024 · 2026").assertIsDisplayed()
     }
 
     @Test
@@ -215,7 +215,29 @@ class WorkOrderScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("0916024 · 2026年").assertIsDisplayed()
+        composeRule.onNodeWithText("0916024 · 2026").assertIsDisplayed()
+    }
+
+    @Test
+    fun 微信车单候选来源群名没有年份时从显示名提取年份() {
+        val workOrder = sampleWorkOrder().copy(
+            orderYear = 0,
+            sentAt = "",
+            sourceName = "车单子接收群",
+            displayName = "2026车单子接收群",
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "0916", workOrderCandidates = listOf(workOrder)),
+                    onQueryChanged = {}, onCandidateSelected = {}, onWorkOrderSelected = {},
+                    onHistorySelected = {}, onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("0916024 · 2026").assertIsDisplayed()
     }
 
     @Test
