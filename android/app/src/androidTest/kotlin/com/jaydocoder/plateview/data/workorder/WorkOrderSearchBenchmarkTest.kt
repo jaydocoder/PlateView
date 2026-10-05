@@ -116,5 +116,6 @@ class WorkOrderSearchBenchmarkTest {
             "workOrders=%d messages=%d workOrderP50=%dms workOrderP95=%dms workOrderP99=%dms messageP50=%dms messageP95=%dms messageP99=%dms",
             rows, rows * 2, percentile(workOrderSamples, 0.50), percentile(workOrderSamples, 0.95), percentile(workOrderSamples, 0.99),
             percentile(messageSamples, 0.50), percentile(messageSamples, 0.95), percentile(messageSamples, 0.99)))
+        Unit
     }
 }
