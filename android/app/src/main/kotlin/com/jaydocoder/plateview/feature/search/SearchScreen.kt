@@ -600,10 +600,15 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
 
 private fun WorkOrder.displayOrderYear(): Int? {
     if (orderYear > 0) return orderYear
+    val embeddedYear = YEAR_PATTERN.find(sourceName)?.value
+        ?: YEAR_PATTERN.find(rawContent)?.value
+    if (embeddedYear != null) return embeddedYear.toIntOrNull()
     return runCatching {
         Instant.parse(sentAt).atZone(ZoneId.of("Asia/Shanghai")).year
     }.getOrNull()?.takeIf { it > 0 }
 }
+
+private val YEAR_PATTERN = Regex("(?:19|20)\\d{2}")
 
 @Composable
 private fun WorkOrderStatusBadge(workOrder: WorkOrder, selectedPlate: String?, modifier: Modifier = Modifier) {

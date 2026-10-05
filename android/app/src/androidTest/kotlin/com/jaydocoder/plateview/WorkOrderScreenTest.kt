@@ -198,6 +198,27 @@ class WorkOrderScreenTest {
     }
 
     @Test
+    fun 微信车单候选发送时间不可解析时从来源群名称显示年份() {
+        val workOrder = sampleWorkOrder().copy(
+            orderYear = 0,
+            sentAt = "",
+            sourceName = "2026车单子接收群",
+        )
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "0916", workOrderCandidates = listOf(workOrder)),
+                    onQueryChanged = {}, onCandidateSelected = {}, onWorkOrderSelected = {},
+                    onHistorySelected = {}, onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("0916024 · 2026年").assertIsDisplayed()
+    }
+
+    @Test
     fun 多车牌聊天候选显示当前搜索实际命中的车牌() {
         val message = sampleWechatMessage(920, "wxid-test", "值班员").copy(
             plateNumbers = listOf("新HB8702", "新H26927", "新H00022"),
