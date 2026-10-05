@@ -181,6 +181,23 @@ class WorkOrderScreenTest {
     }
 
     @Test
+    fun 微信车单候选在年份字段缺失时从发送时间显示年份() {
+        val workOrder = sampleWorkOrder().copy(orderYear = 0, sentAt = "2026-10-05T01:00:00Z")
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = SearchUiState(query = "0916", workOrderCandidates = listOf(workOrder)),
+                    onQueryChanged = {}, onCandidateSelected = {}, onWorkOrderSelected = {},
+                    onHistorySelected = {}, onDeleteHistory = {}, onClearHistory = {}, onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L), onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("0916024 · 2026年").assertIsDisplayed()
+    }
+
+    @Test
     fun 多车牌聊天候选显示当前搜索实际命中的车牌() {
         val message = sampleWechatMessage(920, "wxid-test", "值班员").copy(
             plateNumbers = listOf("新HB8702", "新H26927", "新H00022"),

@@ -556,7 +556,8 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
                 Column(Modifier.weight(1f)) {
                     CandidatePrimaryText(
                         text = candidate.orderNumber?.let { orderNumber ->
-                            if (candidate.orderYear > 0) "$orderNumber · ${candidate.orderYear}年" else orderNumber
+                            val year = candidate.displayOrderYear()
+                            if (year != null) "$orderNumber · ${year}年" else orderNumber
                         } ?: "未识别",
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -595,6 +596,13 @@ private fun WorkOrderCandidateRow(candidate: WorkOrder, query: String, onSelecte
             }
         }
     }
+}
+
+private fun WorkOrder.displayOrderYear(): Int? {
+    if (orderYear > 0) return orderYear
+    return runCatching {
+        Instant.parse(sentAt).atZone(ZoneId.of("Asia/Shanghai")).year
+    }.getOrNull()?.takeIf { it > 0 }
 }
 
 @Composable
