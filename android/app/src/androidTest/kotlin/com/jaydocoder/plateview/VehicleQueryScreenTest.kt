@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.platform.LocalDensity
@@ -26,6 +27,8 @@ import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleCandidate
 import com.jaydocoder.plateview.domain.vehicle.VehicleDetail
+import com.jaydocoder.plateview.domain.workorder.WorkOrder
+import com.jaydocoder.plateview.domain.workorder.WechatMessage
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
 import com.jaydocoder.plateview.feature.search.SearchScreen
 import com.jaydocoder.plateview.feature.search.SearchUiState
@@ -40,6 +43,89 @@ import org.junit.Test
 class VehicleQueryScreenTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun 首页搜索输入时不同分组使用相同数字ID不会闪退() {
+        val state = mutableStateOf(
+            SearchUiState(
+                candidates = listOf(VehicleCandidate(1, "新A12345", "RESIDENT", "村民车辆")),
+                workOrderCandidates = listOf(
+                    WorkOrder(
+                        id = 1,
+                        orderNumber = "0920014",
+                        rawPlate = "新A12345",
+                        normalizedPlate = "新A12345",
+                        vehicleType = null,
+                        declaredPeople = null,
+                        rawValidTime = null,
+                        location = null,
+                        verificationMethod = null,
+                        reason = null,
+                        remarks = null,
+                        status = "ACTIVE",
+                        parseQuality = "HIGH",
+                        catalogRevision = 1,
+                        rawContent = "新A12345",
+                        sentAt = "2026-10-19T12:00:00Z",
+                        sourceKey = "group-1",
+                        sourceName = "测试群",
+                        senderUsername = null,
+                        senderDisplay = "测试发送者",
+                        senderGroupNickname = null,
+                        people = emptyList(),
+                        images = emptyList(),
+                        orderYear = 2026,
+                    ),
+                ),
+                wechatMessages = listOf(
+                    WechatMessage(
+                        id = 1,
+                        businessType = "OTHER",
+                        rawContent = "新A12345 测试消息",
+                        matchedSnippet = "新A12345",
+                        sentAt = "2026-10-19T12:00:00Z",
+                        sourceKey = "group-1",
+                        sourceName = "测试群",
+                        senderUsername = null,
+                        senderDisplay = "测试发送者",
+                        senderGroupNickname = null,
+                        displayName = "测试发送者",
+                        plateNumbers = listOf("新A12345"),
+                        attachments = emptyList(),
+                    ),
+                ),
+                history = listOf(
+                    SearchHistoryItem(1, 1, "新A12345", "RESIDENT", "村民车辆", 0L),
+                ),
+            ),
+        )
+
+        composeRule.setContent {
+            PlateViewTheme {
+                SearchScreen(
+                    uiState = state.value,
+                    onQueryChanged = { state.value = state.value.copy(query = it) },
+                    onCandidateSelected = {},
+                    onWorkOrderSelected = {},
+                    onWechatMessageSelected = {},
+                    onHistorySelected = {},
+                    onDeleteHistory = {},
+                    onClearHistory = {},
+                    onRetry = {},
+                    avatar = AvatarCacheEntry(null, null, 0L),
+                    onOpenProfile = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("search_input").performTextInput("新")
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("search_result_list").performScrollToIndex(8)
+
+        composeRule.onNodeWithText("历史查询").assertExists()
+        composeRule.onNodeWithTag("search_result_list").performScrollToIndex(2)
+        composeRule.onNodeWithTag("candidate_1").assertIsDisplayed()
+    }
 
     @Test
     fun 搜索框不显示占位说明文字() {
@@ -425,6 +511,7 @@ class VehicleQueryScreenTest {
         composeRule.onNodeWithText(passageDetails).assertIsDisplayed()
         composeRule.onNodeWithText(longRemarks).assertIsDisplayed()
         composeRule.onNodeWithTag("vehicle_detail_field_通行说明").assertHeightIsAtLeast(100.dp)
+        composeRule.onNodeWithTag("vehicle_detail_top_bar").assertIsDisplayed()
     }
 
     @Test

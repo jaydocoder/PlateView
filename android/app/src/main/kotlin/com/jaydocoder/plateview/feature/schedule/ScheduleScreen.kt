@@ -28,7 +28,6 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.ViewWeek
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -65,6 +64,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.component.glass.GlassPill
+import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.domain.schedule.ScheduleShift
 import com.jaydocoder.plateview.domain.schedule.ScheduleShiftType
 import com.jaydocoder.plateview.domain.schedule.ScheduleMonth
@@ -258,13 +258,10 @@ private fun MonthCalendarDialog(
     error: String?,
     onMonthSelected: (YearMonth) -> Unit,
     onDismiss: () -> Unit,
-) = AlertDialog(
-    onDismissRequest = onDismiss,
-    shape = RoundedCornerShape(24.dp),
-    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
-    title = { Text("月历") },
-    text = {
+) {
+    LiquidGlassDialog(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("月历", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             MonthYearWheelPicker(selectedMonth, onMonthSelected)
             when {
                 loading -> Box(
@@ -282,10 +279,12 @@ private fun MonthCalendarDialog(
                     CircularProgressIndicator()
                 }
             }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("关闭") }
+            }
         }
-    },
-    confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
-)
+    }
+}
 
 @Composable
 private fun MonthYearWheelPicker(selectedMonth: YearMonth, onMonthSelected: (YearMonth) -> Unit) {
@@ -451,12 +450,9 @@ private fun MonthDayCell(day: com.jaydocoder.plateview.domain.schedule.ScheduleM
 private fun WeekPickerDialog(currentWeek: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
     var selectedWeek by remember(currentWeek) { mutableIntStateOf(currentWeek.coerceIn(1, WEEK_PICKER_LIMIT)) }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (selectedWeek - 1).coerceIn(0, WEEK_PICKER_LIMIT - 1))
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        title = { Text("选择排班周") },
-        text = {
+    LiquidGlassDialog(onDismissRequest = onDismiss) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text("选择排班周", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text("第${selectedWeek}周", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
                 ThreeWeekWheel(
@@ -465,11 +461,12 @@ private fun WeekPickerDialog(currentWeek: Int, onDismiss: () -> Unit, onConfirm:
                     modifier = Modifier.fillMaxWidth().testTag("schedule_week_wheel"),
                     onSelected = { selectedWeek = it },
                 )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Button(onClick = { onConfirm(selectedWeek) }, shape = RoundedCornerShape(18.dp)) { Text("查看") }
+                }
             }
-        },
-        confirmButton = { Button(onClick = { onConfirm(selectedWeek) }, shape = RoundedCornerShape(18.dp)) { Text("查看") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+    }
 }
 
 @Composable

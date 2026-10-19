@@ -27,11 +27,9 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditCalendar
 import androidx.compose.material3.Button
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -535,7 +533,7 @@ private fun ShiftPeopleEditor(
     type: ScheduleShiftType,
     participants: List<ScheduleParticipant>,
     onChanged: ((ScheduleTemplateEditor) -> ScheduleTemplateEditor) -> Unit,
-) = ElevatedCard(shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)) {
+) = GlassSurface(shape = RoundedCornerShape(PlateViewDimensions.cornerMedium), elevated = true) {
     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("${type.label} · ${type.timeLabel}", fontWeight = FontWeight.SemiBold)
         if (participants.isEmpty()) {

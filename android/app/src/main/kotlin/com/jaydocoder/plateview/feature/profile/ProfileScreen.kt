@@ -78,6 +78,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.R
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.GlassDetailInset
+import com.jaydocoder.plateview.component.glass.GlassStatusBadge
 import com.jaydocoder.plateview.component.glass.LiquidGlassIconButton
 import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.feature.auth.AvatarCacheEntry
@@ -231,9 +233,13 @@ internal fun ProfileScreen(
             }
             state.error?.let { error ->
                 item {
-                    Surface(
+                    GlassSurface(
+                        modifier = Modifier.fillMaxWidth(),
+                        material = com.jaydocoder.plateview.component.glass.GlassMaterial.Tinted,
+                        level = com.jaydocoder.plateview.component.glass.GlassSurfaceLevel.Inset,
                         color = MaterialTheme.colorScheme.errorContainer,
-                        shape = RoundedCornerShape(12.dp),
+                        opacity = 0.36f,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
                     ) {
                         Text(
                             text = error,
@@ -562,7 +568,7 @@ private fun AccountValueEditorScreen(
             if (isUsername) {
                 item {
                     ProfileEditorField(label = "新用户名") {
-                        GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                        GlassDetailInset(modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = editedUsername,
                                 onValueChange = { editedUsername = it },
@@ -601,7 +607,7 @@ private fun ProfileEditorField(label: String, content: @Composable () -> Unit) {
 @Composable
 private fun PasswordInput(value: String, onValueChange: (String) -> Unit) {
     var visible by remember { mutableStateOf(false) }
-    GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+    GlassDetailInset(modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,

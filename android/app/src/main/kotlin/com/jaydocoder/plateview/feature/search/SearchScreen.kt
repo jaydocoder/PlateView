@@ -34,9 +34,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -243,7 +241,7 @@ fun SearchScreen(
                 }
                 items(
                     items = uiState.candidates,
-                    key = VehicleCandidate::id,
+                    key = { candidate -> "vehicle_${candidate.id}" },
                     contentType = { "vehicle_candidate" },
                 ) { candidate ->
                     VehicleCandidateRow(
@@ -266,7 +264,7 @@ fun SearchScreen(
                 }
                 items(
                     items = uiState.workOrderCandidates,
-                    key = WorkOrder::id,
+                    key = { candidate -> "work_order_${candidate.id}" },
                     contentType = { "work_order_candidate" },
                 ) { candidate ->
                     WorkOrderCandidateRow(candidate, uiState.query, onWorkOrderSelected)
@@ -285,7 +283,7 @@ fun SearchScreen(
                 }
                 items(
                     items = uiState.wechatMessages,
-                    key = WechatMessage::id,
+                    key = { message -> "wechat_message_${message.id}" },
                     contentType = { "wechat_message_candidate" },
                 ) { message ->
                     WechatMessageCandidateRow(message, uiState.query, onWechatMessageSelected)
@@ -315,7 +313,7 @@ fun SearchScreen(
                 }
                 items(
                     items = uiState.history,
-                    key = SearchHistoryItem::id,
+                    key = { item -> "history_${item.id}" },
                     contentType = { "search_history" },
                 ) { item ->
                     SearchHistoryRow(
@@ -713,9 +711,8 @@ private fun SearchBar(
     LiquidGlassInput(
         value = query,
         onValueChange = onQueryChanged,
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("search_input"),
+        modifier = modifier.fillMaxWidth().testTag("search_input_surface"),
+        inputModifier = Modifier.testTag("search_input"),
         leadingIcon = {
             Icon(
                 imageVector = Icons.Outlined.Search,
@@ -890,18 +887,14 @@ private fun VehicleCandidateRow(
     freshnessLabel: String,
     onSelected: (VehicleCandidate) -> Unit,
 ) {
-    ElevatedCard(
-        onClick = { onSelected(candidate) },
-        enabled = candidate.detailAccessible,
+    GlassSurface(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = PlateViewDimensions.candidateMinimumHeight)
-            .testTag("candidate_${candidate.id}"),
+            .testTag("candidate_${candidate.id}")
+            .clickable(enabled = candidate.detailAccessible) { onSelected(candidate) },
         shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = PlateViewDimensions.cardElevation),
+        elevated = true,
     ) {
         Row(
             modifier = Modifier

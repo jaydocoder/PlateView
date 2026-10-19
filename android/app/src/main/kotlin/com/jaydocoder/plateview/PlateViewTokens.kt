@@ -24,6 +24,10 @@ object PlateViewDimensions {
     val glassBorderWidth = 1.dp
     val glassSurfaceAlpha = 0.80f
     val glassElevatedAlpha = 0.90f
+    val glassBlurRadius = 14.dp
+    val glassElevatedBlurRadius = 20.dp
+    val glassRimAlpha = 0.58f
+    val glassShadowAlpha = 0.22f
 }
 
 object PlateViewAnimations {

@@ -26,8 +26,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -65,6 +63,10 @@ import com.jaydocoder.plateview.component.glass.GlassPill
 import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.component.glass.LiquidGlassInput
 import com.jaydocoder.plateview.component.glass.LiquidGlassSegmentedControl
+import com.jaydocoder.plateview.component.glass.GlassMenuSurface
+import com.jaydocoder.plateview.component.glass.GlassActionSurface
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -332,18 +334,19 @@ private fun CategorySelector(selected: String?, onSelected: (String?) -> Unit) {
         ) {
             Text(label)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text("全部类别") },
-                onClick = { expanded = false; onSelected(null) },
-                modifier = Modifier.testTag("statistics_category_option_all"),
-            )
-            CategoryLabels.forEach { (value, categoryLabel) ->
-                DropdownMenuItem(
-                    text = { Text(categoryLabel) },
-                    onClick = { expanded = false; onSelected(value) },
-                    modifier = Modifier.testTag("statistics_category_option_$value"),
-                )
+        if (expanded) Popup(
+            onDismissRequest = { expanded = false },
+            properties = PopupProperties(focusable = true),
+        ) {
+            GlassMenuSurface(modifier = Modifier.width(220.dp)) {
+                GlassActionSurface(onClick = { expanded = false; onSelected(null) }, modifier = Modifier.testTag("statistics_category_option_all")) {
+                    Text("全部类别", modifier = Modifier.padding(horizontal = 12.dp))
+                }
+                CategoryLabels.forEach { (value, categoryLabel) ->
+                    GlassActionSurface(onClick = { expanded = false; onSelected(value) }, modifier = Modifier.testTag("statistics_category_option_$value")) {
+                        Text(categoryLabel, modifier = Modifier.padding(horizontal = 12.dp))
+                    }
+                }
             }
         }
     }

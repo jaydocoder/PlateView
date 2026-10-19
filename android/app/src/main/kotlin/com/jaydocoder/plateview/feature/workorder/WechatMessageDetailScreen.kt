@@ -45,6 +45,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.component.VehiclePlateBadge
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.GlassAttachmentSurface
+import com.jaydocoder.plateview.component.glass.GlassDetailBlock
+import com.jaydocoder.plateview.component.glass.GlassStatusBadge
+import com.jaydocoder.plateview.component.glass.GlassTopBar
 import com.jaydocoder.plateview.component.rememberCurrentBeijingTime
 import com.jaydocoder.plateview.domain.workorder.displayLabel
 import com.jaydocoder.plateview.domain.workorder.hasAttachmentPlaceholderContent
@@ -74,7 +78,7 @@ internal fun WechatMessageDetailScreen(
 ) {
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
+            GlassTopBar(
                 title = { Text("微信聊天记录") },
                 navigationIcon = { IconButton(onClick = onNavigateUp) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") } },
             )
@@ -132,10 +136,8 @@ internal fun WechatMessageDetailScreen(
                     passageState?.let {
                         item {
                             MessagePanel("通行状态") {
-                                Text(
-                                    it.displayLabel(),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
+                                GlassStatusBadge(
+                                    text = it.displayLabel(),
                                     color = if (it.name == "VALID") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                 )
                             }
@@ -190,9 +192,8 @@ private fun AttachmentPreviewList(
     attachments.forEach { attachment ->
         val cached = files[attachment.id]
         val download = downloads[attachment.id]
-        Column(
+        GlassAttachmentSurface(
             modifier = Modifier.fillMaxWidth().clickable { onOpenAttachment(attachment) },
-            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (attachment.availability in setOf("AVAILABLE", "THUMBNAIL_ONLY")) {
                 AttachmentThumbnail(
@@ -254,14 +255,9 @@ private fun attachmentFailureMessage(download: com.jaydocoder.plateview.domain.w
 
 @Composable
 private fun MessagePanel(title: String, content: @Composable ColumnScope.() -> Unit) {
-    GlassSurface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(PlateViewDimensions.itemSpacing),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            content()
-        }
+    GlassDetailBlock {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        content()
     }
 }
 

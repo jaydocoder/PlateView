@@ -19,7 +19,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,6 +33,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.jaydocoder.plateview.PlateViewDimensions
 import com.jaydocoder.plateview.BuildConfig
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.GlassSemanticBadge
 import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.domain.update.AppUpdate
 
@@ -75,14 +75,7 @@ fun AppUpdateDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("PlateView", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.width(PlateViewDimensions.compactSpacing))
-                Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.tertiaryContainer) {
-                    Text(
-                        text = "v${update.versionName}",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                }
+                GlassSemanticBadge("v${update.versionName}", color = MaterialTheme.colorScheme.tertiary)
             }
             Text("当前版本 v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("最新版本 v${update.versionName}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -62,6 +62,9 @@ interface AuthSessionProvider {
     val session: Flow<AuthSession?>
 
     suspend fun logout()
+
+    /** 前台页面需要立即确认目录版本时调用；测试替身默认不执行网络操作。 */
+    suspend fun refreshCatalogState(force: Boolean = true) = Unit
 }
 
 interface AuthApi {
@@ -175,6 +178,10 @@ class AuthRepository @Inject constructor(
             return@withLock
         }
         acceptCatalogState(session, remote, force = true)
+    }
+
+    override suspend fun refreshCatalogState(force: Boolean) {
+        session.first()?.let { checkCatalogState(it, force) }
     }
 
     suspend fun reportValidationFailure(errorCode: String) {

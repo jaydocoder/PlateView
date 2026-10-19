@@ -8,12 +8,14 @@ import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.GlassMaterial
+import com.jaydocoder.plateview.component.glass.GlassSurfaceLevel
 
 @Composable
 fun UpdateAvailableAction(
@@ -21,10 +23,13 @@ fun UpdateAvailableAction(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
-        Surface(
+        GlassSurface(
             shape = CircleShape,
             color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            material = GlassMaterial.Lens,
+            level = GlassSurfaceLevel.Inset,
+            opacity = 0.28f,
         ) {
             IconButton(
                 onClick = onClick,
@@ -36,12 +41,15 @@ fun UpdateAvailableAction(
                 )
             }
         }
-        Surface(
+        GlassSurface(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .size(10.dp),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.tertiary,
+            material = GlassMaterial.Tinted,
+            level = GlassSurfaceLevel.Inset,
+            opacity = 0.86f,
             content = {},
         )
     }

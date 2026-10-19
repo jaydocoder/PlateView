@@ -528,6 +528,7 @@ class AdminWorkspaceScreenTest {
         composeRule.onNodeWithText("新增 1 · 更新 1 · 待确认 1").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_import_rows").performScrollToIndex(1)
         composeRule.onNodeWithTag("admin_import_row_${pending.id}").assertIsDisplayed()
+        composeRule.onNodeWithText(pending.plateNumber!!).assertIsDisplayed()
         composeRule.onNodeWithTag("import_pending_dot", useUnmergedTree = true).assertExists()
     }
 
@@ -639,7 +640,11 @@ class AdminWorkspaceScreenTest {
         composeRule.setContent {
             PlateViewTheme {
                 AdminWorkspaceScreen(
-                    uiState = AdminUiState(isLoading = false, isPrimaryAdministrator = isPrimaryAdministrator),
+                    uiState = AdminUiState(
+                        isLoading = false,
+                        isPrimaryAdministrator = isPrimaryAdministrator,
+                        showSchedulePlanner = isPrimaryAdministrator,
+                    ),
                     onNavigateUp = {}, onTabSelected = {}, onRefresh = {}, onCreateVehicle = {}, onEditVehicle = {},
                     onVehicleEditorChanged = {}, onDismissVehicleEditor = {}, onSaveVehicle = {}, onDeactivateVehicle = {},
                     onDismissVehicleDeactivation = {}, onConfirmVehicleDeactivation = {}, onCreateUser = {}, onEditUser = {},
@@ -666,6 +671,7 @@ class AdminWorkspaceScreenTest {
                         tab = AdminTab.Dashboard,
                         isLoading = false,
                         isPrimaryAdministrator = true,
+                        showWechatSync = true,
                     ),
                     onNavigateUp = {}, onTabSelected = { selectedTab = it }, onRefresh = {},
                     onCreateVehicle = {}, onEditVehicle = {}, onVehicleEditorChanged = {},
@@ -691,6 +697,7 @@ class AdminWorkspaceScreenTest {
                         tab = AdminTab.WechatSync,
                         isLoading = false,
                         isPrimaryAdministrator = true,
+                        showWechatSync = true,
                         wechatSyncSources = listOf(
                             WechatSyncSource(
                                 sourceKey = "20546602068@chatroom",
@@ -716,6 +723,7 @@ class AdminWorkspaceScreenTest {
 
         composeRule.onNodeWithText("微信同步").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("admin_wechat_sync_page").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_wechat_sync_page").performScrollToIndex(6)
         composeRule.onNodeWithText("2026车单子接收群").assertIsDisplayed()
         composeRule.onNodeWithText("同步正常").assertIsDisplayed()
         composeRule.runOnIdle { assertEquals(AdminTab.WechatSync, selectedTab) }

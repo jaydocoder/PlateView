@@ -67,16 +67,15 @@ class PlateViewThemeTest {
         }
 
         composeRule.runOnIdle {
-            val expected = Color(0xFFF4F7F5)
-            assertEquals(expected, background)
-            assertEquals(expected, surface)
-            assertEquals(expected, surfaceBright)
-            assertEquals(expected, surfaceDim)
-            assertEquals(expected, surfaceContainerLowest)
-            assertEquals(expected, surfaceContainerLow)
-            assertEquals(expected, surfaceContainer)
-            assertEquals(expected, surfaceContainerHigh)
-            assertEquals(expected, surfaceContainerHighest)
+            assertEquals(Color(0xFFEAF3EE), background)
+            assertEquals(Color(0xFFEEF7F2), surface)
+            assertEquals(Color(0xFFF9FFFB), surfaceBright)
+            assertEquals(Color(0xFFD8E6DD), surfaceDim)
+            assertEquals(Color(0xFFEAF3EE), surfaceContainerLowest)
+            assertEquals(Color(0xFFEEF7F2), surfaceContainerLow)
+            assertEquals(Color(0xFFE6F0E9), surfaceContainer)
+            assertEquals(Color(0xFFDFEBE3), surfaceContainerHigh)
+            assertEquals(Color(0xFFD6E5DC), surfaceContainerHighest)
             assertEquals(Color.Transparent, surfaceTint)
         }
     }

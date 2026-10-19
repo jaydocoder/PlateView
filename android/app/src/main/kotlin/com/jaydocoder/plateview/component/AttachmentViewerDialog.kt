@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
+import com.jaydocoder.plateview.component.glass.GlassSemanticBadge
 import java.io.File
 
 @Composable
@@ -60,7 +61,7 @@ fun AttachmentViewerDialog(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(failureMessage, color = MaterialTheme.colorScheme.error)
+                    GlassSemanticBadge(failureMessage, color = MaterialTheme.colorScheme.error)
                     onRetry?.let { retry -> TextButton(onClick = retry) { Text("重新加载") } }
                 }
             } else if (file == null) {

@@ -40,8 +40,8 @@ android {
         applicationId = "com.jaydocoder.plateview"
         minSdk = 31
         targetSdk = 37
-        versionCode = 38
-        versionName = "0.3.34"
+        versionCode = 39
+        versionName = "0.3.35"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiBaseUrl = providers.gradleProperty("plateviewApiBaseUrl")
             .orElse(
@@ -166,6 +166,7 @@ dependencies {
     implementation(libs.sentry.android) {
         exclude(group = "io.sentry", module = "sentry-android-replay")
     }
+    implementation(libs.backdrop)
     implementation(libs.kotlinx.serialization.json)
     ksp(libs.hilt.compiler)
     ksp(libs.androidx.room.compiler)

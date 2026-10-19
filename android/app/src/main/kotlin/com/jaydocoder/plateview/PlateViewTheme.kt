@@ -32,23 +32,23 @@ private val LightColors = lightColorScheme(
     errorContainer = Color(0xFFFFDAD6),
     onError = Color(0xFFFFFFFF),
     onErrorContainer = Color(0xFF410002),
-    background = Color(0xFFF4F7F5),
+    background = Color(0xFFEAF3EE),
     onBackground = Color(0xFF152B22),
     // 浅色页面不使用白色卡片底，所有 Material 3 容器层与雾白绿背景融合。
-    surface = Color(0xFFF4F7F5),
+    surface = Color(0xFFEEF7F2),
     onSurface = Color(0xFF152B22),
-    surfaceVariant = Color(0xFFE7EFEA),
+    surfaceVariant = Color(0xFFDCEBE2),
     onSurfaceVariant = Color(0xFF40564B),
     outline = Color(0xFF70827A),
     // 关闭普通表面的抬升染色，避免 ElevatedCard 和弹层在背景同色策略下再次形成浅色卡片。
     surfaceTint = Color.Transparent,
-    surfaceBright = Color(0xFFF4F7F5),
-    surfaceDim = Color(0xFFF4F7F5),
-    surfaceContainerLowest = Color(0xFFF4F7F5),
-    surfaceContainerLow = Color(0xFFF4F7F5),
-    surfaceContainer = Color(0xFFF4F7F5),
-    surfaceContainerHigh = Color(0xFFF4F7F5),
-    surfaceContainerHighest = Color(0xFFF4F7F5),
+    surfaceBright = Color(0xFFF9FFFB),
+    surfaceDim = Color(0xFFD8E6DD),
+    surfaceContainerLowest = Color(0xFFEAF3EE),
+    surfaceContainerLow = Color(0xFFEEF7F2),
+    surfaceContainer = Color(0xFFE6F0E9),
+    surfaceContainerHigh = Color(0xFFDFEBE3),
+    surfaceContainerHighest = Color(0xFFD6E5DC),
 )
 
 private val DarkColors = darkColorScheme(
@@ -75,6 +75,14 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = Color(0xFF2D3B34),
     onSurfaceVariant = Color(0xFFBDCABE),
     outline = Color(0xFF8B9C92),
+    surfaceTint = Color.Transparent,
+    surfaceBright = Color(0xFF26362E),
+    surfaceDim = Color(0xFF0E1914),
+    surfaceContainerLowest = Color(0xFF0B120F),
+    surfaceContainerLow = Color(0xFF111D17),
+    surfaceContainer = Color(0xFF18261F),
+    surfaceContainerHigh = Color(0xFF223129),
+    surfaceContainerHighest = Color(0xFF2C3C33),
 )
 
 private val Typography = Typography(

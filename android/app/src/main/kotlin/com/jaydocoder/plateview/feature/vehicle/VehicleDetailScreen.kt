@@ -59,7 +59,14 @@ import com.jaydocoder.plateview.component.InactiveVehicleStatusBadge
 import com.jaydocoder.plateview.component.StrictCheckContainerColor
 import com.jaydocoder.plateview.component.StrictCheckContentColor
 import com.jaydocoder.plateview.component.VehiclePlateBadge
+import com.jaydocoder.plateview.component.glass.GlassDetailBlock
+import com.jaydocoder.plateview.component.glass.GlassDetailHeader
+import com.jaydocoder.plateview.component.glass.GlassDetailInset
+import com.jaydocoder.plateview.component.glass.GlassStatusBadge
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.GlassMaterial
+import com.jaydocoder.plateview.component.glass.GlassSurfaceLevel
+import com.jaydocoder.plateview.component.glass.GlassTopBar
 import com.jaydocoder.plateview.domain.vehicle.LongTermProfile
 import com.jaydocoder.plateview.domain.vehicle.ResidentProfile
 import com.jaydocoder.plateview.domain.vehicle.VehicleAttribute
@@ -93,9 +100,10 @@ fun VehicleDetailScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
+            GlassTopBar(
                 modifier = Modifier.testTag("vehicle_detail_top_bar"),
                 title = { Text(stringResource(R.string.detail_title), fontWeight = FontWeight.Bold) },
+                showEdge = false,
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
                         Icon(
@@ -109,11 +117,6 @@ fun VehicleDetailScreen(
                         UpdateAvailableAction(onClick = openUpdate)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
             )
         },
     ) { innerPadding ->
@@ -204,11 +207,14 @@ private fun VehicleDetailContent(
     ) {
         if (vehicle.status == "STRICT_CHECK" || vehicle.status == "BLACKLISTED" || vehicle.status == "INACTIVE") {
             item(key = "inactive_notice") {
-                Surface(
+                GlassSurface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = if (vehicle.status == "STRICT_CHECK") StrictCheckContainerColor else InactiveVehicleContainerColor,
-                    contentColor = if (vehicle.status == "STRICT_CHECK") StrictCheckContentColor else InactiveVehicleContentColor,
                     shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                    material = GlassMaterial.Tinted,
+                    level = GlassSurfaceLevel.Block,
+                    color = if (vehicle.status == "STRICT_CHECK") StrictCheckContainerColor else InactiveVehicleContainerColor,
+                    opacity = 0.42f,
+                    contentColor = if (vehicle.status == "STRICT_CHECK") StrictCheckContentColor else InactiveVehicleContentColor,
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         InactiveVehicleStatusBadge(vehicle.status)
@@ -269,12 +275,10 @@ private fun VehicleDetailContent(
 
 @Composable
 private fun VehicleIdentityBanner(vehicle: VehicleDetail) {
-    GlassSurface(
+    GlassDetailHeader(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("vehicle_detail_identity_banner"),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-        elevated = true,
     ) {
         Box(modifier = Modifier.aspectRatio(2f)) {
             Image(
@@ -335,12 +339,10 @@ private fun DetailSection(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     fields: List<DetailField>,
 ) {
-    GlassSurface(
+    GlassDetailBlock(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("vehicle_detail_section_$title"),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        elevated = true,
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -385,11 +387,8 @@ private fun DetailInfoCell(
 ) {
     val isInline = displayMode == DetailFieldDisplayMode.Inline ||
         (displayMode == DetailFieldDisplayMode.Auto && value.isShortDetailValue())
-    Surface(
+    GlassDetailInset(
         modifier = modifier.testTag("vehicle_detail_field_$label"),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        color = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         if (isInline) {
             Row(

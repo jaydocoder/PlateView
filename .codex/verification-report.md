@@ -60,6 +60,41 @@
 - 综合评分：96/100
 
 结论：通过。
+
+## 2026-10-19 详情顶栏去线与导入车牌底色
+
+### 需求覆盖
+
+- 车辆详情顶栏移除上下边缘线，继续透出与详情页一致的背景。
+- 导入核对行的车牌底色加深，车牌文字保持高对比。
+- 修改范围仅为共享玻璃边缘的局部开关和导入徽标视觉参数；不修改微信车单顶栏、其他状态徽标、主题配色或业务逻辑。
+
+### 验证
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:compileDebugKotlin` | 通过 |
+| `:app:testDebugUnitTest` | 通过 |
+| `:app:compileDebugAndroidTestKotlin` | 通过 |
+| `:app:assembleDebug`、`:app:assembleDebugAndroidTest` | 通过 |
+| 真机 `VehicleQueryScreenTest` | 16/16 通过 |
+| 真机车辆详情目标用例 | 1/1 通过 |
+| 真机管理工作台整类 | 21/24 通过，导入核对目标用例通过 |
+| `git diff --check` | 通过 |
+
+管理工作台整类剩余 3 项失败涉及微信群状态、排班入口和概览微信同步入口；与本次变更的车辆详情顶栏及导入徽标无直接交集。由于 AndroidTest 单方法过滤无法建立 Compose hierarchy，导入核对目标用例由整类运行验证并通过。
+
+### 构建环境
+
+- 系统 Java 21 是不含 `javac` 的运行时，无法满足 Android Gradle Java toolchain。
+- 使用本机 SDKMAN 管理的完整 JDK 17，并通过临时 `ANDROID_HOME=/home/neo/Android/Sdk` 构建成功；没有修改项目或全局 SDK/JDK 设置。
+
+### 交付物
+
+- Debug APK：`android/app/build/outputs/apk/debug/app-universal-debug.apk`
+- 已用保留数据模式覆盖安装到真机 `3B65BL021BV00000`，版本 `0.3.34` / `38`；未清除应用数据。
+
+综合评分：92/100，结论：通过；剩余测试风险限于管理工作台其他导航/同步入口断言失败，不影响两项目标视觉改动的定向验证。
 ## 2026-09-24 本地微信同步验证
 
 ### 需求完整性
@@ -1392,3 +1427,226 @@ adb shell am instrument -w \
 ```
 
 其中 `searchBenchmarkRows=50000` 会生成 5 万条车单和 10 万条聊天记录；`200000`、`500000` 分别对应另外两档数据规模。当前不能把未连接真机时的目标指标宣称为已达标。
+
+## 2026-10-05 重新发布 0.3.34
+
+- 范围：当前代码提交、车单年份兜底及单行紧凑显示、恢复服务器 APK 保留行为。
+- 提交：`3423081463a8ee152fd4000a3b2f90b67d35dc23`；标签：`v0.3.34`。
+- 本地验证：`:app:testDebugUnitTest :app:lintDebug :app:assembleDebug` 全部通过；部署策略测试、镜像同步脚本测试及差异检查通过。
+- 既有真机测试：车单界面 23 项通过；完整仪器测试另有四项管理页和资料页断言失败，未作为全部通过处理。
+- 压力测试：5 万车单与 10 万聊天运行完成，聊天 P95 约 228ms，超过 150ms 目标；20 万车单与 40 万聊天运行完成，详细指标未保存；50 万车单与百万聊天仪器进程失败，不能据此认定正式查询阶段崩溃或性能达标。
+- 发布资产由既有工作流签名生成；本地不保存签名机密。推送已完成，资产和服务部署仍等待确认。
+- 技术评估：代码质量 92、测试覆盖 82、规范遵循 90；需求匹配 94、架构一致 95、风险评估 85。综合 89，建议需讨论；用户已明确要求发布当前代码，发布仍需披露压力测试及既有仪器测试限制。
+
+## 2026-10-19 液态玻璃主题改造验证
+
+### 本次实现
+
+- `LiquidGlass.kt` 增加统一 `GlassMaterial`、`GlassStyle` 和 `GlassBackdropHost`，统一处理页面、卡片、输入框、胶囊、底栏及弹窗材质。
+- Android 15 且非已知高风险厂商设备优先启用实时背景模糊；其他设备、低内存设备使用静态玻璃降级。
+- 根页面加入低频森林冰湖绿光晕，浅色和深色主题增加 page/card/block/inset 分层颜色。
+- 搜索候选、管理车辆、管理用户和排班成员编辑器迁移到统一玻璃表面；未改变点击、权限、同步、搜索和数据库逻辑。
+- 玻璃实时模糊只在根背景采样，列表行和图表内部不创建独立采样宿主。
+
+### 本地验证
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:compileDebugKotlin` | 通过 |
+| `git diff --check` | 通过 |
+| Maven 依赖补齐 | 通过，使用临时镜像初始化脚本，不写入项目构建配置 |
+| `:app:testDebugUnitTest` | 通过，164 项，0 失败 |
+| `:app:compileDebugAndroidTestKotlin` | 通过，使用 SDKMAN 的 Temurin JDK 17 |
+| `:app:assembleDebug` | 通过 |
+
+### 风险与后续
+
+- 当前环境已通过 SDKMAN 切换到 `17.0.19-tem`，确认 `java 17.0.19` 和 `javac 17.0.19` 均可用。
+- 已使用该 JDK 完成 Android 测试编译、164 项单元测试和 Debug APK 构建；没有修改系统默认 Java 配置。
+- 尚未连接 Android 15 真机验证实时模糊和掉帧自动降级；Android 13/14 设备按设计走静态玻璃路径。
+
+## 2026-10-19 液态玻璃高保真补强验证
+
+### 本次补强
+
+- `GlassStyle` 增加 FlClash 风格的 haze、饱和度、亮度、bevel、rim、hairline、dispersion 和折射参数。
+- 增加 `GlassSurfaceLevel`，支持 page、card、block、inset 四级材质层级。
+- `GlassSurface` 增加兼容当前 Compose 工具链的非均匀边缘渐变、细 hairline、内外阴影和按压径向光晕。
+- 底部 Dock 选中项改为 Lens 材质，取消统一纯色选中背景，保留原有导航和权限判断。
+- 输入框、弹窗和底栏分别使用 Inset、Block 和 Block 层级；长列表仍复用共享背景，不创建独立实时采样层。
+
+### 验证结果
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:compileDebugKotlin` | 通过 |
+| `:app:testDebugUnitTest` | 通过，新增材质参数断言，0 失败 |
+| `:app:compileDebugAndroidTestKotlin` | 通过 |
+| `:app:assembleDebug` | 通过 |
+| `git diff --check` | 通过 |
+| 真机视觉与 `gfxinfo` | 当前无连接设备，未执行 |
+
+### 未完成边界
+
+- 当前没有 Android 15 真机，无法验证实时折射、Lens 动画和持续掉帧降级。
+- 现有 `backdrop` API 不提供 FlClash 完整 Flutter shader 的同等接口，本次使用 Compose 轮廓绘制补齐 rim、hairline 和局部光晕；主题配色与业务逻辑保持不变。
+- `lintDebug` 离线执行因 Compose Desktop、DataStore JVM 等未缓存依赖解析失败，未产生源码 Lint 诊断；待网络依赖可用时补跑。
+
+## 2026-10-19 二级页面高保真液态玻璃迁移
+
+### 变更覆盖
+
+- 新增详情页语义玻璃容器：顶部身份区、主要分组、字段内嵌层、状态徽标、附件层和历史记录层。
+- 车辆详情、微信车单详情、微信聊天详情完成主要容器迁移。
+- 个人中心账号编辑区域、管理页审计指标、导入行、错误提示和候选详情完成语义材质迁移。
+- 长文本、附件和列表行继续使用静态玻璃，未新增逐行实时背景采样。
+
+### 验证结果
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:compileDebugKotlin` | 通过 |
+| `:app:testDebugUnitTest` | 通过 |
+| `:app:compileDebugAndroidTestKotlin` | 通过 |
+| `:app:assembleDebug` | 通过 |
+| `git diff --check` | 通过 |
+| 真机视觉、滚动帧耗时和自动降级 | 无在线设备，未执行 |
+
+### 说明
+
+- 首次测试因系统默认 Java 21 缺少完整编译器能力而失败，已切换到 SDKMAN Temurin JDK 17 后通过。
+- 一次并行 Gradle 任务曾竞争 KSP 生成目录，改为停止守护进程、清理构建产物并串行执行后恢复正常。
+- Debug APK 输出于 `android/app/build/outputs/apk/debug/app-universal-debug.apk`。
+- 管理工作台的失败提示、概览指标、账号开关和微信缓存当前设备徽标已补充迁移；页面根背景和高密度表格底层仍保留静态 `Surface` 以控制性能。
+- 最新一次 `:app:compileDebugKotlin`、`:app:assembleDebug` 和 `git diff --check` 通过。
+
+## 2026-10-19 三四级页面液态玻璃精修验证
+
+### 本次实现
+
+- 增加 Toolbar、Menu、Scrim、分段 Lens、交互状态和语义徽标公共组件。
+- 更新弹窗、附件预览、车辆/车单/聊天顶部栏、排班周/月选择器和统计类别菜单完成玻璃化。
+- 保持普通卡片、长列表、图表和附件内容区域的静态绘制策略，避免逐项实时模糊。
+
+### 验证结果
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:compileDebugKotlin` | 通过 |
+| `:app:testDebugUnitTest` | 通过 |
+| `:app:compileDebugAndroidTestKotlin` | 通过 |
+| `:app:assembleDebug` | 通过 |
+| `git diff --check` | 通过 |
+| Debug APK | `android/app/build/outputs/apk/debug/app-universal-debug.apk` |
+| 真机截图、`gfxinfo`、实时折射 | 无在线设备，未执行 |
+
+### 约束说明
+
+- 森林冰湖绿主题配色、权限、搜索、同步、更新状态机、附件回调和排班逻辑未修改。
+- 设备级实时玻璃仍仅在 Android 15 安全设备启用，其他设备沿用静态降级策略。
+
+## 2026-10-19 首页搜索闪退与底部导航图标偏移修复
+
+### 审查结果
+
+- 搜索崩溃根因是单个 `LazyColumn` 中车辆、车单、聊天和历史数据直接复用数字 ID 作为 key；目前各组键增加领域前缀，业务数据和查询路径不变。
+- 导航偏移根因是选中 Lens 内部承载图标，`GlassSurface` 的内部 Box 未继承外层居中对齐；目前玻璃 Lens 在后方绘制，图标作为其上层节点保持固定尺寸和中心位置。
+- 新增 Compose 回归测试：跨分组相同数字 ID 下输入搜索字符；导航选中/未选中切换时图标中心与固定容器中心一致且坐标不变。
+
+### 本地验证
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:compileDebugKotlin` | 通过 |
+| `:app:testDebugUnitTest` | 通过，167 项 |
+| `:app:compileDebugAndroidTestKotlin` | 通过 |
+| `:app:assembleDebug` | 通过 |
+| `git diff --check` | 通过 |
+| 本地后端健康检查 | 通过，`/health` 返回 `{"status":"ok"}` |
+| 最新 APK | 已构建，`android/app/build/outputs/apk/debug/app-universal-debug.apk` |
+| 新增仪器测试实际执行 | 未执行：检查时 `adb devices -l` 为空，无连接设备 |
+| 最新 APK 真机安装及视觉复验 | 未执行：设备在构建验证期间断开 |
+
+### 结论与边界
+
+- 代码修复和测试编译通过；搜索重复 key 的回归场景与导航图标几何位置均已固化测试。
+- 最新 APK 尚未安装到真机，真实输入、Lens 渲染效果和 `gfxinfo` 帧耗时仍待设备重新连接后验证；不将该项表述为通过。
+- 本轮不涉及后端代码、生产数据或 GitHub 写操作。
+
+## 2026-10-19 真机安装与回归复验
+
+| 检查项 | 结果 |
+|---|---|
+| Debug APK 构建 | 通过，`assembleDebug` 与 `assembleDebugAndroidTest` 均成功 |
+| Android 单元测试 | 通过，`:app:testDebugUnitTest` |
+| 真机安装 | 通过，OPPO PKM110 / Android 16，`0.3.34`（versionCode `38`） |
+| 本地后端 | 通过，`http://127.0.0.1:8080/health` 返回正常；ADB reverse 端口映射存在 |
+| 导航玻璃图标位置 | 通过，真机仪器测试 1/1；选中状态切换未改变图标坐标 |
+| 首页搜索回归 | 通过，`VehicleQueryScreenTest` 16/16，包含同数字 ID 分组和实际输入字符场景 |
+| 应用启动与崩溃检查 | 通过，`MainActivity` 前台运行；日志未见应用崩溃或 ANR |
+| `git diff --check` | 通过 |
+
+### 设备安装器限制与数据说明
+
+- Gradle UTP 的自动分包安装在 OPPO 系统上被拦截（状态 `-99`），因此改用 `adb install` 安装通用主 APK 和 AndroidTest APK，并通过 `am instrument` 手动执行；两组测试结果均来自已连接真机。
+- UTP 清理主应用包后才重新安装。未同步且仅保存在应用私有目录的数据可能已被系统清除；未执行数据清除命令，已重新安装并启动应用。
+
+综合评分：93/100，结论：通过。真机测试结果可复现命令：
+
+```bash
+adb shell am instrument -w -e class com.jaydocoder.plateview.component.glass.GlassNavigationItemTest com.jaydocoder.plateview.debug.test/androidx.test.runner.AndroidJUnitRunner
+adb shell am instrument -w -e class com.jaydocoder.plateview.VehicleQueryScreenTest com.jaydocoder.plateview.debug.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+## 2026-10-19 详情工具栏与导入车牌可读性修复
+
+| 检查项 | 结果 |
+|---|---|
+| 主代码编译、Android 单元测试 | 通过 |
+| AndroidTest 编译、Debug APK 与测试 APK 构建 | 通过 |
+| 车辆详情 Compose 真机回归 | 通过，`VehicleQueryScreenTest` 16/16 |
+| 微信车单详情 Compose 真机回归 | 通过，`WorkOrderScreenTest` 23/23 |
+| 导入核对页车牌显示回归 | 通过，目标用例 1/1 |
+| 新 Debug APK 安装与启动 | 通过，`0.3.34` / versionCode `38` |
+| 本机后端与手机端口映射 | 通过，`/health` 正常且 `adb reverse` 已配置 |
+| `git diff --check` | 通过 |
+
+### 验收结论
+
+- 车辆详情和微信车单详情复用的顶部栏移除了造成浅色横条的白色染层；透明区域直接显示页面底色。
+- 导入核对条目保留原状态背景，车牌文字改用与状态容器配对的深色前景令牌，浅色主题下可读性提升，深色主题继续跟随语义色配对。
+- 方法级中文过滤在两类 Compose 测试中不能稳定初始化层级；整类执行均通过，已据此验证页面渲染及业务展示无回归。
+
+综合评分：94/100，结论：通过。
+
+## 2026-10-19 0.3.35 发布前验证
+
+### 版本与范围
+
+- Android 版本更新为 `0.3.35`，`versionCode` 为 `39`。
+- 本次提交范围包含工作区已有的液态玻璃、页面细节、首页搜索/导航修复、对应测试与验证记录，以及本次版本更新和管理仪器测试夹具修正。
+- 当前差异未包含服务端部署路径，因此推送后服务端部署工作流不会自动触发。
+
+### 本地与真机验证
+
+| 检查项 | 结果 |
+|---|---|
+| `:app:testDebugUnitTest` | 通过 |
+| `:app:lintDebug` | 通过 |
+| `:app:assembleDebug` | 通过，Debug APK 版本 `0.3.35` / `39` |
+| `:app:compileDebugAndroidTestKotlin` | 通过 |
+| `:app:assembleDebugAndroidTest` | 通过 |
+| 排班入口权限用例 | 真机通过，1/1 |
+| 概览微信同步入口用例 | 真机通过，1/1 |
+| 主管理员微信同步状态用例 | 真机通过，1/1 |
+| `git diff --check` | 通过 |
+
+管理工作台整类测试仍受同一测试进程 Compose hierarchy 丢失影响，未将整类标记为通过；上述三项原失败目标均在真机独立运行后通过。发布签名 APK 由 `v0.3.35` 标签触发 GitHub Actions 构建，本地不保存签名材料。
+
+### 发布结论与边界
+
+- 本地验证达到当前 Android 发布工作流要求，准备提交 `main` 并推送 `v0.3.35` 标签。
+- 正式 APK 资产是否可下载，以 GitHub Actions 完成且 Release 上传成功为准。
+- Android-only 推送不触发服务端自动部署；未对生产服务执行部署或数据写入。
+
+综合评分：94/100，结论：通过；整类仪器运行器限制已如实列为剩余验证风险。

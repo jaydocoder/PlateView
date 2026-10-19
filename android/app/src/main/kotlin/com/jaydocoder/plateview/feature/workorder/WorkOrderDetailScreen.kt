@@ -61,6 +61,12 @@ import com.jaydocoder.plateview.component.AttachmentViewerDialog
 import com.jaydocoder.plateview.component.AttachmentThumbnail
 import com.jaydocoder.plateview.component.rememberCurrentBeijingTime
 import com.jaydocoder.plateview.component.glass.GlassSurface
+import com.jaydocoder.plateview.component.glass.GlassAttachmentSurface
+import com.jaydocoder.plateview.component.glass.GlassDetailHeader
+import com.jaydocoder.plateview.component.glass.GlassDetailInset
+import com.jaydocoder.plateview.component.glass.GlassHistoryItem
+import com.jaydocoder.plateview.component.glass.GlassStatusBadge
+import com.jaydocoder.plateview.component.glass.GlassTopBar
 import com.jaydocoder.plateview.domain.workorder.WorkOrder
 import com.jaydocoder.plateview.domain.workorder.WorkOrderImage
 import com.jaydocoder.plateview.domain.workorder.WorkOrderPassageState
@@ -100,10 +106,9 @@ fun WorkOrderDetailScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopBar(
                 title = { Text("微信车单", fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconButton(onClick = onNavigateUp) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
     ) { padding ->
@@ -177,11 +182,8 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
         if (record.people.isNotEmpty()) {
             item {
                 WorkOrderSection("人员信息", Icons.Outlined.Person) {
-                    Surface(
+                    GlassDetailInset(
                         modifier = Modifier.fillMaxWidth().testTag("work_order_people_text"),
-                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-                        color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
-                        contentColor = MaterialTheme.colorScheme.onSurface,
                     ) {
                         Text(
                             formatWorkOrderPeople(record.people).joinToString("\n"),
@@ -213,14 +215,12 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
                                 Text("原文件加载失败，重新加载")
                             }
                         } else {
-                            Surface(
+                            GlassAttachmentSurface(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(190.dp)
                                     .clickable { onOpenImage(image) }
                                     .testTag("work_order_image_${image.id}"),
-                                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-                                color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
                             ) {
                                 AttachmentThumbnail(
                                     file = cached?.file,
@@ -239,10 +239,8 @@ private fun WorkOrderContent(uiState: WorkOrderDetailUiState, onOpenImage: (Work
             item {
                 WorkOrderSection("历史版本", Icons.Outlined.History) {
                     uiState.history.forEachIndexed { index, version ->
-                        Surface(
+                        GlassHistoryItem(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-                            color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
                         ) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(if (index == 0) "当前版本" else "历史版本 ${index + 1}", fontWeight = FontWeight.SemiBold)
@@ -292,10 +290,8 @@ private fun WorkOrderHeader(record: WorkOrder, sourceQuery: String) {
         orderNumber = record.orderNumber,
         query = sourceQuery,
     )
-    GlassSurface(
+    GlassDetailHeader(
         Modifier.fillMaxWidth().testTag("work_order_header"),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerLarge),
-        elevated = true,
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1.8f)) {
             Image(
@@ -326,7 +322,8 @@ private fun WorkOrderHeader(record: WorkOrder, sourceQuery: String) {
                                 fontWeight = FontWeight.Bold,
                             )
                         }
-                        Surface(
+                        GlassStatusBadge(
+                            text = passageState.displayLabel(),
                             color = when (passageState) {
                                 WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.primaryContainer
                                 WorkOrderPassageState.NOT_STARTED,
@@ -339,29 +336,8 @@ private fun WorkOrderHeader(record: WorkOrder, sourceQuery: String) {
                                 -> MaterialTheme.colorScheme.errorContainer
                                 WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.tertiaryContainer
                             },
-                            contentColor = when (passageState) {
-                                WorkOrderPassageState.VALID -> MaterialTheme.colorScheme.onPrimaryContainer
-                                WorkOrderPassageState.NOT_STARTED,
-                                WorkOrderPassageState.OUTSIDE_ALLOWED_HOURS,
-                                WorkOrderPassageState.UNKNOWN,
-                                -> MaterialTheme.colorScheme.onTertiaryContainer
-                                WorkOrderPassageState.EXPIRED,
-                                WorkOrderPassageState.VOID,
-                                WorkOrderPassageState.AREA_MISMATCH,
-                                -> MaterialTheme.colorScheme.onErrorContainer
-                                WorkOrderPassageState.AREA_UNKNOWN -> MaterialTheme.colorScheme.onTertiaryContainer
-                            },
-                            shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-                        ) {
-                            Text(
-                                passageState.displayLabel(),
-                                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        }
+                            modifier = Modifier,
+                        )
                     }
                     if (plateNumbers.isNotEmpty()) {
                         WorkOrderPlateRow(
@@ -447,7 +423,7 @@ private fun WorkOrderSection(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     content: @Composable () -> Unit,
 ) {
-    GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(PlateViewDimensions.cornerLarge), elevated = true) {
+    com.jaydocoder.plateview.component.glass.GlassDetailBlock(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(21.dp), tint = MaterialTheme.colorScheme.primary)
@@ -461,11 +437,8 @@ private fun WorkOrderSection(
 
 @Composable
 private fun WorkOrderField(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(
+    GlassDetailInset(
         modifier = modifier.fillMaxWidth().testTag("work_order_field_$label"),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(Modifier.padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

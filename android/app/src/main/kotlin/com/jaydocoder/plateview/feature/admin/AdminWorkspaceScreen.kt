@@ -59,9 +59,7 @@ import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -130,6 +128,9 @@ import com.jaydocoder.plateview.domain.admin.WechatSyncSource
 import com.jaydocoder.plateview.feature.update.UpdateAvailableAction
 import com.jaydocoder.plateview.component.glass.GlassSurface
 import com.jaydocoder.plateview.component.glass.GlassPill
+import com.jaydocoder.plateview.component.glass.GlassDetailInset
+import com.jaydocoder.plateview.component.glass.GlassHistoryItem
+import com.jaydocoder.plateview.component.glass.GlassStatusBadge
 import com.jaydocoder.plateview.component.glass.LiquidGlassDialog
 import com.jaydocoder.plateview.component.glass.LiquidGlassInput
 import com.jaydocoder.plateview.domain.admin.UserUpdatePolicy
@@ -652,13 +653,15 @@ private fun AdminFailureStrip(
     failure: com.jaydocoder.plateview.data.network.AppError,
     onRetry: () -> Unit,
 ) {
-    Surface(
+    GlassSurface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = PlateViewDimensions.pageHorizontal, vertical = PlateViewDimensions.compactSpacing),
+        material = com.jaydocoder.plateview.component.glass.GlassMaterial.Tinted,
+        level = com.jaydocoder.plateview.component.glass.GlassSurfaceLevel.Inset,
         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        opacity = 0.55f,
     ) {
         Column(modifier = Modifier.padding(PlateViewDimensions.itemSpacing)) {
             Text(failure.operation, style = MaterialTheme.typography.labelLarge)
@@ -930,11 +933,12 @@ private fun AdminVehicleItem(
     isSaving: Boolean
 ) {
     var showActions by rememberSaveable(item.id) { androidx.compose.runtime.mutableStateOf(false) }
-    ElevatedCard(
-        onClick = { onEdit(item.id) },
-        modifier = Modifier.fillMaxWidth(),
+    GlassSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onEdit(item.id) },
         shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+        elevated = true,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -1097,10 +1101,12 @@ private fun UsersPane(
         }
         if (items.isEmpty()) item { EmptyPane("暂无账号记录") }
         items(items, key = ManagedUser::id) { item ->
-            ElevatedCard(
-                onClick = { onEdit(item.id) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)
+            GlassSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onEdit(item.id) },
+                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+                elevated = true,
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -1325,7 +1331,13 @@ private fun AuditSummaryRow(summary: ManagedAuditSummary) {
 
 @Composable
 private fun AuditMetric(label: String, value: Int, color: Color, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = color, shape = RoundedCornerShape(PlateViewDimensions.cornerMedium)) {
+    GlassSurface(
+        modifier = modifier,
+        material = com.jaydocoder.plateview.component.glass.GlassMaterial.Tinted,
+        level = com.jaydocoder.plateview.component.glass.GlassSurfaceLevel.Inset,
+        color = color,
+        opacity = 0.30f,
+    ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1366,7 +1378,13 @@ private fun AuditEntryItem(item: ManagedAuditEntry) {
     val contentColor = if (isAbnormal) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = PlateViewDimensions.compactSpacing)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = containerColor, contentColor = contentColor, shape = RoundedCornerShape(PlateViewDimensions.cornerSmall)) {
+            GlassSurface(
+                color = containerColor,
+                contentColor = contentColor,
+                material = com.jaydocoder.plateview.component.glass.GlassMaterial.Tinted,
+                level = com.jaydocoder.plateview.component.glass.GlassSurfaceLevel.Inset,
+                opacity = 0.30f,
+            ) {
                 Row(modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         if (isAbnormal) Icons.Outlined.ErrorOutline else Icons.Outlined.CheckCircle,
@@ -1492,10 +1510,13 @@ private fun AdminPaneHeading(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
+        GlassSurface(
             color = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             shape = CircleShape,
+            material = com.jaydocoder.plateview.component.glass.GlassMaterial.Tinted,
+            level = com.jaydocoder.plateview.component.glass.GlassSurfaceLevel.Inset,
+            opacity = 0.30f,
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.padding(10.dp).size(22.dp))
         }
@@ -1504,14 +1525,11 @@ private fun AdminPaneHeading(
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Surface(
+        GlassStatusBadge(
+            text = metric,
+            color = MaterialTheme.colorScheme.primary,
             modifier = metricModifier,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-        ) {
-            Text(metric, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium)
-        }
+        )
     }
 }
 
@@ -1529,7 +1547,13 @@ private fun AdminStatusBadge(label: String, tone: AdminStatusTone) {
         AdminStatusTone.Warning -> MaterialTheme.colorScheme.onErrorContainer
         AdminStatusTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Surface(color = containerColor, contentColor = contentColor, shape = RoundedCornerShape(PlateViewDimensions.cornerSmall)) {
+        GlassSurface(
+            color = containerColor,
+            contentColor = contentColor,
+            material = com.jaydocoder.plateview.component.glass.GlassMaterial.Tinted,
+            level = com.jaydocoder.plateview.component.glass.GlassSurfaceLevel.Inset,
+            opacity = 0.30f,
+        ) {
         Row(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1646,10 +1670,8 @@ private fun UserEditorDialog(
                 item { EditorSectionHeading("账号资料", "仅主管理员可设置") }
                 item { EditorTextField("真实姓名", editor.realName) { value -> onChanged { it.copy(realName = value, error = null) } } }
                 item {
-                    Surface(
+                    GlassDetailInset(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1699,10 +1721,8 @@ private fun UserEditorDialog(
             }
             if (editor.originalUsername != "admin") {
                 item {
-                    Surface(
+                    GlassDetailInset(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1810,10 +1830,8 @@ private fun UserEditorSwitch(
     testTag: String,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    Surface(
+    GlassDetailInset(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -2029,9 +2047,12 @@ private fun VehicleStatusChangeDialog(
 
 @Composable
 private fun EditorErrorMessage(message: String) {
-    Surface(
+    GlassSurface(
+        material = com.jaydocoder.plateview.component.glass.GlassMaterial.Tinted,
+        level = com.jaydocoder.plateview.component.glass.GlassSurfaceLevel.Inset,
         color = MaterialTheme.colorScheme.errorContainer,
-        shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
+        opacity = 0.36f,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
     ) {
         Row(
             modifier = Modifier.padding(PlateViewDimensions.compactSpacing),
@@ -2296,9 +2317,12 @@ private fun ImportRowItem(
                     IceLakePendingDot(contentDescription = "待核对")
                     Spacer(Modifier.width(8.dp))
                 }
-            Surface(color = row.importActionColor(), shape = RoundedCornerShape(4.dp)) {
-                Text(row.plateNumber ?: "???", modifier = Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium)
-            }
+            GlassStatusBadge(
+                text = row.plateNumber ?: "???",
+                color = row.importPlateBadgeColor(),
+                contentColor = row.importPlateBadgeContentColor(),
+                prominent = true,
+            )
             Spacer(Modifier.width(8.dp))
             Text(row.importActionLabel(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             if (row.sourceRowNumber > 0) {
@@ -2606,6 +2630,22 @@ private fun ManagedImportRow.importActionColor(): Color = when (plannedAction) {
     "UPDATE", "REACTIVATE" -> MaterialTheme.colorScheme.tertiaryContainer
     "CREATE" -> MaterialTheme.colorScheme.primaryContainer
     else -> MaterialTheme.colorScheme.errorContainer
+}
+
+@Composable
+private fun ManagedImportRow.importPlateBadgeColor(): Color = when (plannedAction) {
+    "DEACTIVATE" -> MaterialTheme.colorScheme.error
+    "UPDATE", "REACTIVATE" -> MaterialTheme.colorScheme.tertiary
+    "CREATE" -> MaterialTheme.colorScheme.primary
+    else -> MaterialTheme.colorScheme.error
+}
+
+@Composable
+private fun ManagedImportRow.importPlateBadgeContentColor(): Color = when (plannedAction) {
+    "DEACTIVATE" -> MaterialTheme.colorScheme.onError
+    "UPDATE", "REACTIVATE" -> MaterialTheme.colorScheme.onTertiary
+    "CREATE" -> MaterialTheme.colorScheme.onPrimary
+    else -> MaterialTheme.colorScheme.onError
 }
 
 private fun String?.displayImportValue(): String = this?.takeIf(String::isNotBlank) ?: "未填写"
@@ -3069,10 +3109,8 @@ private fun WechatSyncPane(
                     if (issue.imageId != null && issue.type in setOf("ATTACHMENT_CONFLICT", "IMAGE_CONFLICT")) {
                         Text("选择下方候选后会立即关联", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         issue.candidates.forEach { candidate ->
-                            Surface(
+                            GlassDetailInset(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(PlateViewDimensions.cornerMedium),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
                             ) {
                                 Column(Modifier.padding(12.dp)) {
                                     Text(candidate.orderNumber ?: "未识别单号", fontWeight = FontWeight.Bold)
@@ -3130,14 +3168,7 @@ private fun WechatCacheClientRow(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(client.username, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 if (showCurrentMark) {
-                    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primaryContainer) {
-                        Text(
-                            "当前设备",
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
+                    GlassStatusBadge("当前设备", color = MaterialTheme.colorScheme.primary)
                 }
             }
             Text("设备 ${client.clientInstanceId.take(8)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3274,10 +3305,8 @@ private fun formatCacheBytes(bytes: Long): String = when {
 
 @Composable
 private fun AttachmentAssociationMetric(label: String, value: Int, modifier: Modifier = Modifier) {
-    Surface(
+    GlassDetailInset(
         modifier = modifier,
-        shape = RoundedCornerShape(PlateViewDimensions.cornerSmall),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f),
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) {
             Text(value.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)

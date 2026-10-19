@@ -1402,3 +1402,107 @@
 - 已将 SQL 计时、摘要映射计时和 FTS 使用状态通过 `LocalSearchQueryResult` 传递到统一指标记录器。
 - 已新增 FTS 强制降级测试和可配置车单/聊天大数据基准测试，遵循现有 Android instrumentation 测试风格。
 - 已完成单元测试、AndroidTest Kotlin 编译和差异检查；真机未连接，因此大数据 P95/P99 尚未测量。
+
+## 2026-10-19 本地后端与真机 Debug 验证
+
+- 首次执行 Compose 构建时，Docker 构建阶段未继承代理，Gradle 与 Ubuntu 源解析失败；未修改业务代码。
+- 按项目代理规范使用 `docker build --network host` 和显式代理参数重新构建 `plateview-api:latest`，服务端 `installDist` 编译成功。
+- 宿主机 `5432` 已被既有 `pgvector` 容器占用，未停止该容器；PlateView PostgreSQL 使用宿主机 `55432` 映射，容器内连接保持不变。
+- PostgreSQL、API 和恢复执行器已启动；`GET http://127.0.0.1:8080/health` 返回 `{"status":"ok"}`。
+- 真机 `3B65BL021BV00000` 已建立 `adb reverse tcp:8080 tcp:8080`；Debug 包 `com.jaydocoder.plateview.debug` 安装成功并启动。
+- 真机安装包版本为 `0.3.34`，版本号 `38`；前台 Activity 为 `MainActivity`，启动后进程存活。
+- 启动后抓取日志未发现 `FATAL EXCEPTION` 或 `AndroidRuntime` 崩溃；`gfxinfo framestats` 已产生有效帧数据，截图确认管理员工作台可见且玻璃页面正常渲染。
+
+## 2026-10-19 导航图标偏移与首页缓存刷新修复
+
+- 移除 `GlassNavigationItem` 选中图标额外的 `translationY = -2.dp`，保留 Lens、按压缩放和语义状态，避免点击后图标视觉偏移。
+- 为 `AuthSessionProvider` 增加默认的前台目录刷新入口；真实认证仓库调用强制目录版本检查，测试替身无需修改即可兼容。
+- `SearchViewModel.onAppForeground()` 增加 15 秒冷却并触发目录版本检查；新增车辆数据后由现有同步协调器更新本地 Room 缓存，首页查询仍只访问本地缓存。
+- 使用 IDE 自带完整 JDK（`/opt/idea-IU-261.25134.95/jbr`）和 Android SDK 显式构建：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`、`:app:assembleDebug` 全部通过。
+- 新 Debug APK 已覆盖安装到真机 `3B65BL021BV00000`，版本 `0.3.34` / 版本号 `38`；应用启动进程存活，未发现应用崩溃日志，`adb reverse tcp:8080 tcp:8080` 与本地 `/health` 均正常。
+
+## 2026-10-19 首页搜索闪退与底部导航图标偏移修复
+
+### 编码前检查
+
+- 已查阅 `.codex/context-summary-search-crash-glass-nav.md`，并对照 `SearchScreen.kt`、`LiquidGlass.kt`、`AuthenticatedNavigation.kt` 和现有 Compose 仪器测试。
+- 真机复现日志曾记录 `LazyColumn` 检测到重复键 `1`；车辆、车单、消息和历史记录共用列表但各领域 ID 可重复。
+- 真机 UI 语义树显示选中导航图标相对其固定图标容器偏移；根因是选中图标作为 `GlassSurface` 内容，被内部默认对齐容器重新布局。
+- 复用现有玻璃组件、业务分组 ID 和 Compose 测试框架，不新增依赖，不更改导航权限及回调。
+
+### 本次实施
+
+- 导航 Lens 改为图标后方的背景层；图标在固定尺寸居中容器内最后绘制，避免玻璃内容容器改变图标位置。
+- 搜索列表键分别加入 `vehicle_`、`work_order_`、`wechat_message_`、`history_` 前缀，避免跨分组 ID 冲突。
+- 新增导航图标几何位置测试与跨分组相同 ID 的首页输入回归测试。
+
+### 编码后检查
+
+- 使用 IDE 内置 JDK 17 执行 `:app:compileDebugKotlin`、`:app:testDebugUnitTest`（167 项）、`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`：全部通过。回归测试加强后再次编译 AndroidTest，仍通过。
+- 最新 APK 已生成于 `android/app/build/outputs/apk/debug/app-universal-debug.apk`。
+- `git diff --check` 通过；本地后端 `/health` 返回 `{"status":"ok"}`。
+- 最终安装前再次检查 ADB，`adb devices -l` 未列出设备；因此本轮未能安装最新构建或在真机执行新增仪器测试。之前真机日志中搜索输入后进程仍存活且无 `FATAL EXCEPTION`，但这不替代当前代码的真机复验。
+- 未执行生产数据或生产服务写操作。
+
+## 2026-10-19 真机安装配置与回归复验
+
+- 真机 `3B65BL021BV00000`（OPPO PKM110，Android 16）已连接；用 `adb install -r -d -g` 安装 `app-universal-debug.apk`，版本 `0.3.34` / 版本号 `38`，并启动 `MainActivity`。
+- 本机后端 `http://127.0.0.1:8080/health` 返回 `{"status":"ok"}`；手机端口映射保持为 `adb reverse tcp:8080 tcp:8080`。
+- Gradle UTP 在该 OPPO 设备上的自动分包安装被系统拦截（状态 `-99`），并清理了测试目标包。为避免重复触发清理，改为手动安装单体主 APK 与 AndroidTest APK，再通过 `am instrument` 执行测试。
+- 修正 `GlassNavigationItemTest` 的未合并语义树查找，并允许图标与 64dp 容器中心存在小于 1px 的栅格取整差；选中/未选中/恢复选中状态间的位置断言仍保持 0.01px。
+- 将 `search_input` 测试标签放到实际可编辑的 `OutlinedTextField`，外层玻璃容器改用 `search_input_surface`，使首页搜索测试可以真正输入文本。
+- 真机测试通过：`GlassNavigationItemTest` 1/1；`VehicleQueryScreenTest` 16/16。
+- 更新 APK 覆盖安装成功，应用 PID `32073`，`MainActivity` 在前台；版本检查为 `0.3.34` / `38`，近期未发现应用 `FATAL EXCEPTION` 或 ANR。
+- UTP 曾将主应用包移除后才重新安装；该次重新安装发生在包缺失状态。仅保存在应用私有目录且未同步的数据可能已被清除，需重新登录或从本地后端同步恢复。未主动清除数据或改动手机显示/辅助功能设置。
+- `:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:testDebugUnitTest` 和 `git diff --check` 通过；未执行生产服务或生产数据写操作。
+
+## 编码前检查 - 详情工具栏底色与导入车牌对比度
+
+时间：2026-10-19 22:22 CST
+
+- 已查阅 `.codex/context-summary-detail-toolbar-import-plate-contrast.md`。
+- 将复用 `GlassTopBar`、`GlassStatusBadge`、`PlateViewTheme` 中语义容器/前景色配对，以及现有三类 Compose 仪器测试。
+- 命名沿用 Kotlin lowerCamelCase 与项目现有组件名；代码格式沿用 Compose 命名参数和主题令牌。
+- 已检查车辆详情、微信车单详情、导入核对列表和徽标组件，确认顶部色差和车牌文字浅色分别来自共享渲染参数及同色前景，没有重复造轮子的实现。
+
+## 编码前检查 - 详情顶栏去线与导入车牌底色
+
+时间：2026-10-19 22:39 CST
+
+- 已查阅 `.codex/context-summary-detail-toolbar-plate-fill.md` 与液态玻璃设计规范。
+- 将复用 `GlassSurface` 的边缘绘制、`GlassTopBar` 局部参数、`GlassStatusBadge` 显著度预设和现有车辆/导入 Compose 测试。
+- 已检查车辆详情、微信车单详情、导入核对列表及所有徽标调用点，确认局部参数不会改动业务流程和其他徽标。
+- `sequential-thinking` 与 `shrimp-task-manager` 工具在当前环境不可用；已通过代码检索、组件调用链和测试用例完成等价分析并记录。
+
+## 编码后声明 - 详情顶栏去线与导入车牌底色
+
+时间：2026-10-19 22:45 CST
+
+- `GlassSurface` 增加 `showEdge` 局部选项；车辆详情顶栏关闭玻璃 rim、hairline、边框及边缘阴影，保留透明材质与页面背景透出。其他顶栏默认不变。
+- `GlassStatusBadge` 增加显著度选项；仅导入车牌使用 0.52 的语义色底透明度和 0.62 的边缘色透明度。导入新增/更新/失效仍分别沿用主题的 primary/tertiary/error 语义色，文字使用配套 on 色。
+- 复用了现有 `GlassTopBar`、`GlassStatusBadge`、车辆详情测试及导入核对测试；未改主题配色、导入状态机、权限或接口。
+- 首次 Gradle 调用未配置 Android SDK；临时指定 `/home/neo/Android/Sdk` 后发现系统 OpenJDK 21 缺 `javac`，改用 SDKMAN 管理的 JDK 17 后验证成功；未修改全局环境或项目 SDK 配置。
+- `:app:compileDebugKotlin`、`:app:testDebugUnitTest`、`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`：通过。
+- 真机 `3B65BL021BV00000`：`VehicleQueryScreenTest` 16/16 通过；车辆详情目标用例 1/1 通过；管理工作台整类 24 项中 21 项通过，导入核对目标用例通过，另 3 项失败分别为微信群状态、排班入口和概览微信同步入口显示。
+- AndroidTest 单方法过滤会触发 Compose hierarchy 未建立，因此导入核对目标用例通过整类运行验证；整类失败的 3 项与本次车辆详情顶栏/导入徽标改动无直接交集。
+- 最新 Debug APK 已覆盖安装到真机，采用 `adb install -r` 保留应用数据；版本仍为 `0.3.34` / `38`。未清除应用数据、未访问生产服务。
+
+### 编码后声明与验证
+
+- 复用 `GlassTopBar` 统一处理车辆详情与微信车单详情；工具栏不再叠加白色玻璃染色层，页面背景透出并保持原有边缘材质。
+- `GlassStatusBadge` 增加独立 `contentColor`，导入车牌文字按新增、更新/恢复、失效/异常分别使用主题的 `onPrimaryContainer`、`onTertiaryContainer`、`onErrorContainer`；状态底色与导入状态机不变。
+- 导入核对仪器测试增加车牌文字可见断言；复用了已有车辆详情、车单详情和管理页测试夹具。
+- `:app:compileDebugKotlin`、`:app:testDebugUnitTest`、`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 与 `git diff --check` 均通过。
+- 真机仪器测试通过：`VehicleQueryScreenTest` 16/16、`WorkOrderScreenTest` 23/23、导入核对目标用例 1/1。方法级中文过滤在前两个类出现测试器 Compose 初始化错误，改为整类运行通过。
+- 新 Debug APK 已覆盖安装到 `3B65BL021BV00000`，版本 `0.3.34` / `38`；应用已重新启动，本机后端健康检查及 `adb reverse tcp:8080 tcp:8080` 正常。
+- 未修改主题配色、导入业务、权限、服务端或生产数据。
+
+## 2026-10-19 0.3.35 发布准备
+
+- 将 Android `versionName` 从 `0.3.34` 提升至 `0.3.35`，`versionCode` 从 `38` 提升至 `39`。
+- 修正管理工作台仪器测试夹具：显式设置服务端摘要入口标志；微信群状态断言滚动至实际列表项。未改应用权限或业务逻辑。
+- SDKMAN JDK 17 与本地 Android SDK 验证：`testDebugUnitTest`、`lintDebug`、`assembleDebug`、`compileDebugAndroidTestKotlin`、`assembleDebugAndroidTest` 均通过。
+- 真机 `3B65BL021BV00000` 覆盖安装当前 Debug 包和 AndroidTest 包，保留应用数据；排班入口、概览微信同步入口、主管理员同步状态 3 个目标用例各 1/1 通过。
+- 管理工作台整类运行在同一测试进程出现 Compose hierarchy 丢失并中断；目标用例通过独立 `am instrument` 运行复验。其余此前已通过的仪器测试未在本轮重跑。
+- `gh auth status` 确认 GitHub 登录有效；仓库含正式 APK 所需 Keystore Secrets 名称；远端 `main` 与本地基线一致，尚无 `v0.3.35` 标签。
+- 服务端工作流仅匹配服务端、网页、部署配置路径；当前差异不改这些文件，所以仅推送 Android 改动不会触发自动部署。

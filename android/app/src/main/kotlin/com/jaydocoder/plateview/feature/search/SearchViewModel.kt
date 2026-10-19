@@ -63,6 +63,7 @@ class SearchViewModel @Inject constructor(
     private val retryVersion = MutableStateFlow(0)
     private val _uiState = MutableStateFlow(SearchUiState())
     private val _events = MutableSharedFlow<SearchEvent>()
+    private var lastForegroundRefreshAt = 0L
 
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
     val events: Flow<SearchEvent> = _events.asSharedFlow()
@@ -92,7 +93,13 @@ class SearchViewModel @Inject constructor(
     }
 
     fun onAppForeground() {
-        // 应用级会话心跳负责前台立即确认，页面只观察统一状态。
+        val now = System.currentTimeMillis()
+        if (now - lastForegroundRefreshAt < FOREGROUND_REFRESH_COOLDOWN_MILLIS) return
+        lastForegroundRefreshAt = now
+        viewModelScope.launch {
+            runCatching { sessionProvider.refreshCatalogState(force = true) }
+                .onFailure { error -> logWarn("前台确认目录版本失败", error) }
+        }
     }
 
     fun selectCandidate(candidate: VehicleCandidate) {
@@ -371,6 +378,7 @@ class SearchViewModel @Inject constructor(
     private companion object {
         const val LOG_TAG = "PlateViewSearch"
         const val QUERY_DEBOUNCE_MILLIS = 250L
+        const val FOREGROUND_REFRESH_COOLDOWN_MILLIS = 15_000L
         const val HTTP_UNAUTHORIZED = 401
         const val HTTP_FORBIDDEN = 403
     }
