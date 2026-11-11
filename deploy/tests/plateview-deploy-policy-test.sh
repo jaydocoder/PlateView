@@ -47,6 +47,8 @@ grep -F 'docker/build-push-action@v6' "$PROJECT_ROOT/.github/workflows/server-de
 grep -F 'TARGET_IMAGE' "$PROJECT_ROOT/.github/workflows/server-deploy.yml" >/dev/null
 grep -F 'PLATEVIEW_PUBLIC_HEALTH_URL:-https://api.plateview.top/health' \
     "$PROJECT_ROOT/deploy/plateview-deploy.sh" >/dev/null
+grep -F 'find "$BACKUP_DIR" -maxdepth 1 -type f -name '\''plateview-*.dump'\'' -mtime +' \
+    "$PROJECT_ROOT/deploy/plateview-deploy.sh" >/dev/null
 grep -E '^api\.plateview\.top \{' "$PROJECT_ROOT/deploy/Caddyfile" >/dev/null
 if grep -F 'api.chenxiruyu.dpdns.org' \
     "$PROJECT_ROOT/deploy/plateview-deploy.sh" \

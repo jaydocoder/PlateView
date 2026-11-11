@@ -264,7 +264,7 @@ if deployment_requires_backup "$active_commit" "$migration_changes"; then
 else
     log "本次没有数据库迁移变更，跳过额外完整备份"
 fi
-find "$BACKUP_DIR" -type f -name 'plateview-*.dump' -mtime +"$RETENTION_DAYS" -delete
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'plateview-*.dump' -mtime +"$RETENTION_DAYS" -delete
 
 log "拉取不可变候选镜像：$target_image"
 docker pull "$target_image"
