@@ -1,4 +1,4 @@
-api.chenxiruyu.dpdns.org {
+api.plateview.top {
 	log {
 		output stdout
 		format filter {

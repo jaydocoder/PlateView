@@ -45,6 +45,16 @@ grep -F '微信车单附件目录不可写' "$PROJECT_ROOT/deploy/plateview-depl
 [[ -f "$PROJECT_ROOT/server/src/main/resources/db/migration/V30__restrict_user_vehicle_data_access_defaults.sql" ]]
 grep -F 'docker/build-push-action@v6' "$PROJECT_ROOT/.github/workflows/server-deploy.yml" >/dev/null
 grep -F 'TARGET_IMAGE' "$PROJECT_ROOT/.github/workflows/server-deploy.yml" >/dev/null
+grep -F 'PLATEVIEW_PUBLIC_HEALTH_URL:-https://api.plateview.top/health' \
+    "$PROJECT_ROOT/deploy/plateview-deploy.sh" >/dev/null
+grep -E '^api\.plateview\.top \{' "$PROJECT_ROOT/deploy/Caddyfile" >/dev/null
+if grep -F 'api.chenxiruyu.dpdns.org' \
+    "$PROJECT_ROOT/deploy/plateview-deploy.sh" \
+    "$PROJECT_ROOT/deploy/Caddyfile" \
+    "$PROJECT_ROOT/docs/12-部署运行手册.md" >/dev/null; then
+    printf '生产部署配置和运维手册不得继续使用已失效的旧域名\n' >&2
+    exit 1
+fi
 grep -F 'OnCalendar=*-*-* 19:30:00' "$PROJECT_ROOT/deploy/systemd/plateview-database-backup.timer" >/dev/null
 grep -F 'AccuracySec=15min' "$PROJECT_ROOT/deploy/systemd/plateview-database-backup.timer" >/dev/null
 if grep -E 'RandomizedDelaySec|OnCalendar=.* UTC' \
