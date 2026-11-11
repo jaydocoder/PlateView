@@ -39,7 +39,7 @@ import retrofit2.http.GET
 import com.jaydocoder.plateview.feature.consistency.ClientCatalogState
 
 private val Context.clientRuntimePolicyDataStore by preferencesDataStore("client_runtime_policy")
-private const val DEFAULT_UPDATE_BASE_URL = "https://api.chenxiruyu.dpdns.org/updates/"
+private val DEFAULT_UPDATE_BASE_URL = BuildConfig.API_BASE_URL.trimEnd('/') + "/updates/"
 
 data class ClientRuntimePolicy(
     val policyRevision: Long = 0,

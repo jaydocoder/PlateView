@@ -40,13 +40,13 @@ android {
         applicationId = "com.jaydocoder.plateview"
         minSdk = 31
         targetSdk = 37
-        versionCode = 39
-        versionName = "0.3.35"
+        versionCode = 40
+        versionName = "0.3.36"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiBaseUrl = providers.gradleProperty("plateviewApiBaseUrl")
             .orElse(
                 if (releaseDistributionRequested) {
-                    "https://api.chenxiruyu.dpdns.org/"
+                    "https://api.plateview.top/"
                 } else {
                     "http://127.0.0.1:8080/"
                 },

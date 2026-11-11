@@ -35,7 +35,7 @@ jobs:
       - name: 执行单元测试、静态检查和调试构建
         run: >-
           ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-          -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/
+          -PplateviewApiBaseUrl=https://api.plateview.top/
 
       - name: 上传调试 APK
         uses: actions/upload-artifact@v4
@@ -89,7 +89,7 @@ jobs:
           PLATEVIEW_SENTRY_DSN: ${{ secrets.PLATEVIEW_SENTRY_DSN }}
         run: |
           ./gradlew :app:assembleRelease \
-            -PplateviewApiBaseUrl=https://api.chenxiruyu.dpdns.org/ \
+            -PplateviewApiBaseUrl=https://api.plateview.top/ \
             -PplateviewSentryDsn="$PLATEVIEW_SENTRY_DSN" \
             -PplateviewSentryEnvironment=production
           version_name=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
